@@ -170387,8 +170387,8 @@ MonoBehaviour:
   loop: 0
   carriageModel: {fileID: -6922187488808801084, guid: 995c830babf3d4d3080087c611721976, type: 3}
   boatModel: {fileID: -6922187488808801084, guid: a27d0e8efc2494009a84e1c5b4273e73, type: 3}
-  horseModel: {fileID: 0}
-  horseWalkClip: {fileID: 0}
+  horseModel: {fileID: 8771091787928289351, guid: 639b767b67c9d4aacb8cefdd6d5ece73, type: 3}
+  horseWalkClip: {fileID: 1790726501576802088, guid: 639b767b67c9d4aacb8cefdd6d5ece73, type: 3}
   captainModel: {fileID: 6635245195314443262, guid: 4f6ed66c25fce4fed850b623c8270102, type: 3}
   squadMemberModel: {fileID: 6635245195314443262, guid: 77c9f4a11fa2f4eb6bfa6c148b31846e, type: 3}
   roadObstacleModel: {fileID: -6922187488808801084, guid: c7199e42e89494bbea6de12344a8c565, type: 3}

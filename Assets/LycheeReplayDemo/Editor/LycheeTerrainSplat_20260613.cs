@@ -42,9 +42,11 @@ static class LycheeTerrainSplat_20260613
     // 路缘泥土过渡带：0~1.2m 全土，1.2~2.6m 平滑渐出
     const float RoadFullDirt = 1.2f;
     const float RoadDirtEnd = 2.6f;
-    // 坡度岩层渐入区间（度）：>28° 开始，42° 全岩
-    const float SlopeRockStart = 28f;
-    const float SlopeRockEnd = 42f;
+    // 坡度岩层渐入区间（度）：v2 提高阈值——这块程序化地形遍布小起伏，
+    // 28° 起步会把大半个中景判成岩面整片发黑（用户实测反馈"太黑了"），
+    // 只有真正的陡坡/沟壁才该露岩
+    const float SlopeRockStart = 42f;
+    const float SlopeRockEnd = 58f;
     // 河岸砂带：XZ <2m 内砂权重 0.6（1.2m 起渐出到 2m，避免硬边）
     const float RiverSandEnd = 2.0f;
     const float RiverSandFadeStart = 1.2f;
@@ -472,6 +474,12 @@ static class LycheeTerrainSplat_20260613
             mat.SetFloat("_Tiling1", tiling0 * 0.62f);
             mat.SetFloat("_Tiling2", tiling0 * 0.5f);
             mat.SetFloat("_Tiling3", tiling0 * 1.27f);
+            // v2 提亮：土/岩源图整体偏暗（Ground002/004 平均亮度仅 ~0.35），白天光下糊成深色一片，
+            // 用 >1 的 tint 在 shader 里直接抬亮度（白天阳光下观感对齐草地），微暖防止发灰
+            mat.SetColor("_Tint0", Color.white);
+            mat.SetColor("_Tint1", new Color(1.35f, 1.28f, 1.15f, 1f));
+            mat.SetColor("_Tint2", new Color(1.45f, 1.40f, 1.30f, 1f));
+            mat.SetColor("_Tint3", new Color(1.08f, 1.08f, 1.02f, 1f));
             EditorUtility.SetDirty(mat);
             report.Add(string.Format(
                 "tiling: 层0={0:F4} 层0副采样={1:F4} 层1={2:F4} 层2={3:F4} 层3={4:F4}",

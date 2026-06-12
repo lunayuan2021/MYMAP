@@ -48,8 +48,8 @@ Material:
     - _Tiling3: 0.2794
     m_Colors:
     - _Tint0: {r: 1, g: 1, b: 1, a: 1}
-    - _Tint1: {r: 1, g: 1, b: 1, a: 1}
-    - _Tint2: {r: 1, g: 1, b: 1, a: 1}
-    - _Tint3: {r: 1, g: 1, b: 1, a: 1}
+    - _Tint1: {r: 1.35, g: 1.28, b: 1.15, a: 1}
+    - _Tint2: {r: 1.45, g: 1.4, b: 1.3, a: 1}
+    - _Tint3: {r: 1.08, g: 1.08, b: 1.02, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
