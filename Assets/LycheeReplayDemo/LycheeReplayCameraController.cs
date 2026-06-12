@@ -1,0 +1,301 @@
+using UnityEngine;
+
+[RequireComponent(typeof(Camera))]
+public class LycheeReplayCameraController : MonoBehaviour
+{
+    public LycheeReplayPlayer replay;
+    public float minimumSize = 7.8f;
+    public float maximumSize = 18f;
+    public float eventSize = 6.8f;
+    public float framingPadding = 6f;
+    public float positionSmoothTime = 0.65f;
+    public float zoomSmoothTime = 0.45f;
+    public float cameraDistance = 58f;
+    [Min(0.2f)] public float replayZoomMultiplier = 1.2f;
+    public bool lockObliqueAngle = true;
+    public Vector3 obliqueEuler = new Vector3(52f, -29f, 0f);
+
+    [Header("Perspective Mode")]
+    public bool perspectiveMode = true;
+    public float perspectiveFieldOfView = 38f;
+    public float perspectivePitch = 48f;
+    public float perspectiveDistanceSpanScale = 1.35f;
+    public float perspectiveDistancePadding = 8f;
+    public float perspectiveMinDistance = 12f;
+    public float perspectiveMaxDistance = 46f;
+    public float perspectiveEventDistance = 18f;
+    public float rotationSmoothTime = 0.4f;
+
+    [Min(0.5f)] public float perspectiveZoomMultiplier = 1.2f; // 画面整体放大倍率：镜头拉近实现，HUD 不受影响
+
+    [Header("Focus Follow（两队拉开后轮流跟拍近景）")]
+    public bool focusFollowEnabled = true;
+    [Min(5f)] public float focusSpanThreshold = 26f;   // 两队间距超过该值时切换为单队跟拍
+    [Min(2f)] public float focusSwapSeconds = 11f;     // 轮流跟拍的切换周期
+    [Min(2f)] public float focusedSpan = 15f;          // 跟拍单队时使用的取景跨度
+
+    Camera targetCamera;
+    Vector3 positionVelocity;
+    float zoomVelocity;
+    float distanceVelocity;
+    float pitchVelocity;
+    float yawVelocity;
+    float smoothedPitch;
+    float smoothedYaw;
+    float perspectiveYaw;
+    bool perspectiveAnglesInitialized;
+    float smoothedDistance;
+    bool distanceInitialized;
+    Vector3 appliedShakeOffset;
+    float shakeStrength;
+    float shakeDuration;
+    float shakeTimeRemaining;
+
+    void Awake()
+    {
+        EnsureReferences();
+    }
+
+    void OnEnable()
+    {
+        EnsureReferences();
+    }
+
+    void Start()
+    {
+        SnapToCurrentFocus();
+    }
+
+    void LateUpdate()
+    {
+        EnsureReferences();
+        RemoveShakeOffset();
+        if (targetCamera != null)
+        {
+            if (perspectiveMode) UpdatePerspectiveCamera(false);
+            else UpdateOrthographicCamera(false);
+        }
+        ApplyShakeOffset(Time.unscaledDeltaTime);
+    }
+
+    public void SnapToCurrentFocus()
+    {
+        EnsureReferences();
+        if (targetCamera == null) return;
+        RemoveShakeOffset();
+        if (perspectiveMode) UpdatePerspectiveCamera(true);
+        else UpdateOrthographicCamera(true);
+    }
+
+    /// <summary>轻量镜头震动：strength 为最大偏移幅度（米），duration 为衰减时长（秒）。</summary>
+    public void Shake(float strength, float duration)
+    {
+        if (strength <= 0f || duration <= 0f) return;
+        if (strength < CurrentShakeAmplitude()) return;
+        shakeStrength = strength;
+        shakeDuration = Mathf.Max(0.05f, duration);
+        shakeTimeRemaining = shakeDuration;
+    }
+
+    void UpdatePerspectiveCamera(bool snap)
+    {
+        targetCamera.orthographic = false;
+        targetCamera.fieldOfView = perspectiveFieldOfView;
+        if (!perspectiveAnglesInitialized)
+        {
+            perspectiveYaw = transform.eulerAngles.y;
+            smoothedYaw = perspectiveYaw;
+            smoothedPitch = Mathf.DeltaAngle(0f, transform.eulerAngles.x);
+            perspectiveAnglesInitialized = true;
+        }
+
+        if (snap)
+        {
+            smoothedPitch = perspectivePitch;
+            smoothedYaw = perspectiveYaw;
+            pitchVelocity = 0f;
+            yawVelocity = 0f;
+        }
+        else
+        {
+            smoothedPitch = Mathf.SmoothDampAngle(
+                smoothedPitch,
+                perspectivePitch,
+                ref pitchVelocity,
+                rotationSmoothTime,
+                Mathf.Infinity,
+                Time.unscaledDeltaTime);
+            smoothedYaw = Mathf.SmoothDampAngle(
+                smoothedYaw,
+                perspectiveYaw,
+                ref yawVelocity,
+                rotationSmoothTime,
+                Mathf.Infinity,
+                Time.unscaledDeltaTime);
+        }
+        transform.rotation = Quaternion.Euler(smoothedPitch, smoothedYaw, 0f);
+
+        if (!TryGetPerspectiveFraming(out Vector3 focus, out float desiredDistance))
+            return;
+
+        if (snap || !distanceInitialized)
+        {
+            smoothedDistance = desiredDistance;
+            distanceVelocity = 0f;
+            distanceInitialized = true;
+        }
+        else
+        {
+            smoothedDistance = Mathf.SmoothDamp(
+                smoothedDistance,
+                desiredDistance,
+                ref distanceVelocity,
+                zoomSmoothTime,
+                Mathf.Infinity,
+                Time.unscaledDeltaTime);
+        }
+
+        Vector3 desiredPosition = focus - transform.forward * smoothedDistance;
+        if (snap)
+        {
+            transform.position = desiredPosition;
+            positionVelocity = Vector3.zero;
+            return;
+        }
+        transform.position = Vector3.SmoothDamp(
+            transform.position,
+            desiredPosition,
+            ref positionVelocity,
+            positionSmoothTime,
+            Mathf.Infinity,
+            Time.unscaledDeltaTime);
+    }
+
+    void UpdateOrthographicCamera(bool snap)
+    {
+        targetCamera.orthographic = true;
+        ApplyObliqueAngle();
+        if (!TryGetDesiredFraming(out Vector3 desiredPosition, out float desiredSize))
+            return;
+
+        if (snap)
+        {
+            transform.position = desiredPosition;
+            targetCamera.orthographicSize = desiredSize;
+            positionVelocity = Vector3.zero;
+            zoomVelocity = 0f;
+            return;
+        }
+
+        transform.position = Vector3.SmoothDamp(
+            transform.position,
+            desiredPosition,
+            ref positionVelocity,
+            positionSmoothTime,
+            Mathf.Infinity,
+            Time.unscaledDeltaTime);
+        targetCamera.orthographicSize = Mathf.SmoothDamp(
+            targetCamera.orthographicSize,
+            desiredSize,
+            ref zoomVelocity,
+            zoomSmoothTime,
+            Mathf.Infinity,
+            Time.unscaledDeltaTime);
+    }
+
+    bool TryGetPerspectiveFraming(out Vector3 focus, out float distance)
+    {
+        focus = transform.position + transform.forward * Mathf.Max(1f, smoothedDistance);
+        distance = Mathf.Max(1f, smoothedDistance);
+        if (replay == null || !replay.TryGetConvoyFraming(out Vector3 center, out float span))
+            return false;
+
+        focus = center;
+        if (focusFollowEnabled && span > focusSpanThreshold)
+        {
+            // 两队相距过远时框住双方会拉到最远，角色动画/血条全看不清；
+            // 改为按周期轮流跟拍其中一队的近景。
+            LycheeReplayFrame frame = replay.CurrentFrame;
+            if (frame != null && frame.players != null && frame.players.Length > 0)
+            {
+                int slot = Mathf.FloorToInt(Time.unscaledTime / Mathf.Max(2f, focusSwapSeconds))
+                    % frame.players.Length;
+                Transform convoy = replay.GetConvoyRoot(frame.players[slot].playerId);
+                if (convoy != null)
+                {
+                    focus = convoy.position;
+                    span = focusedSpan;
+                }
+            }
+        }
+        distance = Mathf.Clamp(
+            span * perspectiveDistanceSpanScale + perspectiveDistancePadding,
+            perspectiveMinDistance,
+            perspectiveMaxDistance);
+        if (replay.TryGetEventFocus(out Vector3 eventPosition))
+        {
+            focus = eventPosition;
+            distance = perspectiveEventDistance;
+        }
+        // 1.2x 画面放大 = 镜头拉近，代替 Game 视图 Scale 裁切（后者会把 HUD 裁出画面）。
+        distance = Mathf.Max(10f, distance / Mathf.Max(0.5f, perspectiveZoomMultiplier));
+        return true;
+    }
+
+    bool TryGetDesiredFraming(out Vector3 desiredPosition, out float desiredSize)
+    {
+        desiredPosition = transform.position;
+        desiredSize = targetCamera == null ? minimumSize : targetCamera.orthographicSize;
+        if (targetCamera == null || replay == null || !replay.TryGetConvoyFraming(out Vector3 focus, out float span))
+            return false;
+
+        desiredSize = Mathf.Clamp((span * 0.52f + framingPadding) / Mathf.Max(0.2f, replayZoomMultiplier), minimumSize, maximumSize);
+        if (replay.TryGetEventFocus(out Vector3 eventPosition))
+        {
+            focus = eventPosition;
+            desiredSize = eventSize;
+        }
+        desiredPosition = focus - transform.forward * cameraDistance;
+        return true;
+    }
+
+    float CurrentShakeAmplitude()
+    {
+        if (shakeTimeRemaining <= 0f || shakeDuration <= 0f) return 0f;
+        float falloff = Mathf.Clamp01(shakeTimeRemaining / shakeDuration);
+        return shakeStrength * falloff * falloff;
+    }
+
+    void RemoveShakeOffset()
+    {
+        if (appliedShakeOffset == Vector3.zero) return;
+        transform.position -= appliedShakeOffset;
+        appliedShakeOffset = Vector3.zero;
+    }
+
+    void ApplyShakeOffset(float deltaTime)
+    {
+        if (shakeTimeRemaining <= 0f) return;
+        shakeTimeRemaining = Mathf.Max(0f, shakeTimeRemaining - deltaTime);
+        float amplitude = CurrentShakeAmplitude();
+        if (amplitude <= 0.0001f) return;
+
+        float noiseTime = Time.time * 17f;
+        float offsetX = Mathf.PerlinNoise(noiseTime, 0.731f) * 2f - 1f;
+        float offsetY = Mathf.PerlinNoise(0.137f, noiseTime) * 2f - 1f;
+        appliedShakeOffset = (transform.right * offsetX + transform.up * offsetY) * amplitude;
+        transform.position += appliedShakeOffset;
+    }
+
+    void EnsureReferences()
+    {
+        if (targetCamera == null) targetCamera = GetComponent<Camera>();
+        if (replay == null) replay = FindFirstObjectByType<LycheeReplayPlayer>();
+    }
+
+    void ApplyObliqueAngle()
+    {
+        if (!lockObliqueAngle) return;
+        transform.rotation = Quaternion.Euler(obliqueEuler);
+    }
+}

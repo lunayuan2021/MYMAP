@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lychee-webgl-replay",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "Builds/LycheeReplay_WebGL_20260612"],
+      "port": 8090
+    }
+  ]
+}

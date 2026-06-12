@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Applications/Unity/Hub/**)",
+      "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.unity3d.UnityEditor5.x'\")",
+      "Read(//Users/lunayuan/Documents/游戏引擎/6000.4.10f1/PlaybackEngines/**)",
+      "Read(//Users/lunayuan/Documents/游戏引擎/6000.4.10f1/Unity.app/Contents/PlaybackEngines/**)",
+      "Bash(sed -n '215,222p' LycheeReplayCameraController.cs)",
+      "Bash(sed -n '180,200p' Systems/LycheeCharacterMotion.cs)",
+      "Bash(sed -n '164,170p' Systems/LycheeConvoyVfx.cs)",
+      "Bash(sed -n '166,172p' Systems/LycheeMinimapSystem.cs)"
+    ]
+  }
+}
