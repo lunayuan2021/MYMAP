@@ -61,8 +61,9 @@ static class LycheeWebGLBuild_20260612
                 {
                     Append("ERROR: SwitchActiveBuildTarget rejected — is the WebGL module installed?");
                     File.WriteAllText(DoneMarker, "Failed");
+                    DeleteRequestMarker();
                 }
-                return; // 域重载后由静态构造函数重新挂上轮询
+                return; // 域重载后由静态构造函数重新挂上轮询（切换成功时保留 request 续跑）
             }
 
             FixSceneFonts();
@@ -91,6 +92,7 @@ static class LycheeWebGLBuild_20260612
                 summary.result, summary.totalSize / (1024f * 1024f), summary.totalTime.TotalSeconds, summary.totalErrors));
             if (summary.result == BuildResult.Succeeded) PatchIndexHtml();
             File.WriteAllText(DoneMarker, summary.result.ToString());
+            DeleteRequestMarker();
         }
         catch (Exception exception)
         {
@@ -103,6 +105,24 @@ static class LycheeWebGLBuild_20260612
             }
             Append("EXCEPTION: " + exception);
             File.WriteAllText(DoneMarker, "Exception");
+            DeleteRequestMarker();
+        }
+    }
+
+    /// <summary>
+    /// 写出 DoneMarker 后立即消耗掉 RequestMarker：轮询条件是"request 存在且 done 不存在"，
+    /// 若 request 残留，之后任何人删掉 .done 都会立刻触发一次全量 WebGL 构建（上膛状态）。
+    /// 单独包 try 防止 catch 块里二次抛异常冲掉原始报告。
+    /// </summary>
+    static void DeleteRequestMarker()
+    {
+        try
+        {
+            if (File.Exists(RequestMarker)) File.Delete(RequestMarker);
+        }
+        catch (Exception exception)
+        {
+            Append("WARNING: 删除 request 标记失败: " + exception.Message);
         }
     }
 

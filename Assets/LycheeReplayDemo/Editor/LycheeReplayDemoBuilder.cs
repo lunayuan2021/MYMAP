@@ -28,11 +28,12 @@ public static class LycheeReplayDemoBuilder
             "Assets/LycheeReplayDemo/ModelsGLB/Boat.glb");
         replay.captainModel = AssetDatabase.LoadAssetAtPath<GameObject>(
             "Assets/LycheeReplayDemo/ModelsGLB/Captain.glb");
+        // Member.glb 才有完整 Mixamo 骨骼（SquadMember.glb 是单静态节点，骨骼动画播不了）
         replay.squadMemberModel = AssetDatabase.LoadAssetAtPath<GameObject>(
-            "Assets/LycheeReplayDemo/ModelsGLB/SquadMember.glb");
+            "Assets/LycheeReplayDemo/ModelsGLB/Member.glb");
         replay.roadObstacleModel = AssetDatabase.LoadAssetAtPath<GameObject>(
             "Assets/LycheeReplayDemo/ModelsGLB/RoadObstacle.glb");
-        replay.secondsPerRound = 0.10f;
+        replay.secondsPerRound = 0.22f;
         replay.playOnStart = true;
 
         PlaceStationModels();

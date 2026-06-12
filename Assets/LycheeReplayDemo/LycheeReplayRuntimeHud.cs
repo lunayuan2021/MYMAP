@@ -1,9 +1,23 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 [ExecuteAlways]
 public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 {
+    // 排队中的事件弹窗内容快照：普通事件在面板占用期间不再直接覆盖（原“最后写入者赢”
+    // 导致密集回合下弹窗每帧闪变、永驻屏幕），而是先存进队列等空档再弹。
+    sealed class PendingCombat
+    {
+        public int imageIndex;
+        public string title;
+        public string subtitle;
+        public string redCard;
+        public string blueCard;
+        public string score;
+        public float seconds;
+    }
+
     sealed class TeamWidgets
     {
         public Text name;
@@ -31,6 +45,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     const float BottomHudAnchorY = 0f;
     // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
     const float BarTrackWidth = 190f;
+    // 事件弹窗单条时长硬上限：上游传入 3.8~5.5 秒，在 0.025~0.2 秒/回合的回放节奏下会长期霸屏。
+    const float CombatMaxSeconds = 3f;
+    // 弹窗淡入淡出时长：取代原 alpha 1↔0 硬切，观赏性显著提升。
+    const float CombatFadeSeconds = 0.25f;
+    // 两条普通弹窗之间的最小喘息间隔（上一条隐藏后再等这么久才弹队首）。
+    const float CombatGapSeconds = 0.9f;
+    // 排队上限：再多就丢最旧的，保证弹窗内容不会落后画面太久。
+    const int CombatQueueLimit = 4;
 
     [Header("Editor Preview")]
     public bool previewInEditMode = true;
@@ -67,6 +89,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Sprite[] combatSprites;
 
     float combatUntil;
+    // 下一条普通弹窗最早允许出现的时刻（= 上一条隐藏时刻 + CombatGapSeconds）。
+    float combatNextAllowed;
+    // 普通事件弹窗等待队列；对抗三连击（开始/亮牌/结算）走 priority 路径绕过它。
+    readonly List<PendingCombat> pendingCombats = new List<PendingCombat>();
     float openingUntil;
     float toastUntil;
     int lastRound = -1;
@@ -166,33 +192,47 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 保留方法签名以兼容既有调用方，这里直接空操作，避免两层开场 UI 叠加。
     }
 
+    // 对抗三连击（开始/亮牌/结算）是同一场叙事的连续镜头，priority=true 绕过队列实时覆盖；
+    // 时长从 4.6/4.9/5.2 压到 2.8/2.8/3.0，避免叙事链拖到下一场对抗还没放完。
     public void ShowCombatStart(int round, string nodeId, int totalRounds)
     {
-        ShowCombat(0, "对抗开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 4.6f);
+        ShowCombat(0, "对抗开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true);
     }
 
     public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
     {
         string winnerText = WinnerText(winner);
-        ShowCombat(1, "对抗第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 4.9f);
+        ShowCombat(1, "对抗第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true);
     }
 
     public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
     {
-        ShowCombat(2, "对抗结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 5.2f);
+        ShowCombat(2, "对抗结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true);
     }
 
     public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds)
     {
-        ShowCombat(imageIndex, title, subtitle, leftDetail, rightDetail, centerText, seconds);
+        // 普通事件走排队路径：面板被占用或未到间隔时先入队，避免连弹覆盖
+        ShowCombat(imageIndex, title, subtitle, leftDetail, rightDetail, centerText, seconds, false);
     }
 
     public void ShowDispatch(string text)
     {
         EnsureBuilt();
         toastText.text = text;
-        toastUntil = Time.unscaledTime + 4.2f;
+        // 4.2 秒压到 3.0 秒：调度提示信息量小，停留太久反而显得画面“糊”着一层字
+        toastUntil = Time.unscaledTime + 3.0f;
         SetGroup(toastGroup, true, 1f);
+    }
+
+    // 回放跳转（拖进度条、重播按钮、循环回开头）后调用：排队中的弹窗与在显内容都指向跳转前
+    // 的旧进度，继续补播只会报错位的回合号；全部作废并解除间隔锁，让跳转目标帧重放出的事件
+    // 能即时弹出，而不是被旧的 combatNextAllowed 压回队列。
+    public void CancelCombatPopups()
+    {
+        pendingCombats.Clear();
+        combatUntil = 0f;
+        combatNextAllowed = 0f;
     }
 
     public void Refresh(
@@ -256,14 +296,64 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         }
 
         float now = Time.unscaledTime;
-        SetGroup(combatGroup, now < combatUntil, now < combatUntil ? 1f : 0f);
+
+        // 排队消费点：Refresh 每帧必经。面板熄灭且过了喘息间隔后，再弹下一条排队事件。
+        if (now >= combatUntil && now >= combatNextAllowed && pendingCombats.Count > 0)
+        {
+            PendingCombat next = pendingCombats[0];
+            pendingCombats.RemoveAt(0);
+            DisplayCombat(next.imageIndex, next.title, next.subtitle, next.redCard, next.blueCard, next.score, next.seconds);
+        }
+
+        // 对抗弹窗用 0.25 秒淡入淡出取代原 alpha 硬切；面板纯展示无交互，
+        // 永远不拦截 raycast（否则右侧 400x252 区域会吃掉穿透点击）。
+        combatGroup.alpha = Mathf.MoveTowards(combatGroup.alpha, now < combatUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
+        combatGroup.interactable = false;
+        combatGroup.blocksRaycasts = false;
         SetGroup(openingGroup, now < openingUntil && round <= 24, now < openingUntil && round <= 24 ? 1f : 0f);
         SetGroup(toastGroup, now < toastUntil, now < toastUntil ? 1f : 0f);
     }
 
-    void ShowCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds)
+    void ShowCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds, bool priority)
     {
         EnsureBuilt();
+        // 时长一刀切上限：上游各处传入 3.8~5.5 秒，密集事件下会让面板长期霸屏
+        seconds = Mathf.Min(seconds, CombatMaxSeconds);
+        float now = Time.unscaledTime;
+
+        // 普通事件在面板被占用（仍可见）或未到喘息间隔时先入队；
+        // 对抗三连击（priority=true）是连续叙事，必须实时覆盖，绕过队列直接显示。
+        if (!priority && (now < combatUntil || now < combatNextAllowed))
+        {
+            EnqueueCombat(imageIndex, title, subtitle, redCard, blueCard, score, seconds);
+            return;
+        }
+        DisplayCombat(imageIndex, title, subtitle, redCard, blueCard, score, seconds);
+    }
+
+    void EnqueueCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds)
+    {
+        // 连续同标题去重：密集回合里同类事件被反复触发，重复排队没有信息量
+        string lastTitle = pendingCombats.Count > 0 ? pendingCombats[pendingCombats.Count - 1].title : combatTitle.text;
+        if (lastTitle == title)
+            return;
+        // 超过上限丢最旧的：宁可漏掉旧事件，也不让弹窗内容落后画面太久
+        if (pendingCombats.Count >= CombatQueueLimit)
+            pendingCombats.RemoveAt(0);
+        pendingCombats.Add(new PendingCombat
+        {
+            imageIndex = imageIndex,
+            title = title,
+            subtitle = subtitle,
+            redCard = redCard,
+            blueCard = blueCard,
+            score = score,
+            seconds = seconds,
+        });
+    }
+
+    void DisplayCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds)
+    {
         if (combatSprites != null && combatSprites.Length > 0)
             combatImage.sprite = combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)];
         combatTitle.text = title;
@@ -272,7 +362,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatBlueCard.text = blueCard;
         combatScore.text = score;
         combatUntil = Time.unscaledTime + seconds;
-        SetGroup(combatGroup, true, 1f);
+        // 下一条普通弹窗最早出现时刻 = 本条隐藏后再留一段喘息间隔
+        combatNextAllowed = combatUntil + CombatGapSeconds;
+        // 不再直接把 alpha 打到 1：交给 Refresh 里的渐变做淡入；纯展示面板永不拦截点击
+        combatGroup.interactable = false;
+        combatGroup.blocksRaycasts = false;
     }
 
     void Build()
@@ -344,6 +438,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         openingBlue = null;
         toastGroup = null;
         toastText = null;
+        // 画布重建时清掉排队中的旧弹窗，避免重建后把过期事件补播出来
+        pendingCombats.Clear();
+        combatNextAllowed = 0f;
 
         if (target == null) return;
         if (Application.isPlaying) Destroy(target);
@@ -448,36 +545,44 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     void BuildCombat(Transform parent)
     {
-        RectTransform panel = Rect("CombatOverlay", parent, new Vector2(0.5f, 0.5f), new Vector2(0f, 70f), new Vector2(720f, 424f), new Vector2(0.5f, 0.5f));
+        // 右侧停靠（原 720x424 死死压在屏幕中央遮挡战场）：缩为 400x252 贴右缘；
+        // y=+110 抬离右下角控制条（sortingOrder=140 的回放控制面板），左侧事件流（LycheeHudExtensions）也互不抢位。
+        RectTransform panel = Rect("CombatOverlay", parent, new Vector2(1f, 0.5f), new Vector2(-16f, 110f), new Vector2(400f, 252f), new Vector2(1f, 0.5f));
         combatGroup = panel.gameObject.AddComponent<CanvasGroup>();
         Image bg = panel.gameObject.AddComponent<Image>();
         bg.color = new Color(0.01f, 0.012f, 0.018f, 0.82f);
+        // 弹窗纯展示无任何可交互元素：背景/插画/卡片一律不接 raycast，避免拦截穿透点击
+        bg.raycastTarget = false;
 
-        // 垂直分区（面板高 424，自顶边起）：标题 30..68 / 插画 80..324 / 副标题 332..358 / 卡片与比分行（自底边 16 起），
-        // 各区净空 >= 6px，内容距背景边缘 >= 16px。
-        combatImage = Rect("CombatIllustration", panel, new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(660f, 244f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<Image>();
+        // 垂直分区（面板高 252，自顶边起）：标题 10..36 / 插画 42..178 / 副标题（自底边 48 起，高 20）/
+        // 卡片与比分行（自底边 12 起），各区净空 >= 4px，整体按原 720x424 版式等比缩小。
+        combatImage = Rect("CombatIllustration", panel, new Vector2(0.5f, 0.5f), new Vector2(0f, 16f), new Vector2(368f, 136f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<Image>();
         combatImage.color = Color.white;
         combatImage.preserveAspect = true;
+        combatImage.raycastTarget = false;
 
-        combatTitle = Text("CombatTitle", panel, 28, FontStyle.Bold, new Color(1f, 0.88f, 0.55f, 1f), TextAnchor.MiddleCenter);
-        SetRect(combatTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(620f, 38f), new Vector2(0.5f, 1f));
-        combatSubtitle = Text("CombatSubtitle", panel, 16, FontStyle.Bold, new Color(0.90f, 0.95f, 1f, 0.95f), TextAnchor.MiddleCenter);
-        SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 66f), new Vector2(640f, 26f), new Vector2(0.5f, 0f));
+        combatTitle = Text("CombatTitle", panel, 20, FontStyle.Bold, new Color(1f, 0.88f, 0.55f, 1f), TextAnchor.MiddleCenter);
+        SetRect(combatTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(368f, 26f), new Vector2(0.5f, 1f));
+        combatSubtitle = Text("CombatSubtitle", panel, 13, FontStyle.Bold, new Color(0.90f, 0.95f, 1f, 0.95f), TextAnchor.MiddleCenter);
+        SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(368f, 20f), new Vector2(0.5f, 0f));
         combatRedCard = CombatCard(panel, true);
         combatBlueCard = CombatCard(panel, false);
-        combatScore = Text("CombatScore", panel, 36, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
-        SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 16f), new Vector2(130f, 42f), new Vector2(0.5f, 0f));
+        combatScore = Text("CombatScore", panel, 24, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(90f, 32f), new Vector2(0.5f, 0f));
         SetGroup(combatGroup, false, 0f);
     }
 
     Text CombatCard(Transform parent, bool red)
     {
         Color color = red ? new Color(0.95f, 0.19f, 0.12f, 0.92f) : new Color(0.16f, 0.42f, 1f, 0.92f);
-        float x = red ? -230f : 230f;
-        RectTransform box = Rect(red ? "CombatRedCard" : "CombatBlueCard", parent, new Vector2(0.5f, 0f), new Vector2(x, 16f), new Vector2(210f, 42f), new Vector2(0.5f, 0f));
-        box.gameObject.AddComponent<Image>().color = color;
-        Text text = Text("Text", box, 15, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
-        SetRect(text.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(196f, 34f), new Vector2(0.5f, 0.5f));
+        float x = red ? -95f : 95f;
+        RectTransform box = Rect(red ? "CombatRedCard" : "CombatBlueCard", parent, new Vector2(0.5f, 0f), new Vector2(x, 12f), new Vector2(150f, 32f), new Vector2(0.5f, 0f));
+        Image boxImage = box.gameObject.AddComponent<Image>();
+        boxImage.color = color;
+        // 卡片块同为纯展示，禁止拦截点击
+        boxImage.raycastTarget = false;
+        Text text = Text("Text", box, 12, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        SetRect(text.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(138f, 24f), new Vector2(0.5f, 0.5f));
         return text;
     }
 
@@ -499,7 +604,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         RectTransform panel = Rect("DispatchToast", parent, new Vector2(0.5f, BottomHudAnchorY), new Vector2(0f, BottomHeight * 0.5f + 34f), new Vector2(700f, 50f), new Vector2(0.5f, 0.5f));
         toastGroup = panel.gameObject.AddComponent<CanvasGroup>();
-        panel.gameObject.AddComponent<Image>().color = new Color(0.04f, 0.035f, 0.018f, 0.82f);
+        Image toastBg = panel.gameObject.AddComponent<Image>();
+        toastBg.color = new Color(0.04f, 0.035f, 0.018f, 0.82f);
+        // 提示条纯展示，背景不接 raycast，避免挡住底部 HUD 上方的点击
+        toastBg.raycastTarget = false;
         toastText = Text("ToastText", panel, 17, FontStyle.Bold, new Color(1f, 0.87f, 0.44f, 1f), TextAnchor.MiddleCenter);
         SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(666f, 34f), new Vector2(0.5f, 0.5f));
         SetGroup(toastGroup, false, 0f);

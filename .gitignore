@@ -43,8 +43,10 @@ sysinfo.txt
 *_report*.txt
 .lychee_*
 GlbShrink_*_log.txt
-LycheeMapCapture_*
-LycheePlaymodeCapture*
+# 只匹配根目录标记文件，不能误伤 Assets/ 里的同名源码
+/LycheeMapCapture_*
+/LycheePlaymodeCapture.request
+/LycheePlaymodeCapture.done
 PlaymodeCaptures_*/
 MapCaptures_*/
 

@@ -7,7 +7,8 @@ public class LycheeReplayPlayer : MonoBehaviour
 {
     [Header("Replay")]
     public TextAsset replayFile;
-    [Range(0.03f, 1f)] public float secondsPerRound = 0.10f;
+    // 0.22 秒/回合：0.10 时 600 回合一分钟跑完，事件演出根本来不及看；场景序列化值由编辑器脚本同步
+    [Range(0.03f, 1f)] public float secondsPerRound = 0.22f;
     public bool playOnStart = true;
     public bool loop;
 
@@ -49,6 +50,11 @@ public class LycheeReplayPlayer : MonoBehaviour
     string latestEvent = "READY";
     Vector3 eventFocusPosition;
     float eventFocusUntil;
+    /// <summary>当前事件聚焦的建议相机距离（米）；&lt;0 表示未指定、由相机自行决定。对抗类拉近（15）、普通事件保持远景（30）。</summary>
+    float eventFocusDistance = -1f;
+    /// <summary>WINDOW_CONTEST_START 缓存的对抗节点位置：WINDOW_CARD_REVEAL 的 payload 没有 targetNodeId，靠它续期聚焦让整场对抗镜头不回退。</summary>
+    Vector3 contestFocusPosition;
+    bool hasContestFocus;
     GUIStyle hudStyle;
     GUIStyle titleStyle;
     GUIStyle buttonStyle;
@@ -167,9 +173,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         return true;
     }
 
+    /// <summary>旧签名保留：相机控制器/卡牌特效/天气特效等既有调用方不关心距离时继续可用。</summary>
     public bool TryGetEventFocus(out Vector3 position)
     {
+        return TryGetEventFocus(out position, out _);
+    }
+
+    /// <summary>事件聚焦扩展查询：除位置外返回建议聚焦距离（米）。focusDistance &lt; 0 表示事件未指定，由相机沿用自身默认值。</summary>
+    public bool TryGetEventFocus(out Vector3 position, out float focusDistance)
+    {
         position = eventFocusPosition;
+        focusDistance = eventFocusDistance;
         return Time.unscaledTime < eventFocusUntil;
     }
 
@@ -674,8 +688,11 @@ public class LycheeReplayPlayer : MonoBehaviour
                 runtimeHud.ShowCombatStart(round, payload.targetNodeId, payload.totalRounds);
             if (!string.IsNullOrEmpty(payload.targetNodeId) && stations.TryGetValue(payload.targetNodeId, out MapStationAnchor contestStation))
             {
-                SetEventFocus(contestStation.transform.position);
-                SpawnEventPulse(contestStation.transform.position, "对抗开始", new Color(1f, 0.78f, 0.22f));
+                // 缓存对抗节点位置：后续 WINDOW_CARD_REVEAL 没有 targetNodeId，靠它续期聚焦
+                contestFocusPosition = contestStation.transform.position;
+                hasContestFocus = true;
+                SetEventFocus(contestFocusPosition, 4.5f, 15f);
+                SpawnEventPulse(contestFocusPosition, "对抗开始", new Color(1f, 0.78f, 0.22f));
             }
             return;
         }
@@ -684,6 +701,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             if (runtimeHud != null)
                 runtimeHud.ShowCombatReveal(round, payload.roundIndex, payload.redCard, payload.blueCard, payload.winner, payload.redPoint, payload.bluePoint);
+            // 每次亮牌都续期拉近聚焦：多回合对抗中途镜头不回退远景，CONTEST_END 后自然过期
+            if (hasContestFocus)
+                SetEventFocus(contestFocusPosition, 4.5f, 15f);
             return;
         }
 
@@ -691,13 +711,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             if (runtimeHud != null)
                 runtimeHud.ShowCombatEnd(round, payload.winner, payload.redPoint, payload.bluePoint);
+            // 对抗结束：清掉缓存节点，避免跳转回放后过期位置被误用；聚焦计时到期镜头自然拉远
+            hasContestFocus = false;
             return;
         }
 
         if (message.type == "SQUAD_DISPATCH")
         {
             if (stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
-                SetEventFocus(squadTarget.transform.position);
+                SetEventFocus(squadTarget.transform.position, 2.8f, 30f);
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
@@ -732,11 +754,12 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         if (!string.IsNullOrEmpty(nodeId) && stations.TryGetValue(nodeId, out MapStationAnchor station))
         {
-            // 对抗类事件（设卡/攻坚/窗口/强行）延长聚焦时间，让血条与对抗演出留在镜头里。
+            // 对抗类事件（设卡/攻坚/窗口/强行）延长聚焦时间并拉近到 15 米，让血条与对抗演出留在镜头里；
+            // 普通事件给 30 米只轻微居中——平时保持远景看全局，是演出节奏的硬要求。
             bool combatEvent = message.type.Contains("GUARD") ||
                 message.type.Contains("WINDOW") ||
                 message.type.Contains("FORCED");
-            SetEventFocus(station.transform.position, combatEvent ? 4.5f : 2.8f);
+            SetEventFocus(station.transform.position, combatEvent ? 4.5f : 2.8f, combatEvent ? 15f : 30f);
             SpawnEventPulse(station.transform.position, ShortEventName(message.type), EventColor(message.type));
         }
     }
@@ -751,6 +774,13 @@ public class LycheeReplayPlayer : MonoBehaviour
             type.StartsWith("WINDOW_", StringComparison.Ordinal))
             return;
 
+        // 低价值事件（天气预报/守卫衰减/成本类）不再进中央弹窗：信息密度低还连环刷屏遮挡战场，
+        // 左侧事件流（LycheeHudExtensions 自己订阅 ReplayEventRaised）仍会展示，不丢信息。
+        if (type == "WEATHER_FORECAST" ||
+            type == "GUARD_DECAY" ||
+            type.StartsWith("COST_", StringComparison.Ordinal))
+            return;
+
         payload = payload ?? new LycheeReplayPayload();
         string title = null;
         string subtitle = "";
@@ -758,7 +788,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         string right = "";
         string center = "R" + round;
         int imageIndex = 1;
-        float seconds = 3.8f;
+        // 默认 2.6 秒：3.8 秒在 0.22 秒/回合的节奏下弹窗几乎常驻，压短后中央留白更多
+        float seconds = 2.6f;
         string target = DisplayNode(!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
         string team = TeamName(payload.playerId);
 
@@ -777,13 +808,6 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = ScoreText(payload.score);
             center = "+" + Mathf.Max(0, payload.score);
             imageIndex = 2;
-        }
-        else if (type == "WEATHER_FORECAST")
-        {
-            title = "天气预告";
-            subtitle = WeatherName(payload.weatherType) + " 即将在 " + RegionName(payload.region) + " 生效";
-            left = payload.startRound > 0 ? "开始 R" + payload.startRound : "即将到来";
-            right = DurationText(payload.durationRound);
         }
         else if (type == "WEATHER_START")
         {
@@ -853,14 +877,6 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = payload.defense > 0 ? payload.defense.ToString() : "已部署";
             imageIndex = 0;
         }
-        else if (type == "GUARD_DECAY")
-        {
-            title = "设卡风化";
-            subtitle = target + " 防御衰减";
-            left = payload.defenseBefore.ToString();
-            right = "→ " + payload.defenseAfter;
-            imageIndex = 0;
-        }
         else if (type == "GUARD_BREAK")
         {
             title = "攻破设卡";
@@ -884,14 +900,6 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = ScoreText(payload.score);
             right = ResourceName(payload.reward);
             imageIndex = 2;
-        }
-        else if (type == "COST_COMMIT")
-        {
-            title = "代价投入";
-            subtitle = team + " 提交 " + ActionName(payload.action);
-            left = "好果 -" + payload.goodFruit;
-            right = "坏果 +" + payload.badFruit;
-            imageIndex = 0;
         }
         else if (type == "FORCED_PASS_START")
         {
@@ -924,7 +932,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = string.IsNullOrEmpty(payload.trigger) ? "RUSH" : payload.trigger;
             right = "争分夺秒";
             imageIndex = 2;
-            seconds = 4.8f;
+            seconds = 3.2f;
         }
         else if (type == "VERIFY_GATE_START")
         {
@@ -950,7 +958,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = "鲜度 " + payload.freshness.ToString("0.#") + "%";
             center = payload.score > 0 ? payload.score.ToString() : center;
             imageIndex = 2;
-            seconds = 5.2f;
+            seconds = 3.2f;
         }
         else if (type == "MATCH_END")
         {
@@ -959,7 +967,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = "Replay 完成";
             right = "最终结算";
             imageIndex = 2;
-            seconds = 5.5f;
+            seconds = 3.5f;
         }
         else if (IsMajorEvent(type))
         {
@@ -973,10 +981,12 @@ public class LycheeReplayPlayer : MonoBehaviour
             runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
     }
 
-    void SetEventFocus(Vector3 position, float seconds = 2.8f)
+    void SetEventFocus(Vector3 position, float seconds = 2.8f, float focusDistance = -1f)
     {
         eventFocusPosition = position;
         eventFocusUntil = Time.unscaledTime + seconds;
+        // 按事件类型区分聚焦距离：对抗类传 15 拉近看战斗，普通事件传 30 只轻微居中、保住远景；-1 由相机自行决定
+        eventFocusDistance = focusDistance;
     }
 
     void SpawnSquad(LycheeReplayPayload payload, int round)
@@ -999,6 +1009,9 @@ public class LycheeReplayPlayer : MonoBehaviour
                 TintModel(member, tint, 0.18f);
             }
         }
+        // 成员全部创建完后通知骨骼动画系统接管（Member_* 是事件期临时对象，LycheeCharacterMotion
+        // 的车队扫描覆盖不到，需要显式推送；对方实现为安全空操作兜底，没有骨骼也不会报错）
+        LycheeCharacterMotion.NotifySquadSpawned(root);
         CreateLabel(root.transform, "小分队 x" + count + "\n" + TacticName(payload.tactic), new Color(1f, 0.82f, 0.22f));
         squads.Add(new SquadVisual
         {
@@ -1038,7 +1051,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
-                    SetEventFocus(squad.end, 3.2f);
+                    SetEventFocus(squad.end, 3.2f, 30f);
                 }
             }
             else
@@ -1120,6 +1133,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             convoy.initialized = false;
             convoy.positionVelocity = Vector3.zero;
         }
+        // 跳转后 HUD 排队中的事件弹窗都指向旧进度，先作废再重放目标帧事件，避免补播错位的回合号
+        if (runtimeHud != null) runtimeHud.CancelCombatPopups();
+        // 对抗聚焦缓存同理：跳过 CONTEST_END 的跳转会让 CARD_REVEAL 续期到旧对抗节点
+        hasContestFocus = false;
+        eventFocusUntil = 0f;
         ApplyFrame(frameIndex, true);
         InterpolateConvoys(0f);
         UpdateRuntimeHud();
@@ -1269,14 +1287,15 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static bool IsMajorEvent(string type)
     {
+        // 中央弹窗兜底只留高价值类别（任务/悬赏/验核/交付/冲刺）：
+        // GUARD/WEATHER/SQUAD 的高价值变体都有上面的专属分支，这里再兜会把衰减、预报
+        // 之类的低价值变体也推上屏；唯一调用方是 ShowKeyEventIllustration，收紧无副作用，
+        // 左侧事件流（LycheeHudExtensions）自己订阅事件、不经过这里。
         return type.Contains("TASK") ||
             type.Contains("BOUNTY") ||
-            type.Contains("GUARD") ||
-            type.Contains("WEATHER") ||
             type.Contains("VERIFY") ||
             type.Contains("DELIVER") ||
-            type.Contains("RUSH") ||
-            type.Contains("SQUAD");
+            type.Contains("RUSH");
     }
 
     GameObject CreateNormalizedModel(

@@ -15,17 +15,25 @@ public enum LycheeCharacterActionKind
 
 /// <summary>
 /// 角色动画系统（运行时自举，纯程序化骨骼动画）：
-/// 工程内没有任何 AnimationClip，因此基于「绑定姿势 + 偏移四元数」在 LateUpdate 驱动 Captain 的 22 根 Mixamo 骨骼。
-/// 所有姿态 = Start 时记录的基准 localRotation × 当帧计算的偏移，绝不累积漂移。
+/// 工程内没有任何 AnimationClip，因此基于「绑定姿势 + 偏移四元数」在 LateUpdate 驱动 22 根 Mixamo 骨骼。
+/// 驱动单位是「骨骼组」（wrapper + 骨骼字典 + Hips 基准 + 相位种子）：车队的 Captain、换上 Member.glb
+/// 后能采到骨骼的每个 TeamMember_*、以及出击小队的 Member_*（经 NotifySquadSpawned 接入）各占一组，
+/// 相位种子随机错开避免齐步走。所有姿态 = 采集瞬间记录的基准 localRotation × 当帧计算的偏移，绝不累积漂移。
 /// 状态机（每帧由回放数据推导）：
 ///   Walk —— 陆路行进：腿臂反相摆动、膝/肘随相位屈伸、Spine 前倾、Hips 步频颠簸；
 ///   Row  —— 水路行进：双臂同相划桨、Spine 节奏前后倾、双腿半蹲；
 ///   Idle —— 静止：呼吸起伏 + Perlin 头部微动 + 手臂自然微摆；
-///   Action 覆盖层 —— Attack / Build / Cheer / Hit，权重压过 locomotion，对外提供 PlayAction API，
-///   并订阅 ReplayEventRaised 自驱动（设卡→Build、破关→Attack、对抗窗口→双方 Attack、交付/验核→Cheer）。
-/// 无骨骼对象的廉价动画：TeamMember 行进弹跳、Carriage 速度颠簸（Perlin）、Boat 水上横摇。
-/// 升级钩子：LycheeAnimationLibrary 提供非 legacy 的 walk/idle/row clip 时，该状态改用 Playables 循环播放，
-/// 程序化层只保留 Action 覆盖；缺哪个状态哪个状态继续程序化。
+///   Action 覆盖层 —— Attack / Build / Cheer / Hit（仅作用于 Captain 组），权重压过 locomotion，
+///   对外提供 PlayAction API，并订阅 ReplayEventRaised 自驱动（设卡→Build、破关→Attack、
+///   对抗窗口→双方 Attack、交付/验核→Cheer）。
+/// 出击小队是临时对象（抵达约 2.4 秒后销毁），其骨骼组没有车队 rig.speed 可用，靠 wrapper 世界位移自估速度，
+/// wrapper 变 Unity 假 null 时静默剔除；LycheeReplayPlayer.AnimateSquadMembers 的 wrapper 级行军起伏/攻击突刺
+/// 与本系统的骨骼摆动叠加是预期效果。
+/// 无骨骼对象的廉价动画：TeamMember 行进弹跳（采到骨骼组的减半防双重起伏）、Boat 水上横摇、
+/// Carriage 速度颠簸（Perlin）+ 程序化假车轮滚动 + 轮速同步弹跳 + 加减速点头
+/// （Carriage.glb 是单节点烘焙网格拆不出轮子，只能圆柱补假轮）。
+/// 升级钩子：LycheeAnimationLibrary 提供非 legacy 的 walk/idle/row clip 时，Captain 组改用 Playables 循环播放，
+/// 程序化层只保留 Action 覆盖；缺哪个状态哪个状态继续程序化，队员/小队组始终程序化。
 /// </summary>
 public class LycheeCharacterMotion : MonoBehaviour
 {
@@ -34,6 +42,7 @@ public class LycheeCharacterMotion : MonoBehaviour
 
     const float WeightFadeSeconds = 0.18f;   // 各层权重渐变时长
     const float MoveSpeedThreshold = 0.2f;   // 行进判定速度阈值（m/s，忽略 Y）
+    const float SquadMoveSpeedThreshold = 0.1f; // 出击小队自估速度的行进判定阈值（小队整体移速较低）
     const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护
     const float RowHz = 0.9f;                // 划桨节奏
     const float TwoPi = Mathf.PI * 2f;
@@ -56,12 +65,45 @@ public class LycheeCharacterMotion : MonoBehaviour
         public bool touched;
     }
 
+    /// <summary>
+    /// 一套可独立驱动的骨骼组：wrapper（Captain / TeamMember_* / 出击小队 Member_*）+ 骨骼字典 + Hips 基准。
+    /// phaseSeed 随机错开各组 walk/row 相位避免齐步走；出击小队组没有车队 rig.speed 可用，
+    /// 由 selfSpeed 系列字段按 wrapper 世界位移自行估速并维护自己的 Walk/Idle 权重。
+    /// </summary>
+    sealed class BoneGroup
+    {
+        public Transform wrapper;
+        public readonly Dictionary<string, BonePose> bones = new Dictionary<string, BonePose>();
+        public Transform hips;
+        public Vector3 hipsBasePosition;
+        public float hipsLift;
+        public float phaseSeed;  // walk/row 相位随机偏移
+        public float idleSeed;   // Idle 层呼吸/Perlin 种子
+
+        // —— 以下字段仅出击小队组使用（独立速度估计与权重状态）——
+        public Vector3 lastPosition;
+        public bool hasLastPosition;
+        public float selfSpeed;
+        public float walkPhase;
+        public float walkWeight;
+        public float idleWeight = 1f;
+    }
+
     sealed class WrapperPose
     {
         public Transform transform;
         public Vector3 basePosition;
         public Quaternion baseRotation;
         public float seed;
+        public bool hasBones;     // 该 wrapper 已被采为骨骼组：弹跳减半，避免与骨骼步行的 Hips 起伏双重叠加
+
+        // —— 以下字段仅 Carriage 使用：程序化假车轮与车身动态 ——
+        public readonly List<Transform> wheels = new List<Transform>();
+        public float wheelRadius;
+        public float wheelSpin;   // 车轮累计转角（度，绕车轴）
+        public bool wheelsHidden; // 水路换船期间轮子整体隐藏
+        public float lastSpeed;   // 上帧速度缓存，用于加减速点头
+        public float pitchOffset; // 点头偏移（度），由速度变化率注入后衰减回零
     }
 
     sealed class CharacterRig
@@ -69,10 +111,8 @@ public class LycheeCharacterMotion : MonoBehaviour
         public int playerId;
         public Transform root;
         public Transform captainWrapper;
-        public readonly Dictionary<string, BonePose> bones = new Dictionary<string, BonePose>();
-        public Transform hips;
-        public Vector3 hipsBasePosition;
-        public float hipsLift;
+        public BoneGroup captainGroup;                                      // Captain 骨骼组（Action/Playables 只作用于它）
+        public readonly List<BoneGroup> boneGroups = new List<BoneGroup>(); // Captain + 采到骨骼的 TeamMember_*
 
         public readonly List<WrapperPose> members = new List<WrapperPose>();
         public WrapperPose carriage;
@@ -107,8 +147,16 @@ public class LycheeCharacterMotion : MonoBehaviour
 
     static LycheeCharacterMotion instance;
 
+    /// <summary>
+    /// 车轮基准朝向：圆柱主轴(Y)绕 Z 转 -90° 后指向父空间 +X（车侧向），压扁后轮面正好朝外；
+    /// 在此基础上绕自身 Y 累加 spin 即为绕车轴滚动，正角对应车队前进（+Z）方向的滚动。
+    /// </summary>
+    static readonly Quaternion WheelBaseRotation = Quaternion.Euler(0f, 0f, -90f);
+    static Material wheelSharedMaterial; // 全部假车轮共用一份深灰材质，避免重复实例化
+
     LycheeReplayPlayer player;
     readonly List<CharacterRig> rigs = new List<CharacterRig>();
+    readonly List<BoneGroup> squadGroups = new List<BoneGroup>(); // 出击小队的临时骨骼组（销毁后静默剔除）
     bool built;
     bool disabledApplied;
 
@@ -132,6 +180,19 @@ public class LycheeCharacterMotion : MonoBehaviour
         LycheeCharacterMotion system = instance;
         if (system == null) return;
         system.StartAction(playerId, kind, durationSeconds, false);
+    }
+
+    /// <summary>
+    /// 出击小队生成通知（由 LycheeReplayPlayer.SpawnSquad 调用）：扫描 squadRoot 下名为 Member_* 的成员 wrapper
+    /// （每个下面是 Member.glb 实例）采集骨骼组并加入驱动列表。
+    /// 实例不存在 / 全局禁用 / 传 null 都安全空操作；无骨骼的成员静默跳过（继续走 wrapper 级演出兜底）。
+    /// </summary>
+    public static void NotifySquadSpawned(GameObject squadRoot)
+    {
+        if (Disabled || squadRoot == null) return;
+        LycheeCharacterMotion system = instance;
+        if (system == null) return;
+        system.CollectSquadGroups(squadRoot.transform);
     }
 
     void Awake()
@@ -173,6 +234,7 @@ public class LycheeCharacterMotion : MonoBehaviour
         foreach (CharacterRig rig in rigs)
             ReleasePlayable(rig);
         rigs.Clear();
+        squadGroups.Clear();
         if (instance == this) instance = null;
     }
 
@@ -216,17 +278,32 @@ public class LycheeCharacterMotion : MonoBehaviour
             rig.waterBlend = rig.water ? 1f : 0f;
 
             rig.captainWrapper = root.Find("Captain");
-            CollectBones(rig);
+            // Captain 组相位种子取 0：保持与历史版本完全一致的步伐基准，错相位交给队员组
+            rig.captainGroup = CollectBoneGroup(rig.captainWrapper, 0f, rig.idleSeed);
+            if (rig.captainGroup != null) rig.boneGroups.Add(rig.captainGroup);
             CollectWrappers(rig);
             rigs.Add(rig);
         }
         built = rigs.Count > 0;
     }
 
-    void CollectBones(CharacterRig rig)
+    /// <summary>
+    /// 从 wrapper 下的蒙皮网格采集一套骨骼组：优先按 SkinnedMeshRenderer.bones 精确匹配，缺失时 FindDeep 兜底。
+    /// 基准 localRotation 在采集瞬间记录——出击小队成员此时可能已被 AnimateSquadMembers 摆过 wrapper 级姿态，
+    /// 但骨骼本身仍是绑定姿势，记录值即正确基准。一根骨骼都没采到时返回 null（无骨骼模型走 wrapper 弹跳兜底）。
+    /// </summary>
+    static BoneGroup CollectBoneGroup(Transform wrapper, float phaseSeed, float idleSeed)
     {
-        if (rig == null || rig.captainWrapper == null) return;
-        SkinnedMeshRenderer skin = rig.captainWrapper.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (wrapper == null) return null;
+        BoneGroup group = new BoneGroup
+        {
+            wrapper = wrapper,
+            phaseSeed = phaseSeed,
+            idleSeed = idleSeed,
+            lastPosition = wrapper.position,
+            hasLastPosition = true
+        };
+        SkinnedMeshRenderer skin = wrapper.GetComponentInChildren<SkinnedMeshRenderer>(true);
         foreach (string boneName in BoneNames)
         {
             Transform bone = null;
@@ -241,19 +318,21 @@ public class LycheeCharacterMotion : MonoBehaviour
                     }
                 }
             }
-            if (bone == null) bone = FindDeep(rig.captainWrapper, boneName);
+            if (bone == null) bone = FindDeep(wrapper, boneName);
             if (bone == null) continue;
-            rig.bones[boneName] = new BonePose
+            group.bones[boneName] = new BonePose
             {
                 transform = bone,
                 baseRotation = bone.localRotation
             };
         }
-        if (rig.bones.TryGetValue("Hips", out BonePose hipsPose))
+        if (group.bones.Count == 0) return null;
+        if (group.bones.TryGetValue("Hips", out BonePose hipsPose))
         {
-            rig.hips = hipsPose.transform;
-            rig.hipsBasePosition = hipsPose.transform.localPosition;
+            group.hips = hipsPose.transform;
+            group.hipsBasePosition = hipsPose.transform.localPosition;
         }
+        return group;
     }
 
     void CollectWrappers(CharacterRig rig)
@@ -265,13 +344,22 @@ public class LycheeCharacterMotion : MonoBehaviour
             if (child == null) continue;
             if (child.name.StartsWith("TeamMember_", System.StringComparison.Ordinal))
             {
-                rig.members.Add(new WrapperPose
+                WrapperPose pose = new WrapperPose
                 {
                     transform = child,
                     basePosition = child.localPosition,
                     baseRotation = child.localRotation,
                     seed = (rig.members.Count + 1) * 1.7f
-                });
+                };
+                // 队员模型换成带 Mixamo 骨骼的 Member.glb（骨骼名与 Captain 完全一致）后这里能采到骨骼组；
+                // 相位种子随机错开各队员步伐。仍是旧无骨骼模型时返回 null，保持 wrapper 弹跳兜底。
+                BoneGroup group = CollectBoneGroup(child, Random.Range(0f, TwoPi), rig.idleSeed + pose.seed);
+                if (group != null)
+                {
+                    pose.hasBones = true;
+                    rig.boneGroups.Add(group);
+                }
+                rig.members.Add(pose);
             }
             else if (child.name == "Carriage")
             {
@@ -282,6 +370,8 @@ public class LycheeCharacterMotion : MonoBehaviour
                     baseRotation = child.localRotation,
                     seed = rig.idleSeed
                 };
+                // Carriage.glb 车轮已烘进单一网格无法按节点旋转，程序化补 4 个假车轮（Boat 不需要轮子）
+                CreateCarriageWheels(rig.carriage);
             }
             else if (child.name == "Boat")
             {
@@ -293,6 +383,108 @@ public class LycheeCharacterMotion : MonoBehaviour
                     seed = rig.idleSeed + 3.3f
                 };
             }
+        }
+    }
+
+    /// <summary>
+    /// 给 Carriage wrapper 程序化补 4 个假车轮：压扁圆柱放在包围盒底部四角内收处，
+    /// 滚动角由 UpdateWrappers 按 rig.speed / 轮半径 累加。包围盒按 8 角点逐一变换进 wrapper
+    /// 局部空间统计——直接用世界 AABB 在车队旋转后会虚胖，估出的轮位会偏。
+    /// </summary>
+    void CreateCarriageWheels(WrapperPose carriage)
+    {
+        if (carriage == null || carriage.transform == null) return;
+        Transform wrapper = carriage.transform;
+        Renderer[] renderers = wrapper.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return;
+
+        bool hasBounds = false;
+        Bounds local = new Bounds();
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer == null) continue;
+            Bounds world = renderer.bounds;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 point = wrapper.InverseTransformPoint(new Vector3(
+                    (corner & 1) == 0 ? world.min.x : world.max.x,
+                    (corner & 2) == 0 ? world.min.y : world.max.y,
+                    (corner & 4) == 0 ? world.min.z : world.max.z));
+                if (!hasBounds)
+                {
+                    local = new Bounds(point, Vector3.zero);
+                    hasBounds = true;
+                }
+                else
+                {
+                    local.Encapsulate(point);
+                }
+            }
+        }
+        if (!hasBounds) return;
+
+        float radius = local.size.y * 0.25f; // 轮半径按车身高度估：约车高的四分之一
+        if (radius < 0.02f) return;          // 包围盒异常小（模型还没就绪）就放弃，避免生成肉眼不可见的碎轮
+        carriage.wheelRadius = radius;
+
+        // 底部四角内收：X 收到 78%（轮面贴住车帮不悬空），Z 收到 60%（前后轴距留出车辕）
+        float offsetX = Mathf.Max(0.01f, local.extents.x * 0.78f);
+        float offsetZ = Mathf.Max(0.01f, local.extents.z * 0.60f);
+        float wheelY = local.min.y + radius; // 轮心抬高一个半径，轮底正好齐车底/地面
+        Material material = GetWheelMaterial();
+
+        for (int i = 0; i < 4; i++)
+        {
+            GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            wheel.name = "FakeWheel_" + i;
+            // CreatePrimitive 自带 CapsuleCollider；模型其余 Collider 全被 CreateNormalizedModel 禁用，
+            // 这里必须销毁，否则车轮会成为场景里唯一可被射线/物理命中的部件
+            Collider collider = wheel.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            Transform wheelTransform = wheel.transform;
+            wheelTransform.SetParent(wrapper, false);
+            wheelTransform.localPosition = new Vector3(
+                (i & 1) == 0 ? -offsetX : offsetX,
+                wheelY,
+                (i & 2) == 0 ? offsetZ : -offsetZ);
+            wheelTransform.localRotation = WheelBaseRotation;
+            // 圆柱默认主轴为 Y：直径=2r、厚 0.1（scaleY 是半高），绕 Z 转 -90° 后轮面朝向车侧
+            wheelTransform.localScale = new Vector3(radius * 2f, 0.05f, radius * 2f);
+            if (material != null)
+            {
+                Renderer wheelRenderer = wheel.GetComponent<Renderer>();
+                if (wheelRenderer != null) wheelRenderer.sharedMaterial = material;
+            }
+            carriage.wheels.Add(wheelTransform);
+        }
+    }
+
+    static Material GetWheelMaterial()
+    {
+        if (wheelSharedMaterial != null) return wheelSharedMaterial;
+        // Shader.Find 在 WebGL 同样可用：URP/Lit 被场景大量材质引用，必然已打进包
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) return null; // 找不到就保留圆柱默认材质，宁可颜色不对也不能粉紫
+        wheelSharedMaterial = new Material(shader);
+        wheelSharedMaterial.color = new Color(0.16f, 0.14f, 0.12f, 1f); // 深灰木轮色（URP/Lit 的 MainColor 即 _BaseColor）
+        if (wheelSharedMaterial.HasProperty("_Smoothness"))
+            wheelSharedMaterial.SetFloat("_Smoothness", 0.25f);
+        return wheelSharedMaterial;
+    }
+
+    /// <summary>扫描出击小队根下的 Member_* wrapper（Member.glb 实例）采集骨骼组，加入临时驱动列表。</summary>
+    void CollectSquadGroups(Transform squadRoot)
+    {
+        if (squadRoot == null) return;
+        for (int i = 0; i < squadRoot.childCount; i++)
+        {
+            Transform child = squadRoot.GetChild(i);
+            if (child == null) continue;
+            if (!child.name.StartsWith("Member_", System.StringComparison.Ordinal)) continue;
+            // 基准姿态在采集瞬间记录；AnimateSquadMembers 只动 wrapper 级 transform，
+            // 骨骼摆动与其行军起伏/攻击突刺叠加是预期效果，互不覆盖
+            BoneGroup group = CollectBoneGroup(child, Random.Range(0f, TwoPi), Random.Range(0f, 10f));
+            if (group != null) squadGroups.Add(group);
         }
     }
 
@@ -415,7 +607,8 @@ public class LycheeCharacterMotion : MonoBehaviour
 
     void LateUpdate()
     {
-        if (!built) return;
+        // 小队骨骼组可能先于车队 rig 就绪（理论上不会，但守住）
+        if (!built && squadGroups.Count == 0) return;
 
         if (Disabled)
         {
@@ -427,6 +620,8 @@ public class LycheeCharacterMotion : MonoBehaviour
                     RestoreBasePose(rig);
                     ReleasePlayable(rig);
                 }
+                foreach (BoneGroup group in squadGroups)
+                    RestoreGroupPose(group);
             }
             return;
         }
@@ -436,6 +631,55 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (deltaTime <= 0f) return;
         foreach (CharacterRig rig in rigs)
             UpdateRig(rig, deltaTime);
+        UpdateSquadGroups(deltaTime);
+    }
+
+    /// <summary>
+    /// 驱动出击小队骨骼组：每组用 wrapper 世界位移自估速度（小队没有车队 rig.speed 可用），
+    /// 速度超阈值播 Walk 摆动、否则 Idle 轻微呼吸。小队抵达约 2.4 秒后被整体 Destroy，
+    /// wrapper 变 Unity 假 null 的组在此静默剔除（倒序遍历安全 RemoveAt）。
+    /// </summary>
+    void UpdateSquadGroups(float deltaTime)
+    {
+        for (int i = squadGroups.Count - 1; i >= 0; i--)
+        {
+            BoneGroup group = squadGroups[i];
+            if (group == null || !group.wrapper) // !wrapper 同时覆盖真 null 与 Destroy 后的 Unity 假 null
+            {
+                squadGroups.RemoveAt(i);
+                continue;
+            }
+
+            // 自身速度估计：水平帧间位移 / deltaTime 再指数平滑，与 UpdateRig 的车队估速同款写法
+            Vector3 position = group.wrapper.position;
+            if (group.hasLastPosition)
+            {
+                Vector3 delta = position - group.lastPosition;
+                delta.y = 0f;
+                float raw = delta.magnitude / deltaTime;
+                if (raw > TeleportSpeedLimit) raw = 0f; // SeekFrame 瞬移保护
+                group.selfSpeed = Mathf.Lerp(group.selfSpeed, raw, 1f - Mathf.Exp(-12f * deltaTime));
+            }
+            group.lastPosition = position;
+            group.hasLastPosition = true;
+
+            bool moving = group.selfSpeed > SquadMoveSpeedThreshold;
+            float fade = deltaTime / WeightFadeSeconds;
+            group.walkWeight = Mathf.MoveTowards(group.walkWeight, moving ? 1f : 0f, fade);
+            group.idleWeight = Mathf.MoveTowards(group.idleWeight, moving ? 0f : 1f, fade);
+            float stepHz = Mathf.Clamp(group.selfSpeed * 2.2f, 1.2f, 3.4f);
+            if (group.selfSpeed > 0.05f) group.walkPhase += stepHz * TwoPi * deltaTime;
+
+            foreach (BonePose bone in group.bones.Values)
+            {
+                bone.offset = Quaternion.identity;
+                bone.touched = false;
+            }
+            group.hipsLift = 0f;
+            if (group.walkWeight > 0.001f) ApplyWalkLayer(group, group.walkPhase + group.phaseSeed, group.walkWeight);
+            if (group.idleWeight > 0.001f) ApplyIdleLayer(group, group.idleWeight);
+            ApplyGroupPose(group, false, 0f);
+        }
     }
 
     void UpdateRig(CharacterRig rig, float deltaTime)
@@ -483,7 +727,7 @@ public class LycheeCharacterMotion : MonoBehaviour
         int dominantState = moving ? (rig.water ? 1 : 0) : 2;
         AnimationClip clip = ClipForState(dominantState);
         bool playableActive = false;
-        if (clip != null && rig.captainWrapper != null && rig.bones.Count > 0)
+        if (clip != null && rig.captainWrapper != null && rig.captainGroup != null)
         {
             EnsurePlayable(rig, dominantState, clip);
             playableActive = rig.graphValid && rig.graph.IsValid();
@@ -499,46 +743,59 @@ public class LycheeCharacterMotion : MonoBehaviour
 
     void UpdateBones(CharacterRig rig, bool playableActive)
     {
-        if (rig.bones.Count == 0) return;
-
-        foreach (BonePose bone in rig.bones.Values)
+        foreach (BoneGroup group in rig.boneGroups)
         {
-            bone.offset = Quaternion.identity;
-            bone.touched = false;
-        }
-        rig.hipsLift = 0f;
+            if (group == null || group.wrapper == null) continue;
+            bool isCaptain = group == rig.captainGroup;
+            bool groupPlayable = playableActive && isCaptain; // Playables 目前只接管 Captain，队员组始终程序化
 
-        float locomotionScale = 1f - rig.actionWeight; // Action 压过 locomotion
-        if (!playableActive)
-        {
-            if (rig.walkWeight > 0.001f) ApplyWalkLayer(rig, rig.walkWeight * locomotionScale);
-            if (rig.rowWeight > 0.001f) ApplyRowLayer(rig, rig.rowWeight * locomotionScale);
-            if (rig.idleWeight > 0.001f) ApplyIdleLayer(rig, rig.idleWeight * locomotionScale);
-        }
-        if (rig.actionWeight > 0.001f)
-            ApplyActionLayer(rig, playableActive ? 1f : rig.actionWeight);
+            foreach (BonePose bone in group.bones.Values)
+            {
+                bone.offset = Quaternion.identity;
+                bone.touched = false;
+            }
+            group.hipsLift = 0f;
 
+            // Action 压过 locomotion，但只作用于 Captain（对抗演出语义），队员组不被压制
+            float locomotionScale = isCaptain ? 1f - rig.actionWeight : 1f;
+            if (!groupPlayable)
+            {
+                // 每组叠加自身相位种子错开齐步走（Captain 种子为 0，保持历史步伐基准）
+                if (rig.walkWeight > 0.001f) ApplyWalkLayer(group, rig.walkPhase + group.phaseSeed, rig.walkWeight * locomotionScale);
+                if (rig.rowWeight > 0.001f) ApplyRowLayer(group, rig.rowPhase + group.phaseSeed * 0.7f, rig.rowWeight * locomotionScale);
+                if (rig.idleWeight > 0.001f) ApplyIdleLayer(group, rig.idleWeight * locomotionScale);
+            }
+            if (isCaptain && rig.actionWeight > 0.001f)
+                ApplyActionLayer(rig, group, groupPlayable ? 1f : rig.actionWeight);
+
+            ApplyGroupPose(group, groupPlayable, rig.actionWeight);
+        }
+    }
+
+    /// <summary>把当帧累积的偏移写回骨骼：程序化路径直接「基准 × 偏移」，Playables 路径只按 Action 权重混入。</summary>
+    static void ApplyGroupPose(BoneGroup group, bool playableActive, float actionWeight)
+    {
         if (!playableActive)
         {
             // 程序化：基准 × 偏移，永不漂移
-            foreach (BonePose bone in rig.bones.Values)
+            foreach (BonePose bone in group.bones.Values)
             {
                 if (bone.transform == null) continue;
                 bone.transform.localRotation = bone.baseRotation * bone.offset;
             }
-            if (rig.hips != null)
-                rig.hips.localPosition = rig.hipsBasePosition + LocalUp(rig.hips) * rig.hipsLift;
+            if (group.hips != null)
+                group.hips.localPosition = group.hipsBasePosition + LocalUp(group.hips) * group.hipsLift;
         }
-        else if (rig.actionWeight > 0.001f)
+        else if (actionWeight > 0.001f)
         {
             // Playables 驱动 locomotion 时，Action 以权重混向「基准 × 动作偏移」，同样无漂移
-            foreach (BonePose bone in rig.bones.Values)
+            foreach (BonePose bone in group.bones.Values)
             {
                 if (bone.transform == null || !bone.touched) continue;
                 bone.transform.localRotation = Quaternion.Slerp(
                     bone.transform.localRotation,
                     bone.baseRotation * bone.offset,
-                    rig.actionWeight);
+                    actionWeight);
             }
         }
     }
@@ -551,100 +808,99 @@ public class LycheeCharacterMotion : MonoBehaviour
             : Vector3.up;
     }
 
-    void AddBoneOffset(CharacterRig rig, string boneName, Quaternion rotation, float weight)
+    static void AddBoneOffset(BoneGroup group, string boneName, Quaternion rotation, float weight)
     {
         if (weight <= 0.001f) return;
-        if (!rig.bones.TryGetValue(boneName, out BonePose bone) || bone == null) return;
+        if (!group.bones.TryGetValue(boneName, out BonePose bone) || bone == null) return;
         bone.offset = bone.offset * Quaternion.Slerp(Quaternion.identity, rotation, Mathf.Clamp01(weight));
         bone.touched = true;
     }
 
     // ---------- Locomotion 各层 ----------
 
-    void ApplyWalkLayer(CharacterRig rig, float w)
+    void ApplyWalkLayer(BoneGroup group, float phase, float w)
     {
-        float phase = rig.walkPhase;
         float swing = Mathf.Sin(phase);
         // 下垂骨骼（腿/臂）向前 = -X；左右反相
-        AddBoneOffset(rig, "LeftUpLeg", Quaternion.Euler(-swing * 26f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightUpLeg", Quaternion.Euler(swing * 26f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftUpLeg", Quaternion.Euler(-swing * 26f, 0f, 0f), w);
+        AddBoneOffset(group, "RightUpLeg", Quaternion.Euler(swing * 26f, 0f, 0f), w);
         float kneeLeft = Mathf.Max(0f, Mathf.Sin(phase - 1.15f)) * 24f;
         float kneeRight = Mathf.Max(0f, Mathf.Sin(phase - 1.15f + Mathf.PI)) * 24f;
-        AddBoneOffset(rig, "LeftLeg", Quaternion.Euler(kneeLeft, 0f, 0f), w);
-        AddBoneOffset(rig, "RightLeg", Quaternion.Euler(kneeRight, 0f, 0f), w);
-        AddBoneOffset(rig, "LeftFoot", Quaternion.Euler(swing * 6f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightFoot", Quaternion.Euler(-swing * 6f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftLeg", Quaternion.Euler(kneeLeft, 0f, 0f), w);
+        AddBoneOffset(group, "RightLeg", Quaternion.Euler(kneeRight, 0f, 0f), w);
+        AddBoneOffset(group, "LeftFoot", Quaternion.Euler(swing * 6f, 0f, 0f), w);
+        AddBoneOffset(group, "RightFoot", Quaternion.Euler(-swing * 6f, 0f, 0f), w);
         // 手臂与同侧腿反相
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(swing * 18f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(-swing * 18f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(swing * 18f, 0f, 0f), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(-swing * 18f, 0f, 0f), w);
         float foreLeft = 8f + Mathf.Max(0f, -swing) * 16f;
         float foreRight = 8f + Mathf.Max(0f, swing) * 16f;
-        AddBoneOffset(rig, "LeftForeArm", Quaternion.Euler(-foreLeft, 0f, 0f), w);
-        AddBoneOffset(rig, "RightForeArm", Quaternion.Euler(-foreRight, 0f, 0f), w);
+        AddBoneOffset(group, "LeftForeArm", Quaternion.Euler(-foreLeft, 0f, 0f), w);
+        AddBoneOffset(group, "RightForeArm", Quaternion.Euler(-foreRight, 0f, 0f), w);
         // 躯干前倾 + 头部稳定微摆
-        AddBoneOffset(rig, "Spine", Quaternion.Euler(6f, 0f, 0f), w);
-        AddBoneOffset(rig, "Head", Quaternion.Euler(Mathf.Sin(phase * 2f) * 1.2f, Mathf.Sin(phase) * 2.5f, 0f), w);
+        AddBoneOffset(group, "Spine", Quaternion.Euler(6f, 0f, 0f), w);
+        AddBoneOffset(group, "Head", Quaternion.Euler(Mathf.Sin(phase * 2f) * 1.2f, Mathf.Sin(phase) * 2.5f, 0f), w);
         // 步频上下颠 Hips
-        rig.hipsLift += Mathf.Sin(phase * 2f) * 0.02f * w;
+        group.hipsLift += Mathf.Sin(phase * 2f) * 0.02f * w;
     }
 
-    void ApplyRowLayer(CharacterRig rig, float w)
+    void ApplyRowLayer(BoneGroup group, float rowPhase, float w)
     {
-        float p = Mathf.Sin(rig.rowPhase);
+        float p = Mathf.Sin(rowPhase);
         float armForward = Mathf.Lerp(-15f, 35f, (p + 1f) * 0.5f); // 后 15° ↔ 前 35°
         float armX = -armForward;                                  // 下垂骨骼向前为 -X
         // 双臂同相划桨（Shoulder + Arm 分摊）
-        AddBoneOffset(rig, "LeftShoulder", Quaternion.Euler(armX * 0.35f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightShoulder", Quaternion.Euler(armX * 0.35f, 0f, 0f), w);
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(armX * 0.75f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(armX * 0.75f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftShoulder", Quaternion.Euler(armX * 0.35f, 0f, 0f), w);
+        AddBoneOffset(group, "RightShoulder", Quaternion.Euler(armX * 0.35f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(armX * 0.75f, 0f, 0f), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(armX * 0.75f, 0f, 0f), w);
         float fore = 12f + Mathf.Max(0f, -p) * 22f; // 回拉时屈肘
-        AddBoneOffset(rig, "LeftForeArm", Quaternion.Euler(-fore, 0f, 0f), w);
-        AddBoneOffset(rig, "RightForeArm", Quaternion.Euler(-fore, 0f, 0f), w);
+        AddBoneOffset(group, "LeftForeArm", Quaternion.Euler(-fore, 0f, 0f), w);
+        AddBoneOffset(group, "RightForeArm", Quaternion.Euler(-fore, 0f, 0f), w);
         // Spine 节奏前后倾 ±8°
-        AddBoneOffset(rig, "Spine", Quaternion.Euler(4f + p * 8f, 0f, 0f), w);
-        AddBoneOffset(rig, "Spine1", Quaternion.Euler(p * 4f, 0f, 0f), w);
-        AddBoneOffset(rig, "Head", Quaternion.Euler(p * 2f, 0f, 0f), w);
+        AddBoneOffset(group, "Spine", Quaternion.Euler(4f + p * 8f, 0f, 0f), w);
+        AddBoneOffset(group, "Spine1", Quaternion.Euler(p * 4f, 0f, 0f), w);
+        AddBoneOffset(group, "Head", Quaternion.Euler(p * 2f, 0f, 0f), w);
         // 半蹲静态
-        AddBoneOffset(rig, "LeftUpLeg", Quaternion.Euler(-20f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightUpLeg", Quaternion.Euler(-20f, 0f, 0f), w);
-        AddBoneOffset(rig, "LeftLeg", Quaternion.Euler(26f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightLeg", Quaternion.Euler(26f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftUpLeg", Quaternion.Euler(-20f, 0f, 0f), w);
+        AddBoneOffset(group, "RightUpLeg", Quaternion.Euler(-20f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftLeg", Quaternion.Euler(26f, 0f, 0f), w);
+        AddBoneOffset(group, "RightLeg", Quaternion.Euler(26f, 0f, 0f), w);
     }
 
-    void ApplyIdleLayer(CharacterRig rig, float w)
+    void ApplyIdleLayer(BoneGroup group, float w)
     {
-        float t = Time.time + rig.idleSeed;
+        float t = Time.time + group.idleSeed;
         // 呼吸：Spine1/Spine2 各 ±1.5°，0.25Hz
         float breath = Mathf.Sin(t * 0.25f * TwoPi) * 1.5f;
-        AddBoneOffset(rig, "Spine1", Quaternion.Euler(breath, 0f, 0f), w);
-        AddBoneOffset(rig, "Spine2", Quaternion.Euler(breath, 0f, 0f), w);
+        AddBoneOffset(group, "Spine1", Quaternion.Euler(breath, 0f, 0f), w);
+        AddBoneOffset(group, "Spine2", Quaternion.Euler(breath, 0f, 0f), w);
         // 头部 Perlin 微转 ±4°（慢）
-        float headYaw = (Mathf.PerlinNoise(t * 0.13f, rig.idleSeed) - 0.5f) * 8f;
-        float headPitch = (Mathf.PerlinNoise(rig.idleSeed, t * 0.11f) - 0.5f) * 6f;
-        AddBoneOffset(rig, "Head", Quaternion.Euler(headPitch, headYaw, 0f), w);
+        float headYaw = (Mathf.PerlinNoise(t * 0.13f, group.idleSeed) - 0.5f) * 8f;
+        float headPitch = (Mathf.PerlinNoise(group.idleSeed, t * 0.11f) - 0.5f) * 6f;
+        AddBoneOffset(group, "Head", Quaternion.Euler(headPitch, headYaw, 0f), w);
         // 手臂自然下垂微摆 ±2°
         float armSway = Mathf.Sin(t * 0.4f * TwoPi) * 2f;
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(armSway, 0f, 0f), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(-armSway, 0f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(armSway, 0f, 0f), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(-armSway, 0f, 0f), w);
     }
 
     // ---------- Action 覆盖层 ----------
 
-    void ApplyActionLayer(CharacterRig rig, float w)
+    void ApplyActionLayer(CharacterRig rig, BoneGroup group, float w)
     {
         float a = Time.time - rig.actionStart;
         if (a < 0f) a = 0f;
         switch (rig.actionKind)
         {
-            case LycheeCharacterActionKind.Attack: ApplyAttack(rig, a, w); break;
-            case LycheeCharacterActionKind.Build: ApplyBuild(rig, a, w); break;
-            case LycheeCharacterActionKind.Cheer: ApplyCheer(rig, a, w); break;
-            case LycheeCharacterActionKind.Hit: ApplyHit(rig, a, w); break;
+            case LycheeCharacterActionKind.Attack: ApplyAttack(group, a, w); break;
+            case LycheeCharacterActionKind.Build: ApplyBuild(group, a, w); break;
+            case LycheeCharacterActionKind.Cheer: ApplyCheer(group, a, w); break;
+            case LycheeCharacterActionKind.Hit: ApplyHit(group, a, w); break;
         }
     }
 
-    void ApplyAttack(CharacterRig rig, float a, float w)
+    void ApplyAttack(BoneGroup group, float a, float w)
     {
         // 0.55s 一循环：右臂高举过头 → 斜下劈，Spine 配合转体 12°，左臂格挡位
         float c = Mathf.Repeat(a, 0.55f) / 0.55f;
@@ -653,17 +909,17 @@ public class LycheeCharacterMotion : MonoBehaviour
         else if (c < 0.62f) lift = Mathf.SmoothStep(1f, 0.12f, (c - 0.45f) / 0.17f);
         else lift = Mathf.SmoothStep(0.12f, 0f, (c - 0.62f) / 0.38f);
 
-        AddBoneOffset(rig, "RightShoulder", Quaternion.Euler(-28f * lift, 0f, 10f * lift), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(-125f * lift, 0f, 18f * lift), w);
-        AddBoneOffset(rig, "RightForeArm", Quaternion.Euler(-38f * lift, 0f, 0f), w);
-        AddBoneOffset(rig, "Spine", Quaternion.Euler(4f * lift, -12f * lift, 0f), w);
-        AddBoneOffset(rig, "Head", Quaternion.Euler(-4f * lift, 6f * lift, 0f), w);
+        AddBoneOffset(group, "RightShoulder", Quaternion.Euler(-28f * lift, 0f, 10f * lift), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(-125f * lift, 0f, 18f * lift), w);
+        AddBoneOffset(group, "RightForeArm", Quaternion.Euler(-38f * lift, 0f, 0f), w);
+        AddBoneOffset(group, "Spine", Quaternion.Euler(4f * lift, -12f * lift, 0f), w);
+        AddBoneOffset(group, "Head", Quaternion.Euler(-4f * lift, 6f * lift, 0f), w);
         // 左臂格挡位（静态）
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(-55f, 0f, -12f), w);
-        AddBoneOffset(rig, "LeftForeArm", Quaternion.Euler(-78f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(-55f, 0f, -12f), w);
+        AddBoneOffset(group, "LeftForeArm", Quaternion.Euler(-78f, 0f, 0f), w);
     }
 
-    void ApplyBuild(CharacterRig rig, float a, float w)
+    void ApplyBuild(BoneGroup group, float a, float w)
     {
         // 0.7s 循环：双臂同步抬起再快速下压锤打，Spine 前倾 18°
         float c = Mathf.Repeat(a, 0.7f) / 0.7f;
@@ -673,49 +929,49 @@ public class LycheeCharacterMotion : MonoBehaviour
         else h = 0f;
         float armX = Mathf.Lerp(-18f, -92f, h);
 
-        AddBoneOffset(rig, "LeftShoulder", Quaternion.Euler(armX * 0.2f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightShoulder", Quaternion.Euler(armX * 0.2f, 0f, 0f), w);
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(armX, 0f, -6f), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(armX, 0f, 6f), w);
-        AddBoneOffset(rig, "LeftForeArm", Quaternion.Euler(-(20f + 30f * h), 0f, 0f), w);
-        AddBoneOffset(rig, "RightForeArm", Quaternion.Euler(-(20f + 30f * h), 0f, 0f), w);
-        AddBoneOffset(rig, "Spine", Quaternion.Euler(18f, 0f, 0f), w);
-        AddBoneOffset(rig, "Spine1", Quaternion.Euler(5f * h, 0f, 0f), w);
-        AddBoneOffset(rig, "Head", Quaternion.Euler(8f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftShoulder", Quaternion.Euler(armX * 0.2f, 0f, 0f), w);
+        AddBoneOffset(group, "RightShoulder", Quaternion.Euler(armX * 0.2f, 0f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(armX, 0f, -6f), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(armX, 0f, 6f), w);
+        AddBoneOffset(group, "LeftForeArm", Quaternion.Euler(-(20f + 30f * h), 0f, 0f), w);
+        AddBoneOffset(group, "RightForeArm", Quaternion.Euler(-(20f + 30f * h), 0f, 0f), w);
+        AddBoneOffset(group, "Spine", Quaternion.Euler(18f, 0f, 0f), w);
+        AddBoneOffset(group, "Spine1", Quaternion.Euler(5f * h, 0f, 0f), w);
+        AddBoneOffset(group, "Head", Quaternion.Euler(8f, 0f, 0f), w);
     }
 
-    void ApplyCheer(CharacterRig rig, float a, float w)
+    void ApplyCheer(BoneGroup group, float a, float w)
     {
         // 双臂高举过头摆动 + 小跳
         float wave = Mathf.Sin(a * TwoPi * 1.6f);
-        AddBoneOffset(rig, "LeftArm", Quaternion.Euler(-155f, 0f, -14f + wave * 16f), w);
-        AddBoneOffset(rig, "RightArm", Quaternion.Euler(-155f, 0f, 14f + wave * 16f), w);
-        AddBoneOffset(rig, "LeftForeArm", Quaternion.Euler(-18f, 0f, 0f), w);
-        AddBoneOffset(rig, "RightForeArm", Quaternion.Euler(-18f, 0f, 0f), w);
-        AddBoneOffset(rig, "Spine", Quaternion.Euler(-6f, 0f, 0f), w);
-        AddBoneOffset(rig, "Head", Quaternion.Euler(-8f, wave * 4f, 0f), w);
+        AddBoneOffset(group, "LeftArm", Quaternion.Euler(-155f, 0f, -14f + wave * 16f), w);
+        AddBoneOffset(group, "RightArm", Quaternion.Euler(-155f, 0f, 14f + wave * 16f), w);
+        AddBoneOffset(group, "LeftForeArm", Quaternion.Euler(-18f, 0f, 0f), w);
+        AddBoneOffset(group, "RightForeArm", Quaternion.Euler(-18f, 0f, 0f), w);
+        AddBoneOffset(group, "Spine", Quaternion.Euler(-6f, 0f, 0f), w);
+        AddBoneOffset(group, "Head", Quaternion.Euler(-8f, wave * 4f, 0f), w);
         // Hips Y +0.05 弹跳
-        rig.hipsLift += Mathf.Abs(Mathf.Sin(a * Mathf.PI * 2.8f)) * 0.05f * w;
+        group.hipsLift += Mathf.Abs(Mathf.Sin(a * Mathf.PI * 2.8f)) * 0.05f * w;
     }
 
-    void ApplyHit(CharacterRig rig, float a, float w)
+    void ApplyHit(BoneGroup group, float a, float w)
     {
         if (a < 0.4f)
         {
             // 单次 0.4s：Spine 急后仰 14° 再回正
             float pulse = Mathf.Sin(Mathf.Clamp01(a / 0.4f) * Mathf.PI);
-            AddBoneOffset(rig, "Spine", Quaternion.Euler(-14f * pulse, 0f, 0f), w);
-            AddBoneOffset(rig, "Spine1", Quaternion.Euler(-6f * pulse, 0f, 0f), w);
-            AddBoneOffset(rig, "Head", Quaternion.Euler(-10f * pulse, 0f, 0f), w);
-            AddBoneOffset(rig, "LeftArm", Quaternion.Euler(-24f * pulse, 0f, -10f * pulse), w);
-            AddBoneOffset(rig, "RightArm", Quaternion.Euler(-24f * pulse, 0f, 10f * pulse), w);
+            AddBoneOffset(group, "Spine", Quaternion.Euler(-14f * pulse, 0f, 0f), w);
+            AddBoneOffset(group, "Spine1", Quaternion.Euler(-6f * pulse, 0f, 0f), w);
+            AddBoneOffset(group, "Head", Quaternion.Euler(-10f * pulse, 0f, 0f), w);
+            AddBoneOffset(group, "LeftArm", Quaternion.Euler(-24f * pulse, 0f, -10f * pulse), w);
+            AddBoneOffset(group, "RightArm", Quaternion.Euler(-24f * pulse, 0f, 10f * pulse), w);
         }
         else
         {
             // 之后保持微晃（权重在外层降到 0.6）
             float t = a - 0.4f;
-            AddBoneOffset(rig, "Spine", Quaternion.Euler(Mathf.Sin(t * 8f) * 4f, Mathf.Sin(t * 6.3f) * 3f, 0f), w);
-            AddBoneOffset(rig, "Head", Quaternion.Euler(Mathf.Sin(t * 7.1f) * 3f, 0f, 0f), w);
+            AddBoneOffset(group, "Spine", Quaternion.Euler(Mathf.Sin(t * 8f) * 4f, Mathf.Sin(t * 6.3f) * 3f, 0f), w);
+            AddBoneOffset(group, "Head", Quaternion.Euler(Mathf.Sin(t * 7.1f) * 3f, 0f, 0f), w);
         }
     }
 
@@ -725,24 +981,65 @@ public class LycheeCharacterMotion : MonoBehaviour
     {
         float t = Time.time;
 
-        // TeamMember：行进 Y 弹跳（相位按序号错开）+ 行进方向小幅俯仰
+        // TeamMember：行进 Y 弹跳（相位按序号错开）+ 行进方向小幅俯仰；
+        // 采到骨骼组的队员弹跳/俯仰减半——骨骼步行已自带 Hips 起伏与躯干前倾，全幅会双重弹跳
         foreach (WrapperPose member in rig.members)
         {
             if (member == null || member.transform == null) continue;
+            float amplitude = member.hasBones ? 0.5f : 1f;
             float phase = rig.walkPhase + member.seed;
-            float bounce = Mathf.Abs(Mathf.Sin(phase)) * 0.03f * rig.moveBlend;
+            float bounce = Mathf.Abs(Mathf.Sin(phase)) * 0.03f * rig.moveBlend * amplitude;
             member.transform.localPosition = member.basePosition + new Vector3(0f, bounce, 0f);
-            float pitch = Mathf.Sin(phase) * 3.5f * rig.moveBlend;
+            float pitch = Mathf.Sin(phase) * 3.5f * rig.moveBlend * amplitude;
             member.transform.localRotation = member.baseRotation * Quaternion.Euler(pitch, 0f, 0f);
         }
 
-        // Carriage：速度相关 Perlin 颠簸（roll ±1.8°、pitch ±1.2°）
+        // Carriage：速度相关 Perlin 颠簸（roll ±1.8°、pitch ±1.2°）+ 假车轮滚动 + 轮速弹跳 + 加减速点头
         if (rig.carriage != null && rig.carriage.transform != null)
         {
+            WrapperPose carriage = rig.carriage;
             float k = Mathf.Clamp01(rig.speed / 2.5f) * (1f - rig.waterBlend);
-            float roll = (Mathf.PerlinNoise(t * 3.1f, rig.carriage.seed) - 0.5f) * 2f * 1.8f * k;
-            float pitch = (Mathf.PerlinNoise(rig.carriage.seed + 7.7f, t * 2.6f) - 0.5f) * 2f * 1.2f * k;
-            rig.carriage.transform.localRotation = rig.carriage.baseRotation * Quaternion.Euler(pitch, 0f, roll);
+            float roll = (Mathf.PerlinNoise(t * 3.1f, carriage.seed) - 0.5f) * 2f * 1.8f * k;
+            float pitch = (Mathf.PerlinNoise(carriage.seed + 7.7f, t * 2.6f) - 0.5f) * 2f * 1.2f * k;
+
+            // 加减速点头：速度变化率注入 pitchOffset（刹车前倾、起步后仰），随后匀速衰减回零
+            float deltaSpeed = rig.speed - carriage.lastSpeed;
+            carriage.lastSpeed = rig.speed;
+            carriage.pitchOffset = Mathf.Clamp(carriage.pitchOffset - deltaSpeed * 2.4f, -7f, 7f);
+            carriage.pitchOffset = Mathf.MoveTowards(carriage.pitchOffset, 0f, deltaTime * 9f);
+
+            float bounce = 0f;
+            if (carriage.wheels.Count > 0 && carriage.wheelRadius > 0.001f)
+            {
+                // 车轮滚动角速度 = 线速度 / 半径（弧度），换算成度累加；水路时轮子不转
+                float spinDelta = rig.speed / carriage.wheelRadius * Mathf.Rad2Deg * deltaTime * (1f - rig.waterBlend);
+                carriage.wheelSpin = Mathf.Repeat(carriage.wheelSpin + spinDelta, 360f);
+
+                // 水路换船：轮子整体隐藏（比随 waterBlend 缩进更干净，不会出现半截轮悬在船边）
+                bool hideWheels = rig.waterBlend > 0.5f;
+                if (hideWheels != carriage.wheelsHidden)
+                {
+                    carriage.wheelsHidden = hideWheels;
+                    foreach (Transform wheel in carriage.wheels)
+                    {
+                        if (wheel != null) wheel.gameObject.SetActive(!hideWheels);
+                    }
+                }
+                if (!hideWheels)
+                {
+                    // 基准朝向 × 绕自身 Y 的累计转角 = 绕车轴滚动（四轮同步即可，肉眼分不出差速）
+                    Quaternion spin = WheelBaseRotation * Quaternion.Euler(0f, carriage.wheelSpin, 0f);
+                    foreach (Transform wheel in carriage.wheels)
+                    {
+                        if (wheel != null) wheel.localRotation = spin;
+                    }
+                }
+                // 与轮速同步的轻微 Y 弹跳：每转两次起伏（模拟轮辋不圆），幅度随速度因子收放
+                bounce = Mathf.Abs(Mathf.Sin(carriage.wheelSpin * Mathf.Deg2Rad * 2f)) * 0.012f * k;
+            }
+
+            carriage.transform.localRotation = carriage.baseRotation * Quaternion.Euler(pitch + carriage.pitchOffset, 0f, roll);
+            carriage.transform.localPosition = carriage.basePosition + new Vector3(0f, bounce, 0f);
         }
 
         // Boat：水上缓慢横摇 ±2.5°
@@ -794,12 +1091,8 @@ public class LycheeCharacterMotion : MonoBehaviour
     void RestoreBasePose(CharacterRig rig)
     {
         if (rig == null) return;
-        foreach (BonePose bone in rig.bones.Values)
-        {
-            if (bone != null && bone.transform != null)
-                bone.transform.localRotation = bone.baseRotation;
-        }
-        if (rig.hips != null) rig.hips.localPosition = rig.hipsBasePosition;
+        foreach (BoneGroup group in rig.boneGroups)
+            RestoreGroupPose(group);
         foreach (WrapperPose member in rig.members)
         {
             if (member == null || member.transform == null) continue;
@@ -807,8 +1100,22 @@ public class LycheeCharacterMotion : MonoBehaviour
             member.transform.localRotation = member.baseRotation;
         }
         if (rig.carriage != null && rig.carriage.transform != null)
+        {
+            rig.carriage.transform.localPosition = rig.carriage.basePosition; // 轮速弹跳会动 localPosition，一并还原
             rig.carriage.transform.localRotation = rig.carriage.baseRotation;
+        }
         if (rig.boat != null && rig.boat.transform != null)
             rig.boat.transform.localRotation = rig.boat.baseRotation;
+    }
+
+    static void RestoreGroupPose(BoneGroup group)
+    {
+        if (group == null || !group.wrapper) return; // Unity 假 null：小队组可能已随小队销毁
+        foreach (BonePose bone in group.bones.Values)
+        {
+            if (bone != null && bone.transform != null)
+                bone.transform.localRotation = bone.baseRotation;
+        }
+        if (group.hips != null) group.hips.localPosition = group.hipsBasePosition;
     }
 }

@@ -17,22 +17,23 @@ public class LycheeReplayCameraController : MonoBehaviour
 
     [Header("Perspective Mode")]
     public bool perspectiveMode = true;
-    public float perspectiveFieldOfView = 38f;
-    public float perspectivePitch = 48f;
-    public float perspectiveDistanceSpanScale = 1.35f;
-    public float perspectiveDistancePadding = 8f;
-    public float perspectiveMinDistance = 12f;
-    public float perspectiveMaxDistance = 46f;
-    public float perspectiveEventDistance = 18f;
+    // 默认取景刻意拉远拉低：平时呈现 3D 地图远景全貌，战斗/事件时才拉近聚焦。
+    public float perspectiveFieldOfView = 42f;
+    public float perspectivePitch = 41f;
+    public float perspectiveDistanceSpanScale = 1.25f;
+    public float perspectiveDistancePadding = 12f;
+    public float perspectiveMinDistance = 17f;
+    public float perspectiveMaxDistance = 62f;
+    public float perspectiveEventDistance = 15f;
     public float rotationSmoothTime = 0.4f;
 
-    [Min(0.5f)] public float perspectiveZoomMultiplier = 1.2f; // 画面整体放大倍率：镜头拉近实现，HUD 不受影响
+    [Min(0.5f)] public float perspectiveZoomMultiplier = 1f; // 画面整体放大倍率：镜头拉近实现，HUD 不受影响；默认 1 即不额外拉近，保留字段供调参
 
     [Header("Focus Follow（两队拉开后轮流跟拍近景）")]
     public bool focusFollowEnabled = true;
     [Min(5f)] public float focusSpanThreshold = 26f;   // 两队间距超过该值时切换为单队跟拍
-    [Min(2f)] public float focusSwapSeconds = 11f;     // 轮流跟拍的切换周期
-    [Min(2f)] public float focusedSpan = 15f;          // 跟拍单队时使用的取景跨度
+    [Min(2f)] public float focusSwapSeconds = 14f;     // 轮流跟拍的切换周期
+    [Min(2f)] public float focusedSpan = 24f;          // 跟拍单队时使用的取景跨度（取宽些，保持远景感）
 
     Camera targetCamera;
     Vector3 positionVelocity;
@@ -232,12 +233,13 @@ public class LycheeReplayCameraController : MonoBehaviour
             span * perspectiveDistanceSpanScale + perspectiveDistancePadding,
             perspectiveMinDistance,
             perspectiveMaxDistance);
-        if (replay.TryGetEventFocus(out Vector3 eventPosition))
+        if (replay.TryGetEventFocus(out Vector3 eventPosition, out float eventFocusDistance))
         {
             focus = eventPosition;
-            distance = perspectiveEventDistance;
+            // 事件可携带自定义聚焦距离（按事件类型区分拉近程度）；<=0 表示未指定，回退默认值。
+            distance = eventFocusDistance > 0f ? eventFocusDistance : perspectiveEventDistance;
         }
-        // 1.2x 画面放大 = 镜头拉近，代替 Game 视图 Scale 裁切（后者会把 HUD 裁出画面）。
+        // 画面放大 = 镜头拉近，代替 Game 视图 Scale 裁切（后者会把 HUD 裁出画面）；倍率 1 时为恒等运算。
         distance = Mathf.Max(10f, distance / Mathf.Max(0.5f, perspectiveZoomMultiplier));
         return true;
     }
