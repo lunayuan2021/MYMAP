@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -23,12 +22,16 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     const float FeedLifetime = 12f;
     const float RushDuration = 2.8f;
 
-    static readonly Color PanelBg = new Color(0.01f, 0.012f, 0.018f, 0.8f);
-    static readonly Color GoldTitle = new Color(1f, 0.78f, 0.16f, 1f);
+    // ---- 唐风统一调色板：墨底承画面、鎏金点题、绢黄走正文、朱红示警、暗金收边 ----
+    static readonly Color PanelBg = new Color(0.102f, 0.090f, 0.078f, 0.86f);     // 墨 #1A1714
+    static readonly Color GoldTitle = new Color(0.831f, 0.686f, 0.361f, 1f);      // 鎏金 #D4AF5C
+    static readonly Color SilkText = new Color(0.929f, 0.878f, 0.765f, 1f);       // 绢黄 #EDE0C3
+    static readonly Color DarkGoldEdge = new Color(0.549f, 0.455f, 0.220f, 0.9f); // 暗金描边 #8C7438
+    static readonly Color Vermilion = new Color(0.620f, 0.161f, 0.125f, 1f);      // 朱红 #9E2920
+    static readonly Color CloudGray = new Color(0.45f, 0.53f, 0.56f, 1f);         // 青灰（天气类条目色条）
     static readonly Color RedTeamColor = new Color(0.95f, 0.18f, 0.11f, 1f);
     static readonly Color BlueTeamColor = new Color(0.20f, 0.48f, 1f, 1f);
-    static readonly Color SoftText = new Color(0.92f, 0.93f, 0.88f, 0.95f);
-    static readonly Color AmberBg = new Color(0.46f, 0.30f, 0.05f, 0.88f);
+    static readonly Color SoftText = new Color(0.929f, 0.878f, 0.765f, 0.95f);    // 绢黄正文（事件流条目）
 
     static readonly float[] SpeedSeconds = { 0.20f, 0.10f, 0.05f, 0.025f };
     static readonly string[] SpeedLabels = { "0.5×", "1×", "2×", "4×" };
@@ -38,6 +41,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     static Sprite circleSprite;
     static Sprite bandSprite;
     static Sprite vignetteSprite;
+    static Sprite panelFrameSprite;
+    static bool panelFrameResolved;
 
     sealed class FeedEntry
     {
@@ -54,6 +59,24 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         public string label;
         public Color color;
+    }
+
+    /// <summary>数值变化飘字（"+N"/"-N"）的池化条目：复用 GameObject，禁每帧 new。</summary>
+    sealed class DeltaFloater
+    {
+        public RectTransform rect;
+        public Text text;
+        public CanvasGroup group;
+        public float start;
+        public bool active;
+    }
+
+    /// <summary>panel_frame 兜底登记项：WebGL 预载完成后补换肤时，需要一并关掉的兜底元素。</summary>
+    sealed class PendingSkin
+    {
+        public Image bg;          // 等待升级的面板底图
+        public Outline edge;      // 兜底暗金细线描边（升级后关闭）
+        public GameObject extra;  // 兜底形态的附加装饰（控制条顶部鎏金线，升级后隐藏）
     }
 
     LycheeReplayPlayer player;
@@ -115,11 +138,23 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     Coroutine toastRoutine;
     readonly Dictionary<int, int> alertRoundByCamp = new Dictionary<int, int>();
 
+    // ---- 回合数滚动 + Delta 飘字 ----
+    const int MaxFloaters = 6;
+    float displayedRound = -1f;          // 滚动显示值；-1 表示未初始化（首帧直接对齐不滚动）
+    int lastRoundValue = int.MinValue;   // 上一帧的真实回合，用于检测数值跳变与方向
+    float roundFlashUntil = -1f;         // 鎏金闪烁截止时刻（数值增加瞬间点亮 0.3s）
+    int lastShownRound = int.MinValue;   // 标签上一次实际写入的回合显示值（变化才拼串，免每帧分配）
+    int lastShownTotal = int.MinValue;   // 标签上一次实际写入的总回合数
+    readonly List<DeltaFloater> floaterPool = new List<DeltaFloater>();
+
+    // ---- 面板换肤兜底登记（等待 WebGL 主题预载完成后升级为 panel_frame 边框）----
+    readonly List<PendingSkin> pendingSkins = new List<PendingSkin>();
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void LycheeBootstrapHudExtensions()
     {
         if (Disabled) return;
-        LycheeReplayPlayer host = FindFirstObjectByType<LycheeReplayPlayer>();
+        LycheeReplayPlayer host = FindAnyObjectByType<LycheeReplayPlayer>();
         if (host == null) return;
         if (host.GetComponent<LycheeHudExtensions>() != null) return;
         host.gameObject.AddComponent<LycheeHudExtensions>();
@@ -183,6 +218,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         UpdateFeed(now);
         UpdateWeatherBanner(now);
         UpdateControls();
+        UpdateFloaters(now);
+        UpgradePendingSkins();
     }
 
     // ================= 事件订阅 =================
@@ -200,6 +237,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (Disabled || current == null) return;
         RefreshWeatherBanner(current);
+        // 非相邻帧应用 = 回放跳转（拖滑杆/重播/循环回开头）：回合显示直接贴齐，
+        // 与 LycheeReplayRuntimeHud 比分滚动的口径一致——硬滚追只会长时间显示错误中间值。
+        // 快速播放下单帧补播多回合时 RoundApplied 逐帧触发、相邻帧差恒为 1，不会误判。
+        if (previous == null || current.round - previous.round != 1)
+            SnapRoundDisplay(current.round);
         if (current.phase == "NORMAL" && current.round < lastRushRound)
             lastRushRound = int.MinValue;
         if (previous != null && current.phase == "RUSH" && previous.phase != "RUSH" && current.round >= previous.round)
@@ -231,7 +273,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null) return;
+        if (FindAnyObjectByType<EventSystem>() != null) return;
         GameObject go = new GameObject("LycheeHudExtEventSystem");
         go.AddComponent<EventSystem>();
 #if ENABLE_INPUT_SYSTEM
@@ -262,8 +304,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         weatherBg = root.gameObject.AddComponent<Image>();
         weatherBg.color = PanelBg;
         weatherBg.raycastTarget = false;
+        // 天气横幅底色需按天气类型动态变化（语义色），不能整体九宫格换肤，
+        // 改为常驻一圈暗金细边统一唐风气质；预告呼吸用的鎏金描边仍单独开关。
+        Outline weatherEdge = root.gameObject.AddComponent<Outline>();
+        weatherEdge.effectColor = DarkGoldEdge;
+        weatherEdge.effectDistance = new Vector2(1f, -1f);
         weatherOutline = root.gameObject.AddComponent<Outline>();
-        weatherOutline.effectColor = new Color(1f, 0.78f, 0.16f, 0.9f);
+        weatherOutline.effectColor = new Color(GoldTitle.r, GoldTitle.g, GoldTitle.b, 0.9f);
         weatherOutline.effectDistance = new Vector2(1.6f, -1.6f);
         weatherOutline.enabled = false;
 
@@ -275,7 +322,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         weatherIcon.raycastTarget = false;
         weatherIcon.enabled = false;
 
-        weatherText = MakeText("WeatherText", root, 18, FontStyle.Bold, new Color(0.96f, 0.97f, 0.92f, 1f), TextAnchor.MiddleCenter);
+        weatherText = MakeText("WeatherText", root, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleCenter);
         SetRect(weatherText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(17f, 0f), new Vector2(-66f, 0f));
     }
 
@@ -288,14 +335,20 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         controlGroup = panel.gameObject.AddComponent<CanvasGroup>();
         controlGroup.alpha = 0f;
         Image bg = panel.gameObject.AddComponent<Image>();
-        bg.color = PanelBg;
         bg.raycastTarget = true;
+        PendingSkin skin = ApplyPanelSkin(bg);
 
-        RectTransform line = MakeRect("TopLine", panel);
-        SetRect(line, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 2f));
-        Image lineImg = line.gameObject.AddComponent<Image>();
-        lineImg.color = new Color(1f, 0.77f, 0.27f, 0.86f);
-        lineImg.raycastTarget = false;
+        // 顶部鎏金提示线只在无边框贴图的兜底形态下画，避免与九宫格描金边叠出双线；
+        // 记入 PendingSkin.extra：WebGL 预载完成后若换上边框贴图，这条线要一并隐藏。
+        if (skin != null)
+        {
+            RectTransform line = MakeRect("TopLine", panel);
+            SetRect(line, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 2f));
+            Image lineImg = line.gameObject.AddComponent<Image>();
+            lineImg.color = new Color(GoldTitle.r, GoldTitle.g, GoldTitle.b, 0.86f);
+            lineImg.raycastTarget = false;
+            skin.extra = line.gameObject;
+        }
 
         Font font = GetSharedFont();
         string replayLabel = HasGlyph(font, '⟲') ? "⟲ 重播" : "重播";
@@ -307,7 +360,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(124f, -16f), new Vector2(72f, 36f), OnPlayPauseClicked, out playButtonLabel);
         MakeButton(panel, "SpeedButton", SpeedLabels[speedIndex], new Vector2(208f, -16f), new Vector2(76f, 36f), OnSpeedClicked, out speedButtonLabel);
 
-        roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, new Color(1f, 0.88f, 0.58f, 1f), TextAnchor.MiddleRight);
+        roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleRight);
         // 回合标签右对齐 308..484，与速度按钮右缘（284）保持 24px 净空。
         SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(176f, 36f));
         roundLabel.text = "R 0 / 0";
@@ -334,7 +387,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         RectTransform fillRt = MakeRect("Fill", fillArea);
         SetRect(fillRt, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(10f, 0f));
         Image fillImg = fillRt.gameObject.AddComponent<Image>();
-        fillImg.color = new Color(1f, 0.78f, 0.16f, 0.85f);
+        fillImg.color = new Color(GoldTitle.r, GoldTitle.g, GoldTitle.b, 0.85f);
         fillImg.raycastTarget = false;
 
         RectTransform handleArea = MakeRect("HandleSlideArea", rt);
@@ -343,7 +396,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         SetRect(handleRt, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(18f, 18f));
         Image handleImg = handleRt.gameObject.AddComponent<Image>();
         handleImg.sprite = GetCircleSprite();
-        handleImg.color = new Color(1f, 0.92f, 0.62f, 1f);
+        handleImg.color = SilkText;
 
         Slider slider = go.GetComponent<Slider>();
         slider.fillRect = fillRt;
@@ -439,8 +492,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         toastGroup.interactable = false;
         toastGroup.blocksRaycasts = false;
         Image toastBg = toastRt.gameObject.AddComponent<Image>();
-        toastBg.color = AmberBg;
         toastBg.raycastTarget = false;
+        ApplyPanelSkin(toastBg);
 
         RectTransform accentRt = MakeRect("Accent", toastRt);
         SetRect(accentRt, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(5f, 0f));
@@ -449,7 +502,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         toastAccent.raycastTarget = false;
 
         // 文字区距左侧强调条（0..5）19px、距右缘 18px，保证内容不贴背景边。
-        toastText = MakeText("ToastText", toastRt, 18, FontStyle.Bold, new Color(1f, 0.95f, 0.82f, 1f), TextAnchor.MiddleCenter);
+        toastText = MakeText("ToastText", toastRt, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleCenter);
         SetRect(toastText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(3f, 0f), new Vector2(-42f, 0f));
     }
 
@@ -472,7 +525,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         CreateFeedEntry(label, color);
     }
 
-    void CreateFeedEntry(string label, Color dotColor)
+    void CreateFeedEntry(string label, Color barColor)
     {
         if (feedRoot == null) return;
         GameObject go = new GameObject("FeedEntry", typeof(RectTransform));
@@ -487,20 +540,21 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         bg.color = PanelBg;
         bg.raycastTarget = false;
 
-        RectTransform dotRt = MakeRect("Dot", rt);
-        SetRect(dotRt, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(15f, 0f), new Vector2(10f, 10f));
-        Image dot = dotRt.gameObject.AddComponent<Image>();
-        dot.sprite = GetCircleSprite();
-        dot.color = dotColor;
-        dot.raycastTarget = false;
+        // 左侧 3px 类别色条贴满条目全高（对抗=朱红/任务=鎏金/天气=青灰/资源=绢黄），
+        // 比圆点占位更省、一眼可按颜色扫读事件类别。
+        RectTransform barRt = MakeRect("CategoryBar", rt);
+        SetRect(barRt, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(3f, 0f));
+        Image bar = barRt.gameObject.AddComponent<Image>();
+        bar.color = barColor;
+        bar.raycastTarget = false;
 
         Text text = MakeText("Label", rt, 15, FontStyle.Bold, SoftText, TextAnchor.MiddleLeft);
-        SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(13f, 0f), new Vector2(-40f, 0f));
+        SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(1f, 0f), new Vector2(-22f, 0f));
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
         text.verticalOverflow = VerticalWrapMode.Truncate;
-        // 超长条目按可用宽度（条目宽 332 - 圆点区 33 - 右留白 13）截断并追加省略号，
+        // 超长条目按可用宽度（条目宽 332 - 色条加左留白 12 - 右留白 10）截断并追加省略号，
         // 保证单行展示、不会伸出条目背景/面板。
-        text.text = TruncateWithEllipsis(text, label, FeedWidth - 46f);
+        text.text = TruncateWithEllipsis(text, label, FeedWidth - 22f);
 
         FeedEntry entry = new FeedEntry
         {
@@ -554,7 +608,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
                 removed = true;
                 continue;
             }
-            float slide = Ease01((now - entry.slideStart) / 0.25f);
+            // EaseOutCubic：滑入起步迅猛、落位轻收，比 SmoothStep 更有"甩入"劲道。
+            float slide = EaseOutCubic((now - entry.slideStart) / 0.25f);
             float x = Mathf.Lerp(-FeedWidth - 40f, 0f, slide);
             float blend = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
             float y = Mathf.Lerp(entry.rect.anchoredPosition.y, entry.targetY, blend);
@@ -563,7 +618,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             if (!entry.fading && now - entry.born > FeedLifetime) BeginFeedFade(entry);
             if (entry.fading)
             {
-                float keep = 1f - Ease01((now - entry.fadeStart) / 0.3f);
+                float keep = 1f - EaseOutCubic((now - entry.fadeStart) / 0.3f);
                 entry.group.alpha = Mathf.Min(slide, keep);
                 if (keep <= 0f)
                 {
@@ -742,7 +797,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             seekSlider.SetValueWithoutNotify(Mathf.Clamp(player.CurrentRound, (int)seekSlider.minValue, total));
             suppressSlider = false;
         }
-        if (roundLabel != null) roundLabel.text = "R " + player.CurrentRound + " / " + total;
+        UpdateRoundLabel(player.CurrentRound, total);
         if (playButtonLabel != null)
         {
             string wanted = player.IsPlaying ? pauseGlyph : playGlyph;
@@ -808,6 +863,124 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         EventTrigger.Entry entry = new EventTrigger.Entry { eventID = eventType };
         entry.callback.AddListener(_ => handler());
         trigger.triggers.Add(entry);
+    }
+
+    // ================= 数字滚动 + Delta 飘字 =================
+
+    /// <summary>
+    /// 回合数滚动跳字：displayedRound 以 MoveTowards 追真实值；速度下限跟随播放节奏
+    /// （1.5×回合推进速率，至少 4/秒），任何倍速下显示值至多落后不足一回合——若仍按固定
+    /// 4/秒追，4× 速度推进 40 回合/秒时显示值会稳定落后十余回合。数值增加瞬间标签闪鎏金
+    /// 0.3s 回绢黄。回放跳转的贴齐与飘字在 SnapRoundDisplay（由 HandleRoundApplied 触发）。
+    /// </summary>
+    void UpdateRoundLabel(int current, int total)
+    {
+        if (roundLabel == null) return;
+        if (lastRoundValue == int.MinValue) lastRoundValue = current;
+        if (current != lastRoundValue)
+        {
+            if (current > lastRoundValue) roundFlashUntil = Time.unscaledTime + 0.3f;
+            lastRoundValue = current;
+        }
+        if (displayedRound < 0f) displayedRound = current;
+        float floor = player != null && player.secondsPerRound > 0.001f
+            ? Mathf.Max(4f, 1.5f / player.secondsPerRound)
+            : 4f;
+        float speed = Mathf.Max(Mathf.Abs(current - displayedRound) * 3f, floor);
+        displayedRound = Mathf.MoveTowards(displayedRound, current, speed * Time.unscaledDeltaTime);
+        int shown = Mathf.RoundToInt(displayedRound);
+        if (shown != lastShownRound || total != lastShownTotal)
+        {
+            lastShownRound = shown;
+            lastShownTotal = total;
+            roundLabel.text = "R " + shown + " / " + total;
+        }
+        roundLabel.color = Time.unscaledTime < roundFlashUntil ? GoldTitle : SilkText;
+    }
+
+    /// <summary>
+    /// 回放跳转贴齐：非相邻帧应用（拖滑杆/重播/循环回开头）时滚动显示值立即对齐真实回合，
+    /// 不让回合号花一两秒"追"错误的中间值（与主 HUD 比分滚动 RollScore 的贴齐口径一致）；
+    /// 跨度 ≥2 时出一条 "+N"/"-N" 飘字示意跳变。逐回合推进（含低帧率下单帧补播多回合，
+    /// 每次 RoundApplied 仍为相邻帧）不会走到这里，故飘字不会在常规播放中刷屏。
+    /// </summary>
+    void SnapRoundDisplay(int round)
+    {
+        if (lastRoundValue != int.MinValue)
+        {
+            int delta = round - lastRoundValue;
+            if (Mathf.Abs(delta) >= 2 && roundLabel != null)
+                SpawnDeltaFloater(roundLabel.rectTransform, delta);
+        }
+        lastRoundValue = round;
+        displayedRound = round;
+        roundFlashUntil = -1f;
+    }
+
+    /// <summary>在目标数字上方生成 "+N"/"-N" 飘字（上飘 18px、0.8s 淡出，增=鎏金/减=朱红）；池化复用。</summary>
+    void SpawnDeltaFloater(RectTransform anchor, int delta)
+    {
+        if (anchor == null || delta == 0) return;
+        DeltaFloater item = null;
+        for (int i = 0; i < floaterPool.Count; i++)
+        {
+            if (!floaterPool[i].active)
+            {
+                item = floaterPool[i];
+                break;
+            }
+        }
+        if (item == null)
+        {
+            if (floaterPool.Count >= MaxFloaters)
+            {
+                // 池满征用最早的一条：飘字寿命仅 0.8s，被顶掉的早已接近全透明。
+                item = floaterPool[0];
+                for (int i = 1; i < floaterPool.Count; i++)
+                    if (floaterPool[i].start < item.start) item = floaterPool[i];
+            }
+            else
+            {
+                Text text = MakeText("DeltaFloater", canvasRect, 16, FontStyle.Bold, GoldTitle, TextAnchor.MiddleCenter);
+                item = new DeltaFloater
+                {
+                    rect = text.rectTransform,
+                    text = text,
+                    group = text.gameObject.AddComponent<CanvasGroup>()
+                };
+                item.group.interactable = false;
+                item.group.blocksRaycasts = false;
+                floaterPool.Add(item);
+            }
+        }
+        // 挂到目标数字下面（SetParent(false) 保持 UI 缩放），自其顶缘上方起飘。
+        item.rect.SetParent(anchor, false);
+        SetRect(item.rect, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 0f), new Vector2(0f, 2f), new Vector2(120f, 22f));
+        item.text.text = (delta > 0 ? "+" : "") + delta;
+        item.text.color = delta > 0 ? GoldTitle : Vermilion;
+        item.group.alpha = 1f;
+        item.start = Time.unscaledTime;
+        item.active = true;
+        item.rect.gameObject.SetActive(true);
+    }
+
+    void UpdateFloaters(float now)
+    {
+        for (int i = 0; i < floaterPool.Count; i++)
+        {
+            DeltaFloater item = floaterPool[i];
+            if (!item.active || item.rect == null) continue;
+            float t = (now - item.start) / 0.8f;
+            if (t >= 1f)
+            {
+                item.active = false;
+                item.rect.gameObject.SetActive(false);
+                continue;
+            }
+            // 上飘缓出（起飘快、到顶慢）+ 平滑淡出。
+            item.rect.anchoredPosition = new Vector2(0f, 2f + 18f * EaseOutCubic(t));
+            item.group.alpha = 1f - Ease01(t);
+        }
     }
 
     // ================= RUSH 转场 =================
@@ -1014,12 +1187,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     static Color FeedColor(string type)
     {
-        if (string.IsNullOrEmpty(type)) return new Color(0.86f, 0.48f, 1f);
-        if (type.Contains("WEATHER")) return new Color(0.28f, 0.74f, 1f);
-        if (type.Contains("GUARD") || type.Contains("FORCED")) return new Color(1f, 0.28f, 0.14f);
-        if (type.Contains("TASK") || type.Contains("BOUNTY")) return new Color(1f, 0.78f, 0.16f);
-        if (type.Contains("DELIVER") || type.Contains("VERIFY")) return new Color(0.34f, 1f, 0.42f);
-        return new Color(0.86f, 0.48f, 1f);
+        // 类别色条与唐风调色板对齐：对抗=朱红、任务=鎏金、天气=青灰、资源=绢黄，
+        // 杂项落暗金不抢戏；对抗组的匹配口径与 CategoryIcon 的 ⚔ 一致。
+        if (string.IsNullOrEmpty(type)) return DarkGoldEdge;
+        if (type.Contains("WEATHER")) return CloudGray;
+        if (type.Contains("GUARD") || type.Contains("FORCED") || type.Contains("CONTEST") || type.Contains("CARD")) return Vermilion;
+        if (type.Contains("TASK") || type.Contains("BOUNTY")) return GoldTitle;
+        if (type.Contains("RESOURCE") || type.Contains("DELIVER") || type.Contains("VERIFY") || type.Contains("PROCESS")) return SilkText;
+        return DarkGoldEdge;
     }
 
     static string CategoryIcon(string type)
@@ -1082,6 +1257,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     static float Ease01(float t)
     {
         return Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+    }
+
+    /// <summary>三次缓出（1-(1-t)³）：起步快、收尾稳，事件流滑入与飘字上浮用。</summary>
+    static float EaseOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        float inv = 1f - t;
+        return 1f - inv * inv * inv;
     }
 
     /// <summary>按像素宽度截断文本：超出 maxWidth 时截到可容纳处并追加省略号，用于事件流条目防溢出。</summary>
@@ -1177,6 +1360,96 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         catch (Exception)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// panel_frame.png 九宫格 Sprite：border 取贴图短边 1/4，拉伸到任意面板尺寸时
+    /// 四角与描金边花纹不变形；缺失或解码失败返回 null（调用方走细线描边兜底）。
+    /// </summary>
+    static Sprite GetPanelFrameSprite()
+    {
+        if (panelFrameResolved) return panelFrameSprite;
+        try
+        {
+            byte[] bytes = LycheeThemeCache.LoadBytes("panel_frame.png");
+            if (bytes == null || bytes.Length == 0)
+            {
+                // WebGL 预载未完成时取不到字节属于"尚未就绪"而非"素材缺失"：
+                // 此时不锁定判定结果，预载完成后 UpgradePendingSkins 会再来取一次。
+                panelFrameResolved = LycheeThemeCache.Preloaded;
+                return null;
+            }
+            panelFrameResolved = true;
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!texture.LoadImage(bytes)) return null;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            float edge = Mathf.Max(8f, Mathf.Round(Mathf.Min(texture.width, texture.height) * 0.25f));
+            panelFrameSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(edge, edge, edge, edge));
+            return panelFrameSprite;
+        }
+        catch (Exception)
+        {
+            panelFrameResolved = true;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 主要面板换肤：panel_frame 可用 → 九宫格描金边框；缺失 → 墨底 #1A1714 + 暗金细线描边兜底，
+    /// 并登记到 pendingSkins（WebGL 上 HUD 构建早于主题预载完成，之后由 UpgradePendingSkins 补换肤）。
+    /// 返回兜底登记项（null 表示已直接用上边框贴图）。
+    /// </summary>
+    PendingSkin ApplyPanelSkin(Image bg)
+    {
+        if (bg == null) return null;
+        if (TrySkinWithFrame(bg)) return null;
+        bg.color = PanelBg;
+        Outline edge = bg.gameObject.AddComponent<Outline>();
+        edge.effectColor = DarkGoldEdge;
+        edge.effectDistance = new Vector2(1f, -1f);
+        PendingSkin pending = new PendingSkin { bg = bg, edge = edge };
+        pendingSkins.Add(pending);
+        return pending;
+    }
+
+    /// <summary>给单个面板套上 panel_frame 九宫格；贴图尚不可用时返回 false（调用方走兜底）。</summary>
+    static bool TrySkinWithFrame(Image bg)
+    {
+        Sprite frame = GetPanelFrameSprite();
+        if (frame == null) return false;
+        bg.sprite = frame;
+        bg.type = Image.Type.Sliced;
+        // 512 贴图的 128px 边框直接铺 42 高的 Toast 会被切片的边框收缩压成 6:1 的扁条，
+        // 角花严重变形；按面板短边把 pixelsPerUnitMultiplier 等比放大，让单侧边框
+        // 至多占短边约 42%，四角花纹保持原始比例。两处面板均为点锚定（sizeDelta 即实际
+        // 尺寸）；拿不到正尺寸时跳过缩放，仅走默认切片。
+        float shortSide = Mathf.Min(bg.rectTransform.sizeDelta.x, bg.rectTransform.sizeDelta.y);
+        if (shortSide > 0f)
+            bg.pixelsPerUnitMultiplier = Mathf.Max(1f, frame.border.x / (shortSide * 0.42f));
+        // 贴图自带墨底花纹，白色微透叠出即可，不再二次着色。
+        bg.color = new Color(1f, 1f, 1f, 0.95f);
+        return true;
+    }
+
+    /// <summary>
+    /// WebGL 上 HUD 自举（AfterSceneLoad）先于 LycheeThemeCache 预载协程完成，构建面板时
+    /// panel_frame 取不到字节、只能先落兜底；预载完成后在此补一次换肤升级，并关掉兜底
+    /// 描边/顶线。无论成败列表都会清空，整个生命周期至多执行一轮。
+    /// </summary>
+    void UpgradePendingSkins()
+    {
+        if (pendingSkins.Count == 0 || !LycheeThemeCache.Preloaded) return;
+        for (int i = pendingSkins.Count - 1; i >= 0; i--)
+        {
+            PendingSkin pending = pendingSkins[i];
+            if (pending.bg != null && TrySkinWithFrame(pending.bg))
+            {
+                if (pending.edge != null) pending.edge.enabled = false;
+                if (pending.extra != null) pending.extra.SetActive(false);
+            }
+            pendingSkins.RemoveAt(i);
         }
     }
 
@@ -1301,9 +1574,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         RectTransform rt = go.GetComponent<RectTransform>();
         SetRect(rt, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), anchoredPosition, size);
         Image image = go.GetComponent<Image>();
-        image.color = new Color(0.10f, 0.09f, 0.055f, 0.95f);
+        // 按钮底色取墨色稍提亮（在面板墨底上需有一级层次差），描边走暗金。
+        image.color = new Color(0.16f, 0.14f, 0.11f, 0.95f);
         Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 0.78f, 0.16f, 0.38f);
+        outline.effectColor = new Color(DarkGoldEdge.r, DarkGoldEdge.g, DarkGoldEdge.b, 0.7f);
         outline.effectDistance = new Vector2(1f, -1f);
         Button button = go.GetComponent<Button>();
         button.targetGraphic = image;

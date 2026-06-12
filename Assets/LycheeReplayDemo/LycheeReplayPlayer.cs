@@ -84,7 +84,20 @@ public class LycheeReplayPlayer : MonoBehaviour
         public int memberCount;
         /// <summary>抵达后的真实时间戳；&lt;0 表示仍在行军。抵达后停留做攻击演出再销毁。</summary>
         public float arrivedRealTime = -1f;
+        /// <summary>跨河时垫在脚下的小船（懒创建，仅水面段激活）。</summary>
+        public GameObject boat;
+        /// <summary>与 LycheeCharacterMotion 共享的水面状态（船上站立 vs 陆上行军）。</summary>
+        public LycheeSquadWaterState waterState;
     }
+
+    // 河面三角形缓存（世界空间）：小队直线跨图时判断脚下是否为水面。
+    // 来源是场景里的河面容器对象，启动后首个小队出发时懒构建一次。
+    readonly List<Vector3> waterTriangleA = new List<Vector3>();
+    readonly List<Vector3> waterTriangleB = new List<Vector3>();
+    readonly List<Vector3> waterTriangleC = new List<Vector3>();
+    readonly List<Vector4> waterTriangleBox = new List<Vector4>(); // xMin,zMin,xMax,zMax
+    bool waterTrianglesBuilt;
+    static readonly string[] WaterContainerNames = { "WaterRoute_And_River", "Water_Junction_Patches_20260611O" };
 
     /// <summary>每当 HandleEvent 处理一条回放事件时触发（message, round）。订阅方自行管理生命周期。</summary>
     public static event Action<LycheeReplayMessage, int> ReplayEventRaised;
@@ -995,6 +1008,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (!stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return;
         GameObject root = new GameObject("Squad_" + payload.tactic + "_" + round);
         root.transform.SetParent(eventRoot, false);
+        // 水面状态要在 NotifySquadSpawned 之前挂上，骨骼系统建组时会缓存它的引用
+        LycheeSquadWaterState waterState = root.AddComponent<LycheeSquadWaterState>();
         int count = SquadMemberCount(payload);
         Color tint = TeamColor(payload.playerId);
         int columns = Mathf.Clamp(Mathf.CeilToInt(Mathf.Sqrt(count)), 2, 5);
@@ -1020,7 +1035,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             end = target.transform.position + Vector3.up * 0.15f,
             startRound = round,
             endRound = payload.arriveRound > round ? payload.arriveRound : round + 12,
-            memberCount = count
+            memberCount = count,
+            waterState = waterState
         });
     }
 
@@ -1040,12 +1056,25 @@ public class LycheeReplayPlayer : MonoBehaviour
                 float duration = Mathf.Max(1f, squad.endRound - squad.startRound);
                 float t = Mathf.Clamp01((replayRound - squad.startRound) / duration);
                 Vector3 position = Vector3.Lerp(squad.start, squad.end, t);
-                position.y += Mathf.Sin(t * Mathf.PI) * 1.35f;
+                // 跨河段：人物坐船贴水面滑行，不走陆路的抛物线跃迁，否则像泡在河里行军
+                bool onWater = TrySampleWaterSurface(position.x, position.z, out float waterY);
+                if (onWater)
+                {
+                    position.y = waterY + 0.05f + Mathf.Sin(Time.time * 1.8f) * 0.03f; // 贴水 + 随波轻浮沉
+                    EnsureSquadBoat(squad);
+                    if (squad.boat != null && !squad.boat.activeSelf) squad.boat.SetActive(true);
+                }
+                else
+                {
+                    position.y += Mathf.Sin(t * Mathf.PI) * 1.35f;
+                    if (squad.boat != null && squad.boat.activeSelf) squad.boat.SetActive(false);
+                }
+                if (squad.waterState != null) squad.waterState.onWater = onWater;
                 squad.root.transform.position = position;
                 Vector3 direction = squad.end - squad.start;
                 if (direction.sqrMagnitude > 0.001f)
                     squad.root.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
-                AnimateSquadMembers(squad, false);
+                AnimateSquadMembers(squad, false, onWater);
                 if (t >= 1f)
                 {
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
@@ -1056,7 +1085,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             }
             else
             {
-                AnimateSquadMembers(squad, true);
+                AnimateSquadMembers(squad, true, false);
                 if (Time.time - squad.arrivedRealTime > 2.4f)
                 {
                     Destroy(squad.root);
@@ -1066,8 +1095,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
     }
 
-    /// <summary>程序化小队动作：行军时交替起伏+前倾步伐，攻击时朝目标方向突刺。仅改 Y 坐标/旋转/缩放，不破坏阵型。</summary>
-    static void AnimateSquadMembers(SquadVisual squad, bool attacking)
+    /// <summary>程序化小队动作：行军时交替起伏+前倾步伐，攻击时朝目标方向突刺，船上时站立随波。仅改 Y 坐标/旋转/缩放，不破坏阵型。</summary>
+    static void AnimateSquadMembers(SquadVisual squad, bool attacking, bool onWater)
     {
         Transform root = squad.root.transform;
         for (int m = 0; m < root.childCount; m++)
@@ -1084,6 +1113,14 @@ public class LycheeReplayPlayer : MonoBehaviour
                 memberPosition.y = lunge * 0.06f;
                 member.localPosition = memberPosition;
             }
+            else if (onWater)
+            {
+                // 站在甲板上：抬到船舷高度，只随波轻晃，不迈步
+                Vector3 memberPosition = member.localPosition;
+                memberPosition.y = 0.24f + Mathf.Sin(phase * 0.32f) * 0.015f;
+                member.localPosition = memberPosition;
+                member.localRotation = Quaternion.Euler(0f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase * 0.28f) * 2.5f);
+            }
             else
             {
                 Vector3 memberPosition = member.localPosition;
@@ -1092,6 +1129,69 @@ public class LycheeReplayPlayer : MonoBehaviour
                 member.localRotation = Quaternion.Euler(6f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase) * 4f);
             }
         }
+    }
+
+    /// <summary>给跨河小队垫船（懒创建）。船体微沉入水线，成员在甲板高度由 AnimateSquadMembers 抬升。</summary>
+    void EnsureSquadBoat(SquadVisual squad)
+    {
+        if (squad.boat != null || boatModel == null || squad.root == null) return;
+        squad.boat = CreateNormalizedModel(boatModel, squad.root.transform, "SquadBoat", 2.8f);
+        if (squad.boat != null)
+            squad.boat.transform.localPosition = new Vector3(0f, -0.08f, 0f);
+    }
+
+    /// <summary>采样 (x,z) 处河面高度。XZ 重心插值，多层取最上层；不在水面返回 false。</summary>
+    bool TrySampleWaterSurface(float x, float z, out float waterY)
+    {
+        if (!waterTrianglesBuilt) BuildWaterTriangleCache();
+        waterY = float.MinValue;
+        bool hit = false;
+        for (int i = 0; i < waterTriangleA.Count; i++)
+        {
+            Vector4 box = waterTriangleBox[i];
+            if (x < box.x || z < box.y || x > box.z || z > box.w) continue;
+            Vector3 pa = waterTriangleA[i], pb = waterTriangleB[i], pc = waterTriangleC[i];
+            float d = (pb.z - pc.z) * (pa.x - pc.x) + (pc.x - pb.x) * (pa.z - pc.z);
+            if (Mathf.Abs(d) < 1e-6f) continue;
+            float w1 = ((pb.z - pc.z) * (x - pc.x) + (pc.x - pb.x) * (z - pc.z)) / d;
+            float w2 = ((pc.z - pa.z) * (x - pc.x) + (pa.x - pc.x) * (z - pc.z)) / d;
+            float w3 = 1f - w1 - w2;
+            if (w1 < -0.001f || w2 < -0.001f || w3 < -0.001f) continue;
+            float sampled = w1 * pa.y + w2 * pb.y + w3 * pc.y;
+            if (sampled > waterY) { waterY = sampled; hit = true; }
+        }
+        return hit;
+    }
+
+    /// <summary>从场景河面容器收集世界空间三角形，只建一次。容器缺失时退化为"全图无水"，小队保持旧行为。</summary>
+    void BuildWaterTriangleCache()
+    {
+        waterTrianglesBuilt = true;
+        foreach (string containerName in WaterContainerNames)
+        {
+            GameObject container = GameObject.Find(containerName);
+            if (container == null) continue;
+            foreach (MeshFilter filter in container.GetComponentsInChildren<MeshFilter>())
+            {
+                if (filter.sharedMesh == null) continue;
+                Vector3[] vertices = filter.sharedMesh.vertices;
+                int[] triangles = filter.sharedMesh.triangles;
+                Transform t = filter.transform;
+                for (int i = 0; i < triangles.Length; i += 3)
+                {
+                    Vector3 wa = t.TransformPoint(vertices[triangles[i]]);
+                    Vector3 wb = t.TransformPoint(vertices[triangles[i + 1]]);
+                    Vector3 wc = t.TransformPoint(vertices[triangles[i + 2]]);
+                    waterTriangleA.Add(wa);
+                    waterTriangleB.Add(wb);
+                    waterTriangleC.Add(wc);
+                    waterTriangleBox.Add(new Vector4(
+                        Mathf.Min(wa.x, wb.x, wc.x), Mathf.Min(wa.z, wb.z, wc.z),
+                        Mathf.Max(wa.x, wb.x, wc.x), Mathf.Max(wa.z, wb.z, wc.z)));
+                }
+            }
+        }
+        Debug.Log("[LycheeReplayPlayer] 河面三角形缓存: " + waterTriangleA.Count + " 个");
     }
 
     void SpawnEventPulse(Vector3 position, string text, Color color)

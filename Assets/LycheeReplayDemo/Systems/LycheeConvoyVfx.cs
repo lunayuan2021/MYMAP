@@ -5,26 +5,28 @@ using UnityEngine.Rendering;
 
 /// <summary>
 /// 车队特效系统（运行时自举）：
-/// 1. 一骑红尘拖尾——陆路红棕尘土，速度越快越浓；水路自动切换为白色水花尾迹。
+/// 1. 一骑红尘拖尾——按阵营着色的尘土（红队朱红 #B85C3E、蓝队灰褐 #7A6A55），World 空间按行进距离扬尘，
+///    静止不冒烟、跑起来才在身后拉出一条"红尘"；水路扬尘渐隐到 0（船不扬尘）。
 /// 2. 鲜度光环——车队脚下半透明圆环，颜色随当前鲜度在翠绿/琥珀/警红之间平滑过渡并呼吸闪烁。
 /// 3. RUSH 金色流光——冲刺阶段车队四周升起一圈金色细粒子，离开 RUSH 自动停止。
-/// 特效全部无状态跟随车队根节点，SeekFrame 回跳无需额外处理。
+/// 特效跟随车队根节点；SeekFrame 瞬移由速度阈值检测并重置拖尾，避免沿跳转路径留下跨图尘线。
 /// </summary>
 public class LycheeConvoyVfx : MonoBehaviour
 {
     /// <summary>全局禁用开关：true 时不自举；运行中切换会隐藏/恢复已生成的特效。</summary>
     public static bool Disabled;
 
-    static readonly Color DustColor = new Color(0.78f, 0.36f, 0.22f, 0.9f);
-    static readonly Color WaterSprayColor = new Color(0.93f, 0.97f, 1f, 0.92f);
+    // 红队尘土取"一骑红尘"的朱红基调，蓝队压成灰褐偏冷——红尘是红队主题，但双队跑路都该带土
+    static readonly Color DustRedCamp = new Color(0.722f, 0.361f, 0.243f, 0.45f);  // #B85C3E
+    static readonly Color DustBlueCamp = new Color(0.478f, 0.416f, 0.333f, 0.45f); // #7A6A55
     static readonly Color RushGoldColor = new Color(1f, 0.85f, 0.3f, 0.95f);
     static readonly Color FreshGreen = new Color(0.2f, 0.95f, 0.4f);
     static readonly Color FreshAmber = new Color(1f, 0.72f, 0.1f);
     static readonly Color FreshRed = new Color(1f, 0.2f, 0.1f);
 
-    const float DustSpeedThreshold = 0.2f;   // 低于此速度不冒尘
-    const float DustMaxRate = 36f;           // 速度映射的最大发射速率
-    const float DustRatePerSpeed = 6f;       // rate = speed * 6，最高 36
+    const float DustRatePerMeter = 7f;       // 每米扬尘粒子数：静止天然不冒烟，跑起来才扬尘
+    const float WaterFadeSeconds = 0.45f;    // 水陆切换时扬尘渐隐时长（船不扬尘）
+    const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护，与 LycheeCharacterMotion 同阈值
     const float RingHeight = 0.07f;          // 与 TeamRing(y=0.04) 错开
     const float BreathHz = 1.2f;
 
@@ -41,7 +43,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         public float displayFreshness = 100f;
         public float targetFreshness = 100f;
         public bool waterMode;
-        public bool waterModeApplied;
+        public float waterBlend;       // 0=陆路 1=水路，平滑过渡驱动扬尘渐隐
+        public float dustRateApplied;  // 上次写入的 rateOverDistance，避免每帧无谓改模块
         public bool rushApplied;
         public float breathSeed;
     }
@@ -60,7 +63,7 @@ public class LycheeConvoyVfx : MonoBehaviour
     static void Bootstrap()
     {
         if (Disabled) return;
-        LycheeReplayPlayer host = FindFirstObjectByType<LycheeReplayPlayer>();
+        LycheeReplayPlayer host = FindAnyObjectByType<LycheeReplayPlayer>();
         if (host == null) return;
         if (host.GetComponent<LycheeConvoyVfx>() != null) return;
         host.gameObject.AddComponent<LycheeConvoyVfx>();
@@ -179,6 +182,7 @@ public class LycheeConvoyVfx : MonoBehaviour
             GameObject fxRoot = new GameObject("ConvoyVfx_" + state.playerId);
             fxRoot.transform.SetParent(root, false);
 
+            bool onWater = IsWaterEdge(state.routeEdgeId);
             ConvoyVfxRig rig = new ConvoyVfxRig
             {
                 playerId = state.playerId,
@@ -186,12 +190,15 @@ public class LycheeConvoyVfx : MonoBehaviour
                 fxRoot = fxRoot.transform,
                 targetFreshness = state.freshness,
                 displayFreshness = state.freshness,
-                waterMode = IsWaterEdge(state.routeEdgeId),
+                waterMode = onWater,
+                // 开局就在水上时 waterBlend 直接置 1，避免起步先冒一团土再渐隐
+                waterBlend = onWater ? 1f : 0f,
+                dustRateApplied = DustRatePerMeter, // 与 CreateDustTrail 的初始发射率保持一致
                 breathSeed = state.playerId * 1.73f,
                 lastPosition = root.position,
                 hasLastPosition = true
             };
-            rig.dustTrail = CreateDustTrail(fxRoot.transform);
+            rig.dustTrail = CreateDustTrail(fxRoot.transform, state.camp);
             rig.rushGlow = CreateRushGlow(fxRoot.transform);
             CreateFreshnessRing(fxRoot.transform, rig);
             rigs.Add(rig);
@@ -222,21 +229,26 @@ public class LycheeConvoyVfx : MonoBehaviour
         rig.lastPosition = position;
         rig.hasLastPosition = true;
 
-        // 1. 红尘/水花拖尾：发射速率与速度成正比
+        // 1. 一骑红尘拖尾：rateOverDistance 按行进距离扬尘，水路渐隐（船不扬尘）
         if (rig.dustTrail != null)
         {
-            if (rig.waterMode != rig.waterModeApplied)
+            // SeekFrame 瞬移：World 空间 + rateOverDistance 会沿跳转路径拉出一条横贯地图的尘线，
+            // 检测到超物理速度时整体重启粒子系统（Simulate(0,restart) 连内部距离计数一起清零，
+            // 顺带清掉旧位置残留的拖尾，等效于回放跳转的"清场"）
+            if (speed > TeleportSpeedLimit)
             {
-                rig.waterModeApplied = rig.waterMode;
-                ParticleSystem.MainModule main = rig.dustTrail.main;
-                main.startColor = rig.waterMode ? WaterSprayColor : DustColor;
-                main.gravityModifier = rig.waterMode ? 0.22f : -0.02f;
-                main.startLifetime = rig.waterMode ? 1.0f : 1.4f;
+                rig.dustTrail.Simulate(0f, true, true);
+                rig.dustTrail.Play();
             }
-            ParticleSystem.EmissionModule emission = rig.dustTrail.emission;
-            emission.rateOverTime = speed < DustSpeedThreshold
-                ? 0f
-                : Mathf.Clamp(speed * DustRatePerSpeed, 0f, DustMaxRate);
+            // waterBlend 平滑过渡而非硬切：上下船瞬间尘土淡出/淡入更自然
+            rig.waterBlend = Mathf.MoveTowards(rig.waterBlend, rig.waterMode ? 1f : 0f, deltaTime / WaterFadeSeconds);
+            float dustRate = DustRatePerMeter * (1f - rig.waterBlend);
+            if (!Mathf.Approximately(dustRate, rig.dustRateApplied))
+            {
+                rig.dustRateApplied = dustRate;
+                ParticleSystem.EmissionModule emission = rig.dustTrail.emission;
+                emission.rateOverDistance = dustRate;
+            }
         }
 
         // 3. RUSH 金色流光开关
@@ -288,57 +300,68 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (asset != null) generatedAssets.Add(asset);
     }
 
-    ParticleSystem CreateDustTrail(Transform parent)
+    ParticleSystem CreateDustTrail(Transform parent, int camp)
     {
         GameObject dustObject = new GameObject("DustTrail");
         dustObject.transform.SetParent(parent, false);
-        dustObject.transform.localPosition = new Vector3(0f, 0.18f, -0.85f);
-        // 锥口朝向后上方：粒子向车队斜后上方扩散
+        // 挂在车队后方约 1.2m：尘土从车尾扬起，锥口朝向斜后上方扩散
+        dustObject.transform.localPosition = new Vector3(0f, 0.18f, -1.2f);
         dustObject.transform.localRotation = Quaternion.LookRotation(new Vector3(0f, 0.55f, -1f).normalized, Vector3.up);
 
         ParticleSystem particles = dustObject.AddComponent<ParticleSystem>();
         particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
         ParticleSystem.MainModule main = particles.main;
+        // World 空间是拖尾成立的关键：粒子留在出生地，车队跑过去自然拉出一条"红尘"
         main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.startLifetime = 1.4f;
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.9f, 2.2f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.25f, 0.5f);
-        main.startColor = DustColor;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(1.6f, 2.4f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.3f, 0.8f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
+        main.startColor = camp == 0 ? DustRedCamp : DustBlueCamp;
         main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-        main.gravityModifier = -0.02f;
-        main.maxParticles = 160;
+        main.maxParticles = 120;
 
         ParticleSystem.EmissionModule emission = particles.emission;
         emission.rateOverTime = 0f;
+        emission.rateOverDistance = DustRatePerMeter; // 按距离发射：静止天然不冒烟
 
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType = ParticleSystemShapeType.Cone;
         shape.angle = 24f;
         shape.radius = 0.28f;
 
+        // 尘土轻微上飘：用 velocityOverLifetime 而非负重力，飘升量不受粒子初速方向影响
+        ParticleSystem.VelocityOverLifetimeModule velocity = particles.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space = ParticleSystemSimulationSpace.World;
+        velocity.x = 0f;
+        velocity.y = 0.35f;
+        velocity.z = 0f;
+
         ParticleSystem.ColorOverLifetimeModule colorOverLifetime = particles.colorOverLifetime;
         colorOverLifetime.enabled = true;
         Gradient gradient = new Gradient();
+        // alpha 曲线与 startColor 的 0.45 相乘：开头 6% 快速淡入避免硬蹦，随后整段 0.45→0 渐隐
         gradient.SetKeys(
             new[]
             {
                 new GradientColorKey(Color.white, 0f),
-                new GradientColorKey(new Color(1f, 0.95f, 0.88f), 1f)
+                new GradientColorKey(Color.white, 1f)
             },
             new[]
             {
                 new GradientAlphaKey(0f, 0f),
-                new GradientAlphaKey(0.85f, 0.08f),
+                new GradientAlphaKey(1f, 0.06f),
                 new GradientAlphaKey(0f, 1f)
             });
         colorOverLifetime.color = gradient;
 
+        // 尘团边扩散边变淡：1 → 2.2（multiplier 取 2.2，曲线归一到 0~1 区间）
         ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
         sizeOverLifetime.enabled = true;
         sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
-            1f,
-            new AnimationCurve(new Keyframe(0f, 0.55f), new Keyframe(1f, 1.55f)));
+            2.2f,
+            new AnimationCurve(new Keyframe(0f, 1f / 2.2f), new Keyframe(1f, 1f)));
 
         ApplyParticleMaterial(particles);
         particles.Play();
@@ -433,6 +456,8 @@ public class LycheeConvoyVfx : MonoBehaviour
 
     static Material CreateParticleMaterial(Texture2D texture)
     {
+        // 默认粒子材质在 URP 下会显示为洋红错误材质，必须自建；
+        // Shader.Find 失败时逐级回退，最后落到内置管线的 Sprites/Default 兜底
         Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
         if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null) shader = Shader.Find("Sprites/Default");

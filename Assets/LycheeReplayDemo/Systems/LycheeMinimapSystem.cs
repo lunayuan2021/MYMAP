@@ -17,7 +17,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     /// <summary>全局开关：true 时不再自举；运行中置 true 会隐藏小地图面板。</summary>
     public static bool Disabled;
 
-    const int CanvasSortingOrder = 120;
+    // 131 = 压过对抗暗角(129)与中央弹窗画布(130)：对抗聚焦时小地图保持清晰可读（LOL 式习惯）
+    const int CanvasSortingOrder = 131;
     const float PanelSize = 260f;
     // 内容比面板小一圈：minimap_frame.png 的罗盘/铜镜装饰环画在面板外缘，
     // 内容若与面板同大会被纹样压住（"边框嵌进地图"）。

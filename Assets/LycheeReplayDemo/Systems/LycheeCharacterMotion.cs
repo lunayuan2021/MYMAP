@@ -87,6 +87,8 @@ public class LycheeCharacterMotion : MonoBehaviour
         public float walkPhase;
         public float walkWeight;
         public float idleWeight = 1f;
+        /// <summary>小队根上的水面状态（坐船时不迈步，改站立呼吸）。</summary>
+        public LycheeSquadWaterState waterState;
     }
 
     sealed class WrapperPose
@@ -484,7 +486,11 @@ public class LycheeCharacterMotion : MonoBehaviour
             // 基准姿态在采集瞬间记录；AnimateSquadMembers 只动 wrapper 级 transform，
             // 骨骼摆动与其行军起伏/攻击突刺叠加是预期效果，互不覆盖
             BoneGroup group = CollectBoneGroup(child, Random.Range(0f, TwoPi), Random.Range(0f, 10f));
-            if (group != null) squadGroups.Add(group);
+            if (group != null)
+            {
+                group.waterState = squadRoot.GetComponent<LycheeSquadWaterState>();
+                squadGroups.Add(group);
+            }
         }
     }
 
@@ -663,12 +669,14 @@ public class LycheeCharacterMotion : MonoBehaviour
             group.lastPosition = position;
             group.hasLastPosition = true;
 
-            bool moving = group.selfSpeed > SquadMoveSpeedThreshold;
+            // 坐船跨河时不迈步：哪怕船在滑行（selfSpeed 高），人物也应站立呼吸而不是水上漂步
+            bool onBoat = group.waterState != null && group.waterState.onWater;
+            bool moving = !onBoat && group.selfSpeed > SquadMoveSpeedThreshold;
             float fade = deltaTime / WeightFadeSeconds;
             group.walkWeight = Mathf.MoveTowards(group.walkWeight, moving ? 1f : 0f, fade);
             group.idleWeight = Mathf.MoveTowards(group.idleWeight, moving ? 0f : 1f, fade);
             float stepHz = Mathf.Clamp(group.selfSpeed * 2.2f, 1.2f, 3.4f);
-            if (group.selfSpeed > 0.05f) group.walkPhase += stepHz * TwoPi * deltaTime;
+            if (moving && group.selfSpeed > 0.05f) group.walkPhase += stepHz * TwoPi * deltaTime;
 
             foreach (BonePose bone in group.bones.Values)
             {
