@@ -768,9 +768,8 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     {
         try
         {
-            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "UITheme", fileName);
-            if (!System.IO.File.Exists(path)) return null;
-            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
+            if (bytes == null || bytes.Length == 0) return null;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!texture.LoadImage(bytes))
             {

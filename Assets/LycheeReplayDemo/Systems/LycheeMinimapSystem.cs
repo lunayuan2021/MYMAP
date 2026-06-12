@@ -19,7 +19,9 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
 
     const int CanvasSortingOrder = 120;
     const float PanelSize = 260f;
-    const float MapSize = 252f;
+    // 内容比面板小一圈：minimap_frame.png 的罗盘/铜镜装饰环画在面板外缘，
+    // 内容若与面板同大会被纹样压住（"边框嵌进地图"）。
+    const float MapSize = 208f;
     const int MinimapTextureSize = 512;
     const float RenderInterval = 0.6f;
     const float CameraHeight = 90f;
@@ -657,9 +659,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     {
         try
         {
-            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "UITheme", fileName);
-            if (!System.IO.File.Exists(path)) return null;
-            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
+            if (bytes == null || bytes.Length == 0) return null;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!texture.LoadImage(bytes)) return null;
             texture.name = "LycheeMinimapTheme_" + fileName;

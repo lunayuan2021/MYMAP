@@ -27,7 +27,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     const float BottomWidth = 1180f;
     // 面板加高（164 -> 210）：让四条进度条完整收进背景内，并保证内容距背景边缘 >= 16px 留白。
     const float BottomHeight = 210f;
-    const float BottomHudAnchorY = 0.25f;
+    // LOL 取向：面板贴画面下边缘（原 0.25 悬浮在画面 1/4 处）
+    const float BottomHudAnchorY = 0f;
     // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
     const float BarTrackWidth = 190f;
 
@@ -354,11 +355,21 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 垂直布局（自面板底边起，面板高 210）：
         //   回合标题 166..194 / 阶段文字 140..160 / 四条进度条行中心 120, 90, 60, 30（行高 30，行间净空 8）。
         // 最底行文字下缘 19px、最顶行标题上缘 16px，均满足内容距背景边缘 >= 16px。
-        RectTransform panel = Rect("BottomStatus_Runtime", parent, new Vector2(0.5f, BottomHudAnchorY), Vector2.zero, new Vector2(BottomWidth, BottomHeight), new Vector2(0.5f, 0.5f));
-        Image bg = panel.gameObject.AddComponent<Image>();
-        bg.color = new Color(0.015f, 0.018f, 0.014f, 0.66f);
+        // LOL 风格：面板自身全透明贴底，只给「进度条块」和「回合标题」各留一小块底色，
+        // 其余（头像/队名/比分）直接浮在画面上。
+        RectTransform panel = Rect("BottomStatus_Runtime", parent, new Vector2(0.5f, BottomHudAnchorY), Vector2.zero, new Vector2(BottomWidth, BottomHeight), new Vector2(0.5f, 0f));
 
-        Rect("TopLine", panel, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(BottomWidth, 3f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = new Color(1f, 0.77f, 0.27f, 0.86f);
+        RectTransform barsBackdrop = Rect("BarsBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 8f), new Vector2(730f, 134f), new Vector2(0.5f, 0f));
+        Image barsBg = barsBackdrop.gameObject.AddComponent<Image>();
+        barsBg.color = new Color(0.015f, 0.018f, 0.014f, 0.62f);
+        barsBg.raycastTarget = false;
+        Rect("BarsTopLine", barsBackdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(730f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = new Color(1f, 0.77f, 0.27f, 0.7f);
+
+        RectTransform titleChip = Rect("TitleChip", panel, new Vector2(0.5f, 1f), new Vector2(0f, -6f), new Vector2(340f, 70f), new Vector2(0.5f, 1f));
+        Image titleBg = titleChip.gameObject.AddComponent<Image>();
+        titleBg.color = new Color(0.015f, 0.018f, 0.014f, 0.55f);
+        titleBg.raycastTarget = false;
+
         roundText = Text("RoundText", panel, 22, FontStyle.Bold, new Color(1f, 0.88f, 0.58f, 1f), TextAnchor.MiddleCenter);
         SetRect(roundText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(320f, 28f), new Vector2(0.5f, 1f));
         phaseText = Text("PhaseText", panel, 15, FontStyle.Bold, new Color(0.78f, 0.88f, 1f, 1f), TextAnchor.MiddleCenter);

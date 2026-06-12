@@ -21,7 +21,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const float GuardCollapseSeconds = 0.4f;
     const float PillarFadeSeconds = 0.5f;
     const float RingFlashSeconds = 0.5f;
-    const float ResourceHoverHeight = 2.2f;
+    const float ResourceHoverHeight = 2.6f;
     const int RingSegments = 32;
     const float RingRadius = 0.8f;
 
@@ -419,7 +419,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         foreach (string type in ResourceOrder)
         {
             if (!marker.icons.TryGetValue(type, out ResourceIcon icon) || icon == null || icon.root == null) continue;
-            icon.root.transform.localPosition = new Vector3((index - (total - 1) * 0.5f) * 0.62f, 0f, 0f);
+            icon.root.transform.localPosition = new Vector3((index - (total - 1) * 0.5f) * 1.35f, 0f, 0f);
             index++;
         }
     }
@@ -436,7 +436,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         {
             GameObject spriteObject = new GameObject("Sprite");
             spriteObject.transform.SetParent(iconRoot.transform, false);
-            spriteObject.transform.localScale = Vector3.one * 0.55f;
+            // 原 0.55 在正交 35 的镜头下小到看不清（用户反馈"徽章特别小"）
+            spriteObject.transform.localScale = Vector3.one * 1.25f;
             SpriteRenderer spriteRenderer = spriteObject.AddComponent<SpriteRenderer>();
             spriteRenderer.sprite = sprite;
         }
@@ -444,13 +445,13 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         {
             Color color = ResourceColor(type);
             Material material = GetLitMaterial("resource_" + type, color, color * 0.55f);
-            CreateBarCube(iconRoot.transform, "Cube", Vector3.zero, Vector3.zero, Vector3.one * 0.30f, material);
-            CreateWorldLabel(iconRoot.transform, new Vector3(0f, 0f, -0.18f),
-                ResourceFallbackChar(type), Color.white, 26, 0.04f, false);
+            CreateBarCube(iconRoot.transform, "Cube", Vector3.zero, Vector3.zero, Vector3.one * 0.65f, material);
+            CreateWorldLabel(iconRoot.transform, new Vector3(0f, 0f, -0.36f),
+                ResourceFallbackChar(type), Color.white, 30, 0.08f, false);
         }
 
-        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.24f, -0.30f, -0.02f),
-            string.Empty, GoldColor, 24, 0.04f, false);
+        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.55f, -0.68f, -0.02f),
+            string.Empty, GoldColor, 28, 0.07f, false);
         return new ResourceIcon { root = iconRoot, count = count };
     }
 
@@ -1068,13 +1069,12 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         if (ThemeSpriteMisses.Contains(fileName)) return null;
         try
         {
-            string path = Path.Combine(Application.streamingAssetsPath, "UITheme", fileName + ".png");
-            if (!File.Exists(path))
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName + ".png");
+            if (bytes == null || bytes.Length == 0)
             {
                 ThemeSpriteMisses.Add(fileName);
                 return null;
             }
-            byte[] bytes = File.ReadAllBytes(path);
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!texture.LoadImage(bytes))
             {

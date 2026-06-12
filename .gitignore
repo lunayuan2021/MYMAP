@@ -55,3 +55,8 @@ Backups_ModelsGLB_20260612/
 # 且单文件超过 GitHub 100MB 限制（共 1.9GB）
 Assets/LycheeReplayDemo/Models/
 Assets/LycheeReplayDemo/Models.meta
+ArtSources_chromakey/
+
+# ALP 资源包未使用的演示地形（171MB 超 GitHub 限制）与超大文件备份
+Assets/ALP_Assets/Realistic Terrain Textures Lite/Scenes/TerrainDATA/Terrain.asset
+Backups_*/

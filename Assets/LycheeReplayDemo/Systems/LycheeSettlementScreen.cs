@@ -1063,9 +1063,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     {
         try
         {
-            string path = Path.Combine(Application.streamingAssetsPath, "UITheme", fileName);
-            if (!File.Exists(path)) return null;
-            byte[] bytes = File.ReadAllBytes(path);
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
             if (bytes == null || bytes.Length == 0) return null;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!texture.LoadImage(bytes)) return null;

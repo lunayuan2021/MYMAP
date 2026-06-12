@@ -578,18 +578,23 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
     void TryBuildVideo(Transform parent)
     {
-        string path;
-        bool exists;
+        string videoUrl;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // WebGL：StreamingAssets 是 URL，无法 File.Exists 探测；直接设 URL，
+        // 缺失/解码失败由 errorReceived 与 Prepare 超时兜底（跳过视频走对阵图）。
+        videoUrl = Application.streamingAssetsPath + "/Video/opening.mp4";
+#else
         try
         {
-            path = System.IO.Path.Combine(Application.streamingAssetsPath, "Video", "opening.mp4");
-            exists = System.IO.File.Exists(path);
+            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "Video", "opening.mp4");
+            if (!System.IO.File.Exists(path)) return;
+            videoUrl = "file://" + path;
         }
         catch (Exception)
         {
             return;
         }
-        if (!exists) return;
+#endif
 
         videoTexture = new RenderTexture(1280, 720, 0) { name = "LycheeOpeningVideoRT" };
         generatedAssets.Add(videoTexture);
@@ -606,7 +611,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
         videoPlayer.renderMode = VideoRenderMode.RenderTexture;
         videoPlayer.targetTexture = videoTexture;
         videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
-        videoPlayer.url = "file://" + path;
+        videoPlayer.url = videoUrl;
         videoPlayer.loopPointReached += OnVideoFinished;
         videoPlayer.errorReceived += OnVideoError;
         videoPlayer.Prepare();
@@ -865,9 +870,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
         if (string.IsNullOrEmpty(fileName)) return null;
         try
         {
-            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "UITheme", fileName);
-            if (!System.IO.File.Exists(path)) return null;
-            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
             if (bytes == null || bytes.Length == 0) return null;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
             {

@@ -76,6 +76,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         public int startRound;
         public int endRound;
         public int memberCount;
+        /// <summary>抵达后的真实时间戳；&lt;0 表示仍在行军。抵达后停留做攻击演出再销毁。</summary>
+        public float arrivedRealTime = -1f;
     }
 
     /// <summary>每当 HandleEvent 处理一条回放事件时触发（message, round）。订阅方自行管理生命周期。</summary>
@@ -205,6 +207,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         CacheSceneData();
 #if UNITY_WEBGL && !UNITY_EDITOR
+        ApplyWebGLQualityTrim();
         StartCoroutine(LoadReplayThenInitialize());
 #else
         LoadReplay();
@@ -229,8 +232,30 @@ public class LycheeReplayPlayer : MonoBehaviour
     }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
+    /// <summary>WebGL 画质裁剪：编辑器/桌面取向的 MSAA4x+SMAA High 在浏览器里帧率撑不住。</summary>
+    void ApplyWebGLQualityTrim()
+    {
+        QualitySettings.shadowDistance = Mathf.Min(QualitySettings.shadowDistance, 60f);
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is
+            UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urpAsset)
+        {
+            urpAsset.msaaSampleCount = 2;
+            urpAsset.renderScale = 1f;
+        }
+        Camera sceneCamera = Camera.main ?? FindFirstObjectByType<Camera>();
+        if (sceneCamera != null)
+        {
+            var cameraData = sceneCamera.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            if (cameraData != null)
+                cameraData.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
+        }
+    }
+
     System.Collections.IEnumerator LoadReplayThenInitialize()
     {
+        // 先预载 UITheme 主题贴图（WebGL 不能同步读 StreamingAssets），
+        // 保证 HUD/演出构建时缓存已就绪，不会静默回落到程序化兜底。
+        yield return LycheeThemeCache.Preload();
         // WebGL 上 StreamingAssets 是 URL，System.IO 不可用，必须走网络请求；
         // 加时间戳参数避免浏览器缓存旧的 reply.txt。
         string url = Application.streamingAssetsPath + "/reply.txt?t=" + DateTime.UtcNow.Ticks;
@@ -370,15 +395,16 @@ public class LycheeReplayPlayer : MonoBehaviour
             ConvoyVisual visual = new ConvoyVisual
             {
                 root = root,
-                carriage = CreateNormalizedModel(carriageModel, root.transform, "Carriage", 4.2f),
-                boat = CreateNormalizedModel(boatModel, root.transform, "Boat", 5.2f),
-                captain = CreateNormalizedModel(captainModel, root.transform, "Captain", 1.8f)
+                // 比例锚定站点建筑（4.2~6.4）：建筑 > 马车/船 > 人物，近景才不会出现"马车比楼大"
+                carriage = CreateNormalizedModel(carriageModel, root.transform, "Carriage", 2.4f),
+                boat = CreateNormalizedModel(boatModel, root.transform, "Boat", 3.0f),
+                captain = CreateNormalizedModel(captainModel, root.transform, "Captain", 1.25f)
             };
             int teamSize = ResolveTeamSize(player);
             teamRosterSizes[player.playerId] = teamSize;
             if (visual.captain != null)
             {
-                visual.captain.transform.localPosition = new Vector3(player.camp == 0 ? -1.6f : 1.6f, 0.2f, -0.4f);
+                visual.captain.transform.localPosition = new Vector3(player.camp == 0 ? -1.1f : 1.1f, 0.2f, -0.4f);
                 TintModel(visual.captain, player.camp == 0 ? new Color(1f, 0.36f, 0.28f, 1f) : new Color(0.36f, 0.62f, 1f, 1f), 0.14f);
             }
             CreateTeamMembers(visual, Mathf.Max(0, teamSize - 1), player.camp);
@@ -414,12 +440,12 @@ public class LycheeReplayPlayer : MonoBehaviour
         const int columns = 5;
         for (int i = 0; i < memberCount; i++)
         {
-            GameObject member = CreateNormalizedModel(squadMemberModel, visual.root.transform, "TeamMember_" + (i + 1), 0.58f);
+            GameObject member = CreateNormalizedModel(squadMemberModel, visual.root.transform, "TeamMember_" + (i + 1), 0.95f);
             if (member == null) continue;
             int col = i % columns;
             int row = i / columns;
-            float x = (col - (columns - 1) * 0.5f) * 0.42f;
-            float z = 0.45f + row * 0.42f;
+            float x = (col - (columns - 1) * 0.5f) * 0.62f;
+            float z = 0.7f + row * 0.62f;
             member.transform.localPosition = new Vector3(x, 0.02f, z);
             member.transform.localRotation = Quaternion.Euler(0f, Mathf.Sin(i * 7.3f) * 8f, 0f);
             TintModel(member, tint, 0.10f);
@@ -964,11 +990,11 @@ public class LycheeReplayPlayer : MonoBehaviour
         int columns = Mathf.Clamp(Mathf.CeilToInt(Mathf.Sqrt(count)), 2, 5);
         for (int i = 0; i < count; i++)
         {
-            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 0.72f);
+            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 1.0f);
             if (member != null)
             {
-                float x = (i % columns - (columns - 1) * 0.5f) * 0.48f;
-                float z = (i / columns - 0.5f) * 0.48f;
+                float x = (i % columns - (columns - 1) * 0.5f) * 0.68f;
+                float z = (i / columns - 0.5f) * 0.68f;
                 member.transform.localPosition = new Vector3(x, 0f, z);
                 TintModel(member, tint, 0.18f);
             }
@@ -991,19 +1017,66 @@ public class LycheeReplayPlayer : MonoBehaviour
         for (int i = squads.Count - 1; i >= 0; i--)
         {
             SquadVisual squad = squads[i];
-            float duration = Mathf.Max(1f, squad.endRound - squad.startRound);
-            float t = Mathf.Clamp01((replayRound - squad.startRound) / duration);
-            Vector3 position = Vector3.Lerp(squad.start, squad.end, t);
-            position.y += Mathf.Sin(t * Mathf.PI) * 1.35f;
-            squad.root.transform.position = position;
-            Vector3 direction = squad.end - squad.start;
-            if (direction.sqrMagnitude > 0.001f)
-                squad.root.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
-            if (t >= 1f)
+            if (squad.root == null)
             {
-                SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
-                Destroy(squad.root, 0.2f);
                 squads.RemoveAt(i);
+                continue;
+            }
+            if (squad.arrivedRealTime < 0f)
+            {
+                float duration = Mathf.Max(1f, squad.endRound - squad.startRound);
+                float t = Mathf.Clamp01((replayRound - squad.startRound) / duration);
+                Vector3 position = Vector3.Lerp(squad.start, squad.end, t);
+                position.y += Mathf.Sin(t * Mathf.PI) * 1.35f;
+                squad.root.transform.position = position;
+                Vector3 direction = squad.end - squad.start;
+                if (direction.sqrMagnitude > 0.001f)
+                    squad.root.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
+                AnimateSquadMembers(squad, false);
+                if (t >= 1f)
+                {
+                    // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
+                    squad.arrivedRealTime = Time.time;
+                    SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
+                    SetEventFocus(squad.end, 3.2f);
+                }
+            }
+            else
+            {
+                AnimateSquadMembers(squad, true);
+                if (Time.time - squad.arrivedRealTime > 2.4f)
+                {
+                    Destroy(squad.root);
+                    squads.RemoveAt(i);
+                }
+            }
+        }
+    }
+
+    /// <summary>程序化小队动作：行军时交替起伏+前倾步伐，攻击时朝目标方向突刺。仅改 Y 坐标/旋转/缩放，不破坏阵型。</summary>
+    static void AnimateSquadMembers(SquadVisual squad, bool attacking)
+    {
+        Transform root = squad.root.transform;
+        for (int m = 0; m < root.childCount; m++)
+        {
+            Transform member = root.GetChild(m);
+            if (!member.name.StartsWith("Member_", StringComparison.Ordinal)) continue;
+            float phase = Time.time * (attacking ? 8f : 10f) + m * 1.7f;
+            if (attacking)
+            {
+                float lunge = Mathf.Max(0f, Mathf.Sin(phase));
+                member.localRotation = Quaternion.Euler(lunge * 24f, Mathf.Sin(m * 7.3f) * 8f, 0f);
+                member.localScale = Vector3.one * (1f + lunge * 0.08f);
+                Vector3 memberPosition = member.localPosition;
+                memberPosition.y = lunge * 0.06f;
+                member.localPosition = memberPosition;
+            }
+            else
+            {
+                Vector3 memberPosition = member.localPosition;
+                memberPosition.y = Mathf.Abs(Mathf.Sin(phase)) * 0.12f;
+                member.localPosition = memberPosition;
+                member.localRotation = Quaternion.Euler(6f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase) * 4f);
             }
         }
     }

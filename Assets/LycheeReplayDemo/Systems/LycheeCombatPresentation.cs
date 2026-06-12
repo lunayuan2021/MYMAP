@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -564,8 +565,40 @@ public class LycheeCombatPresentation : MonoBehaviour
     // 模块 2：对抗决斗条
     // ====================================================================
 
+    // ---------- 对抗节奏：争夺期间自动放慢回放 ----------
+    // 0.1 秒/回合时三拍亮牌 0.4 秒闪过根本看不见；START 时降速到 1 秒/回合，
+    // END 后 2.5 秒恢复；若 END 缺失（跳转/坏数据），12 秒安全恢复。
+    const float ContestSecondsPerRound = 1.0f;
+    const float PacingRestoreDelay = 2.5f;
+    const float PacingSafetyTimeout = 12f;
+    float pacingOriginal = -1f;
+    Coroutine pacingRestoreRoutine;
+
+    void BeginContestPacing()
+    {
+        if (player == null) return;
+        if (pacingOriginal < 0f) pacingOriginal = player.secondsPerRound;
+        player.secondsPerRound = Mathf.Max(player.secondsPerRound, ContestSecondsPerRound);
+        ScheduleContestPacingRestore(PacingSafetyTimeout);
+    }
+
+    void ScheduleContestPacingRestore(float delay)
+    {
+        if (pacingRestoreRoutine != null) StopCoroutine(pacingRestoreRoutine);
+        pacingRestoreRoutine = StartCoroutine(RestorePacingAfter(delay));
+    }
+
+    IEnumerator RestorePacingAfter(float seconds)
+    {
+        yield return new WaitForSeconds(seconds);
+        if (player != null && pacingOriginal > 0f) player.secondsPerRound = pacingOriginal;
+        pacingOriginal = -1f;
+        pacingRestoreRoutine = null;
+    }
+
     void HandleContestStart(LycheeReplayPayload payload)
     {
+        BeginContestPacing();
         DestroyDuel();
         if (string.IsNullOrEmpty(payload.targetNodeId)) return;
         if (!player.TryGetStationPosition(payload.targetNodeId, out Vector3 position, out _)) return;
@@ -645,6 +678,7 @@ public class LycheeCombatPresentation : MonoBehaviour
 
     void HandleContestEnd(LycheeReplayPayload payload)
     {
+        if (pacingOriginal > 0f) ScheduleContestPacingRestore(PacingRestoreDelay);
         // 兜底：直接 END 没 START 时 duel 为空，无残留即清理完成
         if (duel == null || duel.root == null)
         {

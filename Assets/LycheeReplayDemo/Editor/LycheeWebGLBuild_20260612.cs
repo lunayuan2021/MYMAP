@@ -66,6 +66,7 @@ static class LycheeWebGLBuild_20260612
             }
 
             FixSceneFonts();
+            GenerateThemeManifest();
 
             // Gzip + 解压回退：任何静态文件服务器（python -m http.server 等）都能直接跑，无需配置 Content-Encoding
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
@@ -88,6 +89,7 @@ static class LycheeWebGLBuild_20260612
             BuildSummary summary = report.summary;
             Append(string.Format("Build result: {0}, size: {1:F1} MB, time: {2:F0}s, errors: {3}",
                 summary.result, summary.totalSize / (1024f * 1024f), summary.totalTime.TotalSeconds, summary.totalErrors));
+            if (summary.result == BuildResult.Succeeded) PatchIndexHtml();
             File.WriteAllText(DoneMarker, summary.result.ToString());
         }
         catch (Exception exception)
@@ -143,6 +145,42 @@ static class LycheeWebGLBuild_20260612
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
         Append("Scene font fix: " + fixedCount + " text components now use bundled NotoSansSC.");
+    }
+
+    /// <summary>
+    /// 枚举 UITheme 顶层 png 写入 uitheme_manifest.txt——WebGL 无法列目录，
+    /// LycheeThemeCache 启动时按清单预载（素材增删后重新构建即自动生效）。
+    /// </summary>
+    static void GenerateThemeManifest()
+    {
+        string themeDir = "Assets/StreamingAssets/UITheme";
+        if (!Directory.Exists(themeDir)) return;
+        var names = new System.Collections.Generic.List<string>();
+        foreach (string file in Directory.GetFiles(themeDir, "*.png"))
+            names.Add(Path.GetFileName(file));
+        names.Sort(StringComparer.Ordinal);
+        string manifestPath = themeDir + "/uitheme_manifest.txt";
+        File.WriteAllText(manifestPath, string.Join("\n", names) + "\n");
+        AssetDatabase.ImportAsset(manifestPath);
+        Append("Theme manifest generated: " + names.Count + " entries.");
+    }
+
+    /// <summary>
+    /// 构建产物 index.html 补丁：Retina 下强制 devicePixelRatio=1（帧率翻倍级提升），
+    /// 桌面端画布占满浏览器窗口。
+    /// </summary>
+    static void PatchIndexHtml()
+    {
+        string indexPath = OutputDir + "/index.html";
+        if (!File.Exists(indexPath)) return;
+        string html = File.ReadAllText(indexPath);
+        html = html.Replace(
+            "createUnityInstance(canvas, config, (progress) => {",
+            "config.devicePixelRatio = 1; // Retina 降采样，显著提升帧率\n        createUnityInstance(canvas, config, (progress) => {");
+        html = html.Replace("canvas.style.width = \"960px\";", "canvas.style.width = \"100vw\";");
+        html = html.Replace("canvas.style.height = \"600px\";", "canvas.style.height = \"100vh\";");
+        File.WriteAllText(indexPath, html);
+        Append("index.html patched (devicePixelRatio=1, full-window canvas).");
     }
 
     static void Append(string message)

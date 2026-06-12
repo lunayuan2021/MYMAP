@@ -395,38 +395,68 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             string baseName = baseNames[i];
             if (string.IsNullOrEmpty(baseName) || clips.ContainsKey(baseName)) continue;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL 无法 File.Exists 探测扩展名，按 .ogg/.wav/.mp3 顺序逐个请求，命中即停
+            string directoryUrl = Application.streamingAssetsPath + "/Audio/" + subFolder + "/";
+            for (int c = 0; c < WebGLAudioCandidates.Length; c++)
+            {
+                string url = directoryUrl + baseName + WebGLAudioCandidates[c].extension;
+                yield return TryLoadClipRoutine(url, WebGLAudioCandidates[c].audioType, baseName);
+                if (clips.ContainsKey(baseName)) break;
+            }
+#else
             string path = LycheeResolveAudioPath(subFolder, baseName, out AudioType audioType);
             if (string.IsNullOrEmpty(path)) continue;
+            yield return TryLoadClipRoutine(LycheeFileUrl(path), audioType, baseName);
+#endif
+        }
+    }
 
-            UnityWebRequest request = null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+    struct WebGLAudioCandidate
+    {
+        public string extension;
+        public AudioType audioType;
+    }
+
+    static readonly WebGLAudioCandidate[] WebGLAudioCandidates =
+    {
+        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS },
+        new WebGLAudioCandidate { extension = ".wav", audioType = AudioType.WAV },
+        new WebGLAudioCandidate { extension = ".mp3", audioType = AudioType.MPEG }
+    };
+#endif
+
+    IEnumerator TryLoadClipRoutine(string url, AudioType audioType, string baseName)
+    {
+        UnityWebRequest request = null;
+        try
+        {
+            request = UnityWebRequestMultimedia.GetAudioClip(url, audioType);
+        }
+        catch (Exception)
+        {
+            request = null;
+        }
+        if (request == null) yield break;
+
+        using (request)
+        {
+            yield return request.SendWebRequest();
             try
             {
-                request = UnityWebRequestMultimedia.GetAudioClip(LycheeFileUrl(path), audioType);
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+                    if (clip != null)
+                    {
+                        clip.name = "LycheeAudio_" + baseName;
+                        clips[baseName] = clip;
+                    }
+                }
             }
             catch (Exception)
             {
-                request = null;
-            }
-            if (request == null) continue;
-
-            using (request)
-            {
-                yield return request.SendWebRequest();
-                try
-                {
-                    if (request.result == UnityWebRequest.Result.Success)
-                    {
-                        AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
-                        if (clip != null)
-                        {
-                            clip.name = "LycheeAudio_" + baseName;
-                            clips[baseName] = clip;
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-                }
             }
         }
     }
