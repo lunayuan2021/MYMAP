@@ -359,6 +359,22 @@ static class LycheeMountainUnify_20260613
             active = EditorSceneManager.OpenScene(ScenePath);
             report.Add("已从磁盘重载场景: " + ScenePath);
 
+            // ---- 幂等保护：树落点是位置哈希确定性的，rerun 会在完全相同坐标原位叠树
+            // （外观几乎看不出、drawcall 翻倍、存盘即污染）；而 moss/低模岩首跑已删，
+            // 重跑不会重建——半幂等最危险。磁盘场景里已有统一根节点 = 上次已成功保存，
+            // 直接跳过；真要重做请先用 git 还原场景文件再点 rerun 菜单。----
+            foreach (GameObject sceneRoot in active.GetRootGameObjects())
+            {
+                if (sceneRoot.name == UnifiedRootName)
+                {
+                    report.Add("场景已含 " + UnifiedRootName + "（上次已成功应用），幂等跳过，未做任何改动。");
+                    WriteReport(report);
+                    File.WriteAllText(DonePath, "Succeeded");
+                    Debug.Log("[LycheeMountainUnify_20260613] 已应用过，幂等跳过。报告: " + ReportPath);
+                    return;
+                }
+            }
+
             // ---- 资产加载（任一缺失即中止，不动场景）----
             GameObject mountainPrefab = LoadPrefab(GuidMountain);
             var rockSetPrefabs = new GameObject[RockSetGuids.Length];
