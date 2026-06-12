@@ -15,14 +15,14 @@ RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 10
   m_Fog: 1
-  m_FogColor: {r: 0.788, g: 0.663, b: 0.545, a: 1}
+  m_FogColor: {r: 0.761, g: 0.796, b: 0.82, a: 1}
   m_FogMode: 1
   m_FogDensity: 0.0022
-  m_LinearFogStart: 45
-  m_LinearFogEnd: 140
-  m_AmbientSkyColor: {r: 0.773, g: 0.557, b: 0.384, a: 1}
-  m_AmbientEquatorColor: {r: 0.541, g: 0.478, b: 0.416, a: 1}
-  m_AmbientGroundColor: {r: 0.231, g: 0.18, b: 0.133, a: 1}
+  m_LinearFogStart: 60
+  m_LinearFogEnd: 170
+  m_AmbientSkyColor: {r: 0.725, g: 0.788, b: 0.859, a: 1}
+  m_AmbientEquatorColor: {r: 0.627, g: 0.612, b: 0.573, a: 1}
+  m_AmbientGroundColor: {r: 0.298, g: 0.275, b: 0.239, a: 1}
   m_AmbientIntensity: 1
   m_AmbientMode: 1
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
@@ -13687,7 +13687,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: d8d1b03e849874376951de06b8c1c985, type: 2}
+  - {fileID: 2100000, guid: b29c32a745bb44e5f8d3e7bc37f072f3, type: 2}
   - {fileID: 2100000, guid: d8aa4fee85d8e44ab852326b99d395d7, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
@@ -13719,7 +13719,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 71398912}
-  m_Mesh: {fileID: 4300000, guid: 7f480bd788dba4fadad6c961f4d68984, type: 2}
+  m_Mesh: {fileID: 4300000, guid: 754f59e76628a42449c21d0af38bf4a4, type: 2}
 --- !u!1 &73529782
 GameObject:
   m_ObjectHideFlags: 0
@@ -170387,6 +170387,8 @@ MonoBehaviour:
   loop: 0
   carriageModel: {fileID: -6922187488808801084, guid: 995c830babf3d4d3080087c611721976, type: 3}
   boatModel: {fileID: -6922187488808801084, guid: a27d0e8efc2494009a84e1c5b4273e73, type: 3}
+  horseModel: {fileID: 0}
+  horseWalkClip: {fileID: 0}
   captainModel: {fileID: 6635245195314443262, guid: 4f6ed66c25fce4fed850b623c8270102, type: 3}
   squadMemberModel: {fileID: 6635245195314443262, guid: 77c9f4a11fa2f4eb6bfa6c148b31846e, type: 3}
   roadObstacleModel: {fileID: -6922187488808801084, guid: c7199e42e89494bbea6de12344a8c565, type: 3}
@@ -243759,7 +243761,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1889797788}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.2874596, y: 0.44389412, z: -0.152845, w: 0.83484334}
+  m_LocalRotation: {x: 0.4076998, y: 0.41642642, z: -0.21677788, w: 0.78318405}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -243776,8 +243778,8 @@ Light:
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
-  m_Color: {r: 1, g: 0.851, b: 0.659, a: 1}
-  m_Intensity: 1.2
+  m_Color: {r: 1, g: 0.965, b: 0.91, a: 1}
+  m_Intensity: 1.15
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208

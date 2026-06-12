@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using UnityEngine.Video;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem.UI;
 #endif
@@ -41,6 +42,11 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
 
     LycheeReplayPlayer player;
     GameObject canvasRoot;
+    // 结算背景视频（victory.mp4 循环；失败回退静态 settlement_bg.png）
+    VideoPlayer victoryVideo;
+    RenderTexture victoryVideoTexture;
+    RawImage victoryVideoImage;
+    bool victoryVideoFailed;
     CanvasGroup fadeGroup;
     CanvasGroup panelGroup;
     CanvasGroup bannerGroup;
@@ -326,6 +332,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     {
         if (canvasRoot == null) yield break;
         canvasRoot.SetActive(true);
+        StartVictoryVideo();
 
         SetGroupAlpha(fadeGroup, 0f);
         SetGroupAlpha(panelGroup, 0f);
@@ -572,6 +579,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     void HideScreen()
     {
         StopAllCoroutines();
+        StopVictoryVideo();
         if (canvasRoot != null) canvasRoot.SetActive(false);
     }
 
@@ -645,6 +653,8 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
             AspectRatioFitter fitter = imageRect.gameObject.AddComponent<AspectRatioFitter>();
             fitter.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
             fitter.aspectRatio = sprite.rect.height <= 0f ? 16f / 9f : sprite.rect.width / sprite.rect.height;
+            // 静态图保留作视频加载期间/失败时的兜底，视频层叠在其上
+            BuildVictoryVideo(container);
             return;
         }
 
@@ -663,7 +673,90 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
             gradient.color = new Color(0.04f, 0.035f, 0.07f, 1f);
         }
         gradient.raycastTarget = false;
+        BuildVictoryVideo(container);
         BuildGoldBorder(container);
+    }
+
+    /// <summary>
+    /// 结算背景视频层：素材清单约定 StreamingAssets/Video/victory.mp4 为"胜利/结算背景循环"。
+    /// 叠在静态背景之上、金边框之下；准备成功才显示（RawImage 初始隐藏），
+    /// 解码失败/文件缺失走 errorReceived 永久回退静态图——和开场视频同款兜底口径。
+    /// </summary>
+    void BuildVictoryVideo(RectTransform parent)
+    {
+        string videoUrl;
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // WebGL：StreamingAssets 是 URL，不能 File.Exists 探测，直接设 URL 靠错误回调兜底
+        videoUrl = Application.streamingAssetsPath + "/Video/victory.mp4";
+#else
+        try
+        {
+            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "Video", "victory.mp4");
+            if (!System.IO.File.Exists(path)) return;
+            videoUrl = "file://" + path;
+        }
+        catch (Exception)
+        {
+            return;
+        }
+#endif
+
+        victoryVideoTexture = new RenderTexture(1280, 720, 0) { name = "LycheeVictoryVideoRT" };
+
+        RectTransform rect = MakeRect(
+            "VictoryVideo", parent,
+            new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1920f, 1080f), new Vector2(0.5f, 0.5f));
+        victoryVideoImage = rect.gameObject.AddComponent<RawImage>();
+        victoryVideoImage.texture = victoryVideoTexture;
+        victoryVideoImage.color = Color.white;
+        victoryVideoImage.raycastTarget = false;
+        AspectRatioFitter videoFitter = rect.gameObject.AddComponent<AspectRatioFitter>();
+        videoFitter.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+        videoFitter.aspectRatio = 16f / 9f;
+
+        victoryVideo = rect.gameObject.AddComponent<VideoPlayer>();
+        victoryVideo.playOnAwake = false;
+        victoryVideo.isLooping = true;
+        victoryVideo.renderMode = VideoRenderMode.RenderTexture;
+        victoryVideo.targetTexture = victoryVideoTexture;
+        victoryVideo.audioOutputMode = VideoAudioOutputMode.None; // 配乐由 AudioDirector 负责，视频只出画面
+        victoryVideo.url = videoUrl;
+        victoryVideo.prepareCompleted += OnVictoryVideoPrepared;
+        victoryVideo.errorReceived += OnVictoryVideoError;
+        rect.gameObject.SetActive(false);
+    }
+
+    void StartVictoryVideo()
+    {
+        if (victoryVideo == null || victoryVideoFailed) return;
+        // RawImage 物体先激活（VideoPlayer 在非激活物体上不会推进 Prepare），
+        // 但画面用 alpha 藏到 prepareCompleted 再亮，避免一帧黑闪
+        victoryVideo.gameObject.SetActive(true);
+        if (victoryVideoImage != null) victoryVideoImage.color = new Color(1f, 1f, 1f, 0f);
+        if (victoryVideo.isPrepared) OnVictoryVideoPrepared(victoryVideo);
+        else victoryVideo.Prepare();
+    }
+
+    void StopVictoryVideo()
+    {
+        if (victoryVideo == null) return;
+        if (victoryVideo.isPlaying) victoryVideo.Stop();
+        victoryVideo.gameObject.SetActive(false);
+    }
+
+    void OnVictoryVideoPrepared(VideoPlayer source)
+    {
+        if (victoryVideoFailed || source == null) return;
+        if (victoryVideoImage != null) victoryVideoImage.color = Color.white;
+        source.Play();
+    }
+
+    void OnVictoryVideoError(VideoPlayer source, string message)
+    {
+        // 永久回退静态背景：标记失败防止下次 Show 再尝试（WebGL 下错误通常不可恢复）
+        victoryVideoFailed = true;
+        if (victoryVideo != null) victoryVideo.gameObject.SetActive(false);
+        Debug.LogWarning("[LycheeSettlementScreen] victory.mp4 播放失败，回退静态背景: " + message);
     }
 
     void BuildGoldBorder(RectTransform parent)

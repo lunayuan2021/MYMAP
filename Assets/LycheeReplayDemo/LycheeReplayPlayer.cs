@@ -15,6 +15,11 @@ public class LycheeReplayPlayer : MonoBehaviour
     [Header("Models")]
     public GameObject carriageModel;
     public GameObject boatModel;
+    /// <summary>马模型（Tripo3D Horse.glb，由 LycheeHorseHookup_20260613 编辑器脚本赋值）：
+    /// 为空时"马拉车"特性整体静默不存在；消费方在 LycheeCharacterMotion，本类不读不实例化。</summary>
+    public GameObject horseModel;
+    /// <summary>马行走 AnimationClip（Horse.glb 子资产，可空）：空则 LycheeCharacterMotion 程序化 bob 兜底。</summary>
+    public AnimationClip horseWalkClip;
     public GameObject captainModel;
     public GameObject squadMemberModel;
     public GameObject roadObstacleModel;

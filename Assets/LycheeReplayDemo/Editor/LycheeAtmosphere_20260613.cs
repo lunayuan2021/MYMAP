@@ -10,13 +10,17 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 一次性氛围升级（20260613）：天空盒 + 光照 + 后期。用户原话——灰色虚空是最廉价也最致命的丢分项。
-/// 思路：把场景从"默认天光"切到黄昏长安——程序化黄昏天空盒、低角度暖金平行光、三色环境光、
-/// 线性暖雾把远景溶进暮色；后期补 ACES/暖色滤镜/暗角。天空盒存为 .mat 资产再赋给
-/// RenderSettings.skybox，保证 Skybox/Procedural shader 被打包收集（纯内存材质会被裁掉）。
+/// 一次性氛围升级（20260613，v2 白天版）：天空盒 + 光照 + 后期。
+/// v1 是黄昏长安调，用户反馈"太黄了看不清像夕阳"，v2 整体换成明亮白天：
+/// 中性微蓝程序化天空盒、近白高角度正午阳光、白天三色环境光、淡而远的中性雾；
+/// 质感件（ACES/Bloom/Vignette/SSAO/软阴影）全部保留，只换色调。
+/// 天空盒仍写入同一资产路径（rerun 复用）再赋给 RenderSettings.skybox，
+/// 保证 Skybox/Procedural shader 被打包收集（纯内存材质会被裁掉）。
 /// 已知坑：LycheePostFX_20260611K.asset 的 4 个 components 全是 fileID:0 断引用
 /// （旧脚本 Add 后没 AddObjectToAsset，子资产从未真正落盘），这里清掉空槽后按规格重建并正确嵌入。
 /// 模式与 LycheeStationLift_20260613 一致：update 轮询 + done 标记 + 报告 + 磁盘重载。
+/// 幂等说明：所有"旧值"只用于报告记录，新值全为绝对量（唯一例外是太阳偏航角保持现值），
+/// 二次运行（旧值=黄昏值）覆盖后结果一致。
 /// </summary>
 [InitializeOnLoad]
 static class LycheeAtmosphere_20260613
@@ -66,7 +70,7 @@ static class LycheeAtmosphere_20260613
     static void Run()
     {
         var report = new List<string>();
-        report.Add("LycheeAtmosphere_20260613 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        report.Add("LycheeAtmosphere_20260613 (v2 白天版) " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         try
         {
             Scene active = SceneManager.GetActiveScene();
@@ -78,13 +82,13 @@ static class LycheeAtmosphere_20260613
             active = EditorSceneManager.OpenScene(ScenePath);
             report.Add("已从磁盘重载场景: " + ScenePath);
 
-            // ---- 1. 黄昏长安天空盒（存资产再赋值，保证打包带上 shader）----
+            // ---- 1. 明亮白天天空盒（存资产再赋值，保证打包带上 shader；方法名沿用 v1 不动骨架）----
             ApplyDuskSkybox(report);
 
-            // ---- 2. 平行光：低角度暖金黄昏阳光 ----
+            // ---- 2. 平行光：近正午高角度近白阳光 ----
             ApplyDuskSun(report);
 
-            // ---- 3. 环境光三色 + 线性暖雾（远景溶入暮色而不是灰虚空）----
+            // ---- 3. 环境光三色 + 线性淡雾（远景溶入白天大气而不是灰虚空）----
             ApplyAmbientAndFog(report);
 
             // ---- 4. 后期 Volume Profile：修复断引用并按规格补全 ----
@@ -138,14 +142,14 @@ static class LycheeAtmosphere_20260613
         {
             sky.shader = proceduralSky; // rerun 时复用旧资产但确保 shader 正确
         }
-        sky.SetFloat("_SunSize", 0.06f);                                  // 黄昏太阳盘面偏大
-        sky.SetFloat("_AtmosphereThickness", 1.25f);                      // 厚大气=更浓的暖色散射
-        sky.SetColor("_SkyTint", new Color(0.784f, 0.510f, 0.353f));      // #C8825A 暖橙
-        sky.SetColor("_GroundColor", new Color(0.310f, 0.227f, 0.157f));  // 暖褐地平线
-        sky.SetFloat("_Exposure", 1.25f);
+        sky.SetFloat("_SunSize", 0.045f);                                 // 白天太阳盘面收小，不再是黄昏大盘
+        sky.SetFloat("_AtmosphereThickness", 1.0f);                       // 标准大气=中性蓝天散射，不再暖橙
+        sky.SetColor("_SkyTint", new Color(0.561f, 0.659f, 0.741f));      // #8FA8BD 接近中性微蓝
+        sky.SetColor("_GroundColor", new Color(0.420f, 0.396f, 0.361f));  // #6B655C 中性土色地平线
+        sky.SetFloat("_Exposure", 1.15f);
         EditorUtility.SetDirty(sky);
         RenderSettings.skybox = sky;
-        report.Add(string.Format("天空盒: {0} → {1}（Skybox/Procedural 黄昏参数）", oldSkybox, sky.name));
+        report.Add(string.Format("天空盒: {0} → {1}（Skybox/Procedural 白天参数 v2）", oldSkybox, sky.name));
     }
 
     // ---------------- 2. 平行光 ----------------
@@ -168,17 +172,19 @@ static class LycheeAtmosphere_20260613
         Vector3 oldEuler = sun.transform.rotation.eulerAngles;
         string oldDesc = string.Format("{0} 色={1} 强度={2:F2} 角度=({3:F0},{4:F0})",
             sun.name, ColorUtility.ToHtmlStringRGB(sun.color), sun.intensity, oldEuler.x, oldEuler.y);
-        Undo.RecordObject(sun, "Dusk sun light");
-        Undo.RecordObject(sun.transform, "Dusk sun rotation");
-        sun.color = new Color(1f, 0.851f, 0.659f); // #FFD9A8 暖金
-        sun.intensity = 1.2f;
-        sun.shadows = LightShadows.Soft;
-        // 俯仰 38° 的低角度；偏航 56°=光线射向东北，即太阳挂在西南偏西低空，拉出长投影
-        sun.transform.rotation = Quaternion.Euler(38f, 56f, 0f);
+        Undo.RecordObject(sun, "Day sun light");
+        Undo.RecordObject(sun.transform, "Day sun rotation");
+        sun.color = new Color(1f, 0.965f, 0.910f); // #FFF6E8 近白微暖，不再橙金
+        sun.intensity = 1.15f;
+        sun.shadows = LightShadows.Soft; // 质感件：软阴影保留
+        // 俯仰 55°=正午前后，阴影短而清晰；偏航保持现值（v1 的 56° 朝向没问题，且 rerun 时读到的
+        // 就是上次写入的绝对值，幂等）。v1 写的是 Euler(38,56,0)，eulerAngles 能干净取回 y
+        sun.transform.rotation = Quaternion.Euler(55f, oldEuler.y, 0f);
         RenderSettings.sun = sun;
         EditorUtility.SetDirty(sun);
         EditorUtility.SetDirty(sun.transform);
-        report.Add(string.Format("平行光: {0} → 色=FFD9A8 强度=1.20 角度=(38,56) 软阴影，RenderSettings.sun 已指向", oldDesc));
+        report.Add(string.Format("平行光: {0} → 色=FFF6E8 强度=1.15 角度=(55,{1:F0}) 软阴影，RenderSettings.sun 已指向（v2 白天）",
+            oldDesc, oldEuler.y));
     }
 
     // ---------------- 3. 环境光 + 雾 ----------------
@@ -191,21 +197,21 @@ static class LycheeAtmosphere_20260613
             ColorUtility.ToHtmlStringRGB(RenderSettings.ambientEquatorColor),
             ColorUtility.ToHtmlStringRGB(RenderSettings.ambientGroundColor));
         RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(0.773f, 0.557f, 0.384f);     // 暖橙：天空反弹
-        RenderSettings.ambientEquatorColor = new Color(0.541f, 0.478f, 0.416f); // 中灰暖：地平线
-        RenderSettings.ambientGroundColor = new Color(0.231f, 0.180f, 0.133f);  // 暗褐：地面反弹
-        report.Add("环境光: " + oldAmbient + " → Trilight 暖橙/中灰暖/暗褐");
+        RenderSettings.ambientSkyColor = new Color(0.725f, 0.788f, 0.859f);     // #B9C9DB 白天天光蓝灰：天空反弹
+        RenderSettings.ambientEquatorColor = new Color(0.627f, 0.612f, 0.573f); // #A09C92 中性：地平线
+        RenderSettings.ambientGroundColor = new Color(0.298f, 0.275f, 0.239f);  // #4C463D 暗土：地面反弹
+        report.Add("环境光: " + oldAmbient + " → Trilight 天光蓝灰/中性/暗土（v2 白天）");
 
         string oldFog = RenderSettings.fog
             ? string.Format("mode={0} 色={1}", RenderSettings.fogMode,
                 ColorUtility.ToHtmlStringRGB(RenderSettings.fogColor))
             : "关闭";
         RenderSettings.fog = true;
-        RenderSettings.fogMode = FogMode.Linear; // 线性雾可控远近边界，远景定向溶入暮色
-        RenderSettings.fogStartDistance = 45f;
-        RenderSettings.fogEndDistance = 140f;
-        RenderSettings.fogColor = new Color(0.788f, 0.663f, 0.545f); // #C9A98B 暖灰
-        report.Add("雾: " + oldFog + " → Linear 45~140 色=C9A98B");
+        RenderSettings.fogMode = FogMode.Linear; // 线性雾可控远近边界；白天雾改淡改远，只留一点大气感
+        RenderSettings.fogStartDistance = 60f;
+        RenderSettings.fogEndDistance = 170f;
+        RenderSettings.fogColor = new Color(0.761f, 0.796f, 0.820f); // #C2CBD1 中性大气色，不再暖棕
+        report.Add("雾: " + oldFog + " → Linear 60~170 色=C2CBD1");
     }
 
     // ---------------- 4. 后期 Profile ----------------
@@ -235,11 +241,11 @@ static class LycheeAtmosphere_20260613
             color.postExposure.Override(0.14f);
             color.contrast.Override(13f);
         }
-        color.saturation.Override(10f);
-        color.colorFilter.Override(new Color(1f, 0.96f, 0.89f)); // 微暖滤镜统一唐风暖调
+        color.saturation.Override(6f);              // v1 的 +10 偏浓，白天收到 +6
+        color.colorFilter.Override(Color.white);    // v2：滤镜改回纯白，去掉黄昏暖罩（太黄的主因之一）
 
         Vignette vignette = EnsureOverride<Vignette>(profile, report, out bool vignetteNew);
-        vignette.intensity.Override(0.22f);
+        vignette.intensity.Override(0.16f);         // 白天不需要重暗角，0.22 → 0.16
         if (vignetteNew) vignette.smoothness.Override(0.62f);
 
         // Bloom：已有则原样保留；断引用清理后缺失则按生成器原参数重建
@@ -257,7 +263,7 @@ static class LycheeAtmosphere_20260613
         }
 
         EditorUtility.SetDirty(profile);
-        report.Add("后期: Tonemapping=ACES, ColorAdjustments(saturation +10, 微暖滤镜), Vignette(0.22) 已写入 " + ProfilePath);
+        report.Add("后期: Tonemapping=ACES, ColorAdjustments(saturation +6, 纯白滤镜), Vignette(0.16) 已写入 " + ProfilePath + "（v2 白天）");
     }
 
     /// <summary>取已有组件，缺则新建并嵌入 profile 资产——必须 AddObjectToAsset 才会真正落盘（旧 K 资产就是栽在这）。</summary>

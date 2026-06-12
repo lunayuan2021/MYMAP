@@ -32,6 +32,10 @@ public enum LycheeCharacterActionKind
 /// 无骨骼对象的廉价动画：TeamMember 行进弹跳（采到骨骼组的减半防双重起伏）、Boat 水上横摇、
 /// Carriage 速度颠簸（Perlin）+ 程序化假车轮滚动 + 轮速同步弹跳 + 加减速点头
 /// （Carriage.glb 是单节点烘焙网格拆不出轮子，只能圆柱补假轮）。
+/// 马拉车（player.horseModel 非空时启用，空则特性整体静默不存在）：每辆 Carriage 车头前方挂一匹
+/// 归一 ~1.7m 的马（车包围盒 +Z 前缘 + 半身长，底部对齐车底），horseWalkClip 可用时走 Playables
+/// 循环（播放速率随 rig.speed 调档），否则程序化 bob 兜底（相位与假车轮同步）；水路与假车轮同款整马隐藏；
+/// 马是 carriage wrapper 子物体跟车走，SeekFrame 瞬移无需特殊处理。
 /// 升级钩子：LycheeAnimationLibrary 提供非 legacy 的 walk/idle/row clip 时，Captain 组改用 Playables 循环播放，
 /// 程序化层只保留 Action 覆盖；缺哪个状态哪个状态继续程序化，队员/小队组始终程序化。
 /// </summary>
@@ -45,6 +49,7 @@ public class LycheeCharacterMotion : MonoBehaviour
     const float SquadMoveSpeedThreshold = 0.1f; // 出击小队自估速度的行进判定阈值（小队整体移速较低）
     const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护
     const float RowHz = 0.9f;                // 划桨节奏
+    const float HorseTargetSize = 1.7f;      // 马归一尺寸（米，最大边）：比 2.4 的车身矮一头、比 1.25 的队长高一头
     const float TwoPi = Mathf.PI * 2f;
     const float ContestHoldSeconds = 99999f; // 对抗窗口期间持续 Attack，CONTEST_END 主动结束
 
@@ -106,6 +111,16 @@ public class LycheeCharacterMotion : MonoBehaviour
         public bool wheelsHidden; // 水路换船期间轮子整体隐藏
         public float lastSpeed;   // 上帧速度缓存，用于加减速点头
         public float pitchOffset; // 点头偏移（度），由速度变化率注入后衰减回零
+
+        // —— 以下字段同样仅 Carriage 使用：马拉车（player.horseModel 非空时 AttachHorse 挂载）——
+        public Transform horse;              // 马实例根（carriage wrapper 子物体，跟车走）
+        public Vector3 horseBasePosition;    // 马基准局部位姿：程序化 bob/还原都以此为锚，绝不累积漂移
+        public Quaternion horseBaseRotation;
+        public bool horseHidden;             // 水路换船期间整马隐藏（与 wheelsHidden 同款开关同款时机）
+        public Animator horseAnimator;
+        public PlayableGraph horseGraph;
+        public bool horseGraphValid;
+        public AnimationClipPlayable horsePlayable; // 留引用以便每帧按 rig.speed 调播放速率/手动回卷循环
     }
 
     sealed class CharacterRig
@@ -234,7 +249,10 @@ public class LycheeCharacterMotion : MonoBehaviour
         LycheeReplayPlayer.ReplayEventRaised -= OnReplayEvent;
         LycheeReplayPlayer.RoundApplied -= OnRoundApplied;
         foreach (CharacterRig rig in rigs)
+        {
             ReleasePlayable(rig);
+            if (rig != null) ReleaseHorsePlayable(rig.carriage);
+        }
         rigs.Clear();
         squadGroups.Clear();
         if (instance == this) instance = null;
@@ -374,6 +392,8 @@ public class LycheeCharacterMotion : MonoBehaviour
                 };
                 // Carriage.glb 车轮已烘进单一网格无法按节点旋转，程序化补 4 个假车轮（Boat 不需要轮子）
                 CreateCarriageWheels(rig.carriage);
+                // 马拉车：horseModel 已接线（Horse.glb 落地且编辑器脚本装配过）才挂，否则静默无马
+                AttachHorse(rig.carriage);
             }
             else if (child.name == "Boat")
             {
@@ -389,26 +409,23 @@ public class LycheeCharacterMotion : MonoBehaviour
     }
 
     /// <summary>
-    /// 给 Carriage wrapper 程序化补 4 个假车轮：压扁圆柱放在包围盒底部四角内收处，
-    /// 滚动角由 UpdateWrappers 按 rig.speed / 轮半径 累加。包围盒按 8 角点逐一变换进 wrapper
-    /// 局部空间统计——直接用世界 AABB 在车队旋转后会虚胖，估出的轮位会偏。
+    /// 把 subtree 下所有 Renderer 的世界包围盒 8 角点逐一变换进 space 局部空间统计合并包围盒：
+    /// 直接用世界 AABB 在车队旋转后会虚胖，估出的轮位/马位会偏，必须走局部空间（假车轮与马共用）。
     /// </summary>
-    void CreateCarriageWheels(WrapperPose carriage)
+    static bool TryGetLocalBounds(Transform space, Transform subtree, out Bounds local)
     {
-        if (carriage == null || carriage.transform == null) return;
-        Transform wrapper = carriage.transform;
-        Renderer[] renderers = wrapper.GetComponentsInChildren<Renderer>(true);
-        if (renderers == null || renderers.Length == 0) return;
-
+        local = new Bounds();
+        if (space == null || subtree == null) return false;
+        Renderer[] renderers = subtree.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return false;
         bool hasBounds = false;
-        Bounds local = new Bounds();
         foreach (Renderer renderer in renderers)
         {
             if (renderer == null) continue;
             Bounds world = renderer.bounds;
             for (int corner = 0; corner < 8; corner++)
             {
-                Vector3 point = wrapper.InverseTransformPoint(new Vector3(
+                Vector3 point = space.InverseTransformPoint(new Vector3(
                     (corner & 1) == 0 ? world.min.x : world.max.x,
                     (corner & 2) == 0 ? world.min.y : world.max.y,
                     (corner & 4) == 0 ? world.min.z : world.max.z));
@@ -423,7 +440,18 @@ public class LycheeCharacterMotion : MonoBehaviour
                 }
             }
         }
-        if (!hasBounds) return;
+        return hasBounds;
+    }
+
+    /// <summary>
+    /// 给 Carriage wrapper 程序化补 4 个假车轮：压扁圆柱放在包围盒底部四角内收处，
+    /// 滚动角由 UpdateWrappers 按 rig.speed / 轮半径 累加。
+    /// </summary>
+    void CreateCarriageWheels(WrapperPose carriage)
+    {
+        if (carriage == null || carriage.transform == null) return;
+        Transform wrapper = carriage.transform;
+        if (!TryGetLocalBounds(wrapper, wrapper, out Bounds local)) return;
 
         float radius = local.size.y * 0.25f; // 轮半径按车身高度估：约车高的四分之一
         if (radius < 0.02f) return;          // 包围盒异常小（模型还没就绪）就放弃，避免生成肉眼不可见的碎轮
@@ -472,6 +500,78 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (wheelSharedMaterial.HasProperty("_Smoothness"))
             wheelSharedMaterial.SetFloat("_Smoothness", 0.25f);
         return wheelSharedMaterial;
+    }
+
+    /// <summary>
+    /// 给 Carriage wrapper 在车头前方挂一匹马（马拉车）：player.horseModel 为空时整个特性静默不存在。
+    /// 归一是小型版 CreateNormalizedModel（player 里的私有方法做不了"对齐到车头"，自做一份）：
+    /// 实例化 → 合并包围盒最大边缩放到 ~1.7m → 重采包围盒再定位（两段式免去对模型 pivot/旋转的任何假设）
+    /// → 销毁 Collider（演出物体不参与物理/射线，与假车轮同理）。
+    /// 车头位置：wrapper 局部 +Z 是车队前进方向（朝向由车队 root 旋转决定），
+    /// 马中心 Z = 车包围盒前缘 + 马身长一半，首尾相接像被车辕牵着；底部对齐车底贴地。
+    /// 注意必须先采车包围盒再实例化马，否则马自己会污染"车头前缘"的估计。
+    /// </summary>
+    void AttachHorse(WrapperPose carriage)
+    {
+        if (carriage == null || carriage.transform == null) return;
+        if (player == null || player.horseModel == null) return;
+        Transform wrapper = carriage.transform;
+        if (!TryGetLocalBounds(wrapper, wrapper, out Bounds carriageBounds)) return;
+
+        GameObject horse = Instantiate(player.horseModel, wrapper);
+        horse.name = "Horse";
+        if (!TryGetLocalBounds(wrapper, horse.transform, out Bounds horseBounds))
+        {
+            Destroy(horse); // 无渲染器的空模型：挂着也看不见，干脆不挂
+            return;
+        }
+        float largest = Mathf.Max(horseBounds.size.x, horseBounds.size.y, horseBounds.size.z);
+        if (largest > 0.0001f) horse.transform.localScale *= HorseTargetSize / largest;
+        if (!TryGetLocalBounds(wrapper, horse.transform, out horseBounds))
+        {
+            Destroy(horse);
+            return;
+        }
+        // localPosition 增量即 wrapper 空间位移：横向居中、底部对齐车底、纵向推到车头前缘 + 半身长
+        horse.transform.localPosition += new Vector3(
+            -horseBounds.center.x,
+            carriageBounds.min.y - horseBounds.min.y,
+            carriageBounds.max.z + horseBounds.extents.z - horseBounds.center.z);
+        foreach (Collider collider in horse.GetComponentsInChildren<Collider>(true))
+            Destroy(collider);
+
+        carriage.horse = horse.transform;
+        carriage.horseBasePosition = horse.transform.localPosition;
+        carriage.horseBaseRotation = horse.transform.localRotation;
+        // Playables 图不在这里建：UpdateWrappers 每帧懒建/自愈（Disabled 切换销毁后能自动恢复）
+    }
+
+    /// <summary>
+    /// 给马建/重建 Playables 行走图（参考 EnsurePlayable 的 walk clip 写法）。
+    /// Animator 找根上现成的（glTFast 可能已带），没有再补——clip 曲线路径相对 GLB 根，
+    /// Animator 挂深层节点会绑不上骨骼，所以不用 GetComponentInChildren。
+    /// </summary>
+    void EnsureHorsePlayable(WrapperPose carriage, AnimationClip clip)
+    {
+        if (carriage == null || carriage.horse == null || clip == null) return;
+        if (carriage.horseAnimator == null)
+        {
+            carriage.horseAnimator = carriage.horse.GetComponent<Animator>();
+            if (carriage.horseAnimator == null)
+                carriage.horseAnimator = carriage.horse.gameObject.AddComponent<Animator>();
+        }
+        if (carriage.horseAnimator == null) return;
+        carriage.horsePlayable = AnimationPlayableUtilities.PlayClip(
+            carriage.horseAnimator, clip, out carriage.horseGraph);
+        carriage.horseGraphValid = carriage.horseGraph.IsValid();
+    }
+
+    /// <summary>销毁马的 Playables 图（Disabled / OnDestroy 清理；重新启用后 UpdateWrappers 下一帧自动重建）。</summary>
+    static void ReleaseHorsePlayable(WrapperPose carriage)
+    {
+        if (carriage == null) return;
+        if (carriage.horseGraphValid && carriage.horseGraph.IsValid()) carriage.horseGraph.Destroy();
+        carriage.horseGraphValid = false;
     }
 
     /// <summary>扫描出击小队根下的 Member_* wrapper（Member.glb 实例）采集骨骼组，加入临时驱动列表。</summary>
@@ -625,6 +725,7 @@ public class LycheeCharacterMotion : MonoBehaviour
                 {
                     RestoreBasePose(rig);
                     ReleasePlayable(rig);
+                    if (rig != null) ReleaseHorsePlayable(rig.carriage); // 重新启用后 UpdateWrappers 懒重建
                 }
                 foreach (BoneGroup group in squadGroups)
                     RestoreGroupPose(group);
@@ -1048,6 +1149,49 @@ public class LycheeCharacterMotion : MonoBehaviour
 
             carriage.transform.localRotation = carriage.baseRotation * Quaternion.Euler(pitch + carriage.pitchOffset, 0f, roll);
             carriage.transform.localPosition = carriage.basePosition + new Vector3(0f, bounce, 0f);
+
+            // 马拉车：水路整马隐藏（与假车轮同款开关）；陆路动画双路——有 walk clip 走 Playables，否则程序化 bob
+            if (carriage.horse != null)
+            {
+                bool hideHorse = rig.waterBlend > 0.5f;
+                if (hideHorse != carriage.horseHidden)
+                {
+                    carriage.horseHidden = hideHorse;
+                    carriage.horse.gameObject.SetActive(!hideHorse);
+                }
+                if (!hideHorse)
+                {
+                    AnimationClip horseClip = player != null ? player.horseWalkClip : null;
+                    if (horseClip != null && horseClip.legacy) horseClip = null; // legacy 进 Playables 会报错，当无 clip 处理
+                    if (horseClip != null && (!carriage.horseGraphValid || !carriage.horseGraph.IsValid()))
+                        EnsureHorsePlayable(carriage, horseClip);
+
+                    if (horseClip != null && carriage.horseGraphValid && carriage.horseGraph.IsValid())
+                    {
+                        // Playables 路：播放速率随车队速度调档——静止 0.3 近似原地踏步/站立，
+                        // 行进 0.6 起步随速度抬升、封顶 1.6 防快进鬼畜
+                        float playSpeed = rig.speed < 0.1f ? 0.3f : Mathf.Min(1.6f, 0.6f + rig.speed * 0.25f);
+                        carriage.horsePlayable.SetSpeed(playSpeed);
+                        // PlayClip 不保证循环（取决于 clip 自带 loopTime），非循环 clip 到尾手动回卷
+                        if (!horseClip.isLooping && horseClip.length > 0.01f &&
+                            carriage.horsePlayable.GetTime() >= horseClip.length)
+                        {
+                            carriage.horsePlayable.SetTime(carriage.horsePlayable.GetTime() % horseClip.length);
+                        }
+                    }
+                    else
+                    {
+                        // 程序化兜底：bob 相位由 wheelSpin 推导、与假车轮严格同步（像马蹄带着车轮走）；
+                        // 速度趋零时 k→0，bob/俯仰收敛，剩呼吸式起伏（与 Idle 层同款 0.25Hz）
+                        float horsePhase = carriage.wheelSpin * Mathf.Deg2Rad * 2f;
+                        float horseBob = Mathf.Abs(Mathf.Sin(horsePhase)) * 0.05f * k;
+                        float breathe = Mathf.Sin(t * 0.25f * TwoPi + carriage.seed) * 0.012f * (1f - k);
+                        float horsePitch = Mathf.Sin(horsePhase) * 3f * k;
+                        carriage.horse.localPosition = carriage.horseBasePosition + new Vector3(0f, horseBob + breathe, 0f);
+                        carriage.horse.localRotation = carriage.horseBaseRotation * Quaternion.Euler(horsePitch, 0f, 0f);
+                    }
+                }
+            }
         }
 
         // Boat：水上缓慢横摇 ±2.5°
@@ -1111,6 +1255,11 @@ public class LycheeCharacterMotion : MonoBehaviour
         {
             rig.carriage.transform.localPosition = rig.carriage.basePosition; // 轮速弹跳会动 localPosition，一并还原
             rig.carriage.transform.localRotation = rig.carriage.baseRotation;
+            if (rig.carriage.horse != null)
+            {
+                rig.carriage.horse.localPosition = rig.carriage.horseBasePosition; // 程序化 bob 动的是马局部位姿
+                rig.carriage.horse.localRotation = rig.carriage.horseBaseRotation;
+            }
         }
         if (rig.boat != null && rig.boat.transform != null)
             rig.boat.transform.localRotation = rig.boat.baseRotation;
