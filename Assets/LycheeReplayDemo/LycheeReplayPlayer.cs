@@ -428,7 +428,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             {
                 root = root,
                 // 比例锚定站点建筑（4.2~6.4）：建筑 > 马车/船 > 人物，近景才不会出现"马车比楼大"
-                carriage = CreateNormalizedModel(carriageModel, root.transform, "Carriage", 2.4f),
+                // 3.2：组合马车（马+车一体）比纯货车长，归一到 2.4 会让车厢显小；纯货车模型用此值也不违和
+                carriage = CreateNormalizedModel(carriageModel, root.transform, "Carriage", 3.2f),
                 boat = CreateNormalizedModel(boatModel, root.transform, "Boat", 3.0f),
                 captain = CreateNormalizedModel(captainModel, root.transform, "Captain", 1.25f)
             };

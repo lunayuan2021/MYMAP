@@ -390,10 +390,16 @@ public class LycheeCharacterMotion : MonoBehaviour
                     baseRotation = child.localRotation,
                     seed = rig.idleSeed
                 };
-                // Carriage.glb 车轮已烘进单一网格无法按节点旋转，程序化补 4 个假车轮（Boat 不需要轮子）
-                CreateCarriageWheels(rig.carriage);
-                // 马拉车：horseModel 已接线（Horse.glb 落地且编辑器脚本装配过）才挂，否则静默无马
-                AttachHorse(rig.carriage);
+                // 组合马车（horse_new.glb：马+车一体绑骨，自带 SkinnedMeshRenderer）自含马匹与车轮，
+                // 程序化假车轮和独立挂马都要让位，否则双马+轮子穿模
+                bool combinedCarriage = child.GetComponentInChildren<SkinnedMeshRenderer>(true) != null;
+                if (!combinedCarriage)
+                {
+                    // Carriage.glb 车轮已烘进单一网格无法按节点旋转，程序化补 4 个假车轮（Boat 不需要轮子）
+                    CreateCarriageWheels(rig.carriage);
+                    // 马拉车：horseModel 已接线（Horse.glb 落地且编辑器脚本装配过）才挂，否则静默无马
+                    AttachHorse(rig.carriage);
+                }
             }
             else if (child.name == "Boat")
             {
