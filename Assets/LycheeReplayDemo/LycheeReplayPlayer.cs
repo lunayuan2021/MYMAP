@@ -32,6 +32,9 @@ public class LycheeReplayPlayer : MonoBehaviour
     /// <summary>将军行走 AnimationClip（各自 GLB 子资产，可空）：有则 Playables 播放，空则程序化兜底。</summary>
     public AnimationClip redGeneralWalkClip;
     public AnimationClip blueGeneralWalkClip;
+    /// <summary>将军攻击 AnimationClip（RedGeneralAttack/BlueGeneralAttack.glb 子资产，可空）：对抗期间从走路切到挥剑。</summary>
+    public AnimationClip redGeneralAttackClip;
+    public AnimationClip blueGeneralAttackClip;
 
     [Header("Presentation")]
     public bool useRuntimeHud = true;
@@ -541,6 +544,13 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (camp == 0) return redGeneralModel != null ? redGeneralWalkClip : null;
         return blueGeneralModel != null ? blueGeneralWalkClip : null;
+    }
+
+    /// <summary>按阵营取将军攻击 clip（对抗期间播；空则对抗时保持走路）。</summary>
+    public AnimationClip GetGeneralAttackClip(int camp)
+    {
+        if (camp == 0) return redGeneralModel != null ? redGeneralAttackClip : null;
+        return blueGeneralModel != null ? blueGeneralAttackClip : null;
     }
 
     int ResolveTeamSize(LycheeReplayPlayerState player)

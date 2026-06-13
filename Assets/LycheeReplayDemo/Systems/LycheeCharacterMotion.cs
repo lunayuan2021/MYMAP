@@ -182,6 +182,9 @@ public class LycheeCharacterMotion : MonoBehaviour
         // captainGroup 非空（Mixamo 占位队长）时此路不启用，仍走原程序化骨骼驱动。
         public int camp;
         public AnimationClip generalWalkClip;     // 该队将军行走 clip；空=占位队长或无 clip
+        public AnimationClip generalAttackClip;   // 该队将军攻击 clip；对抗期间切到它，空则对抗时保持走路
+        public bool generalAttacking;             // 对抗中（WINDOW_CONTEST 期间）：true 时播攻击 clip
+        public AnimationClip generalActiveClip;   // 当前 Playables 正在播的 clip，用于检测走路↔攻击切换需重建图
         public Transform generalWrapper;          // = captainWrapper，便于语义清晰
         public Animator generalAnimator;
         public PlayableGraph generalGraph;
@@ -335,6 +338,7 @@ public class LycheeCharacterMotion : MonoBehaviour
             if (generalClip != null)
             {
                 rig.generalWalkClip = generalClip;
+                rig.generalAttackClip = player.GetGeneralAttackClip(state.camp);
             }
             else
             {
@@ -887,8 +891,9 @@ public class LycheeCharacterMotion : MonoBehaviour
         {
             foreach (CharacterRig rig in rigs)
             {
-                if (rig != null)
-                    StartAction(rig.playerId, LycheeCharacterActionKind.Attack, ContestHoldSeconds, true);
+                if (rig == null) continue;
+                StartAction(rig.playerId, LycheeCharacterActionKind.Attack, ContestHoldSeconds, true); // Mixamo 占位队长
+                rig.generalAttacking = true;                                                            // 将军切挥剑 clip
             }
             return;
         }
@@ -896,11 +901,13 @@ public class LycheeCharacterMotion : MonoBehaviour
         {
             foreach (CharacterRig rig in rigs)
             {
-                if (rig != null && rig.actionFromContest)
+                if (rig == null) continue;
+                if (rig.actionFromContest)
                 {
                     rig.actionEnd = Time.time;
                     rig.actionFromContest = false;
                 }
+                rig.generalAttacking = false; // 将军切回走路
             }
             return;
         }
@@ -1078,10 +1085,16 @@ public class LycheeCharacterMotion : MonoBehaviour
     void DriveGeneralClip(CharacterRig rig)
     {
         if (rig.generalWalkClip == null || rig.captainGroup != null) return;
-        if (rig.generalWalkClip.legacy) return; // legacy clip 进 Playables 会报错
         if (rig.generalWrapper == null || rig.generalWrapper.childCount == 0) return;
 
-        if (!rig.generalGraphValid || !rig.generalGraph.IsValid())
+        // 对抗中且有攻击 clip → 挥剑，否则走路。切换时需重建 Playables 图（PlayClip 是单 clip 图）。
+        AnimationClip desired =
+            (rig.generalAttacking && rig.generalAttackClip != null && !rig.generalAttackClip.legacy)
+            ? rig.generalAttackClip : rig.generalWalkClip;
+        if (desired == null || desired.legacy) return;
+
+        bool needRebuild = !rig.generalGraphValid || !rig.generalGraph.IsValid() || rig.generalActiveClip != desired;
+        if (needRebuild)
         {
             Transform modelRoot = rig.generalWrapper.GetChild(0); // CreateNormalizedModel 内的 GLB 实例
             if (rig.generalAnimator == null)
@@ -1091,18 +1104,22 @@ public class LycheeCharacterMotion : MonoBehaviour
                     rig.generalAnimator = modelRoot.gameObject.AddComponent<Animator>();
             }
             if (rig.generalAnimator == null) return;
+            if (rig.generalGraphValid && rig.generalGraph.IsValid()) rig.generalGraph.Destroy();
             rig.generalPlayable = AnimationPlayableUtilities.PlayClip(
-                rig.generalAnimator, rig.generalWalkClip, out rig.generalGraph);
+                rig.generalAnimator, desired, out rig.generalGraph);
             rig.generalGraphValid = rig.generalGraph.IsValid();
+            rig.generalActiveClip = desired;
         }
         if (rig.generalGraphValid && rig.generalGraph.IsValid())
         {
-            // 红队将军领队基本一直在走：移动时正常步速，静止放慢近站立（不完全停，保持待命踏步感）
-            float playSpeed = rig.speed < 0.1f ? 0.35f : Mathf.Min(1.5f, 0.7f + rig.speed * 0.22f);
+            // 攻击 clip 固定常速挥砍；走路 clip 随车速调档（静止放慢近站立、保持待命踏步感）
+            float playSpeed = rig.generalAttacking && rig.generalAttackClip != null
+                ? 1f
+                : (rig.speed < 0.1f ? 0.35f : Mathf.Min(1.5f, 0.7f + rig.speed * 0.22f));
             rig.generalPlayable.SetSpeed(playSpeed);
-            if (!rig.generalWalkClip.isLooping && rig.generalWalkClip.length > 0.01f &&
-                rig.generalPlayable.GetTime() >= rig.generalWalkClip.length)
-                rig.generalPlayable.SetTime(rig.generalPlayable.GetTime() % rig.generalWalkClip.length);
+            if (!desired.isLooping && desired.length > 0.01f &&
+                rig.generalPlayable.GetTime() >= desired.length)
+                rig.generalPlayable.SetTime(rig.generalPlayable.GetTime() % desired.length); // 非循环 clip 手动回卷
         }
     }
 

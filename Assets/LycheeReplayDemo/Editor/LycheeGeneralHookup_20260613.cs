@@ -19,6 +19,8 @@ static class LycheeGeneralHookup_20260613
     const string ScenePath = "Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity";
     const string RedPath = "Assets/LycheeReplayDemo/ModelsGLB/RedGeneral.glb";
     const string BluePath = "Assets/LycheeReplayDemo/ModelsGLB/BlueGeneral.glb";
+    const string RedAttackPath = "Assets/LycheeReplayDemo/ModelsGLB/RedGeneralAttack.glb";
+    const string BlueAttackPath = "Assets/LycheeReplayDemo/ModelsGLB/BlueGeneralAttack.glb";
     const string DoneFileName = ".lychee_general_hookup_20260613.done";
     const string ReportFileName = "LycheeGeneralHookup_20260613_report.txt";
 
@@ -89,13 +91,15 @@ static class LycheeGeneralHookup_20260613
                 UnityEngine.Object.FindAnyObjectByType<LycheeReplayPlayer>(FindObjectsInactive.Include);
             if (player == null) { Abort(report, "未找到 LycheeReplayPlayer，场景未修改。"); return; }
 
-            // 红将军
+            // 红将军（走路 + 攻击）
             var redClips = new List<string>();
             player.redGeneralModel = red;
             player.redGeneralWalkClip = PickWalkClip(RedPath, redClips);
+            player.redGeneralAttackClip = PickWalkClip(RedAttackPath, new List<string>()); // 攻击 GLB 只含攻击 clip
             report.Add("redGeneralModel → " + RedPath);
             report.Add("红将军 clip 名单: " + (redClips.Count == 0 ? "(无)" : string.Join(", ", redClips)));
             report.Add("redGeneralWalkClip → " + (player.redGeneralWalkClip != null ? player.redGeneralWalkClip.name : "(null)"));
+            report.Add("redGeneralAttackClip → " + (player.redGeneralAttackClip != null ? player.redGeneralAttackClip.name : "(null，缺 RedGeneralAttack.glb)"));
 
             // 蓝将军（可选，用户稍后提供）
             GameObject blue = AssetDatabase.LoadAssetAtPath<GameObject>(BluePath);
@@ -104,13 +108,16 @@ static class LycheeGeneralHookup_20260613
                 var blueClips = new List<string>();
                 player.blueGeneralModel = blue;
                 player.blueGeneralWalkClip = PickWalkClip(BluePath, blueClips);
+                player.blueGeneralAttackClip = PickWalkClip(BlueAttackPath, new List<string>());
                 report.Add("blueGeneralModel → " + BluePath);
                 report.Add("blueGeneralWalkClip → " + (player.blueGeneralWalkClip != null ? player.blueGeneralWalkClip.name : "(null)"));
+                report.Add("blueGeneralAttackClip → " + (player.blueGeneralAttackClip != null ? player.blueGeneralAttackClip.name : "(null，缺 BlueGeneralAttack.glb)"));
             }
             else
             {
                 player.blueGeneralModel = null;
                 player.blueGeneralWalkClip = null;
+                player.blueGeneralAttackClip = null;
                 report.Add("BlueGeneral.glb 暂缺：蓝队回退 captainModel 占位居中（待用户提供后菜单 rerun 接入）。");
             }
 

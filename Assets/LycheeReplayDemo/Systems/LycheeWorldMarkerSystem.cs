@@ -419,7 +419,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         foreach (string type in ResourceOrder)
         {
             if (!marker.icons.TryGetValue(type, out ResourceIcon icon) || icon == null || icon.root == null) continue;
-            icon.root.transform.localPosition = new Vector3((index - (total - 1) * 0.5f) * 1.35f, 0f, 0f);
+            icon.root.transform.localPosition = new Vector3((index - (total - 1) * 0.5f) * 1.75f, 0f, 0f);
             index++;
         }
     }
@@ -436,8 +436,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         {
             GameObject spriteObject = new GameObject("Sprite");
             spriteObject.transform.SetParent(iconRoot.transform, false);
-            // 原 0.55 在正交 35 的镜头下小到看不清（用户反馈"徽章特别小"）
-            spriteObject.transform.localScale = Vector3.one * 1.25f;
+            // 1.7：用户反馈"荆襄大驿徽章太小"，在正交 35 镜头下放大一档才看得清
+            spriteObject.transform.localScale = Vector3.one * 1.7f;
             SpriteRenderer spriteRenderer = spriteObject.AddComponent<SpriteRenderer>();
             spriteRenderer.sprite = sprite;
         }
@@ -445,12 +445,16 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         {
             Color color = ResourceColor(type);
             Material material = GetLitMaterial("resource_" + type, color, color * 0.55f);
-            CreateBarCube(iconRoot.transform, "Cube", Vector3.zero, Vector3.zero, Vector3.one * 0.65f, material);
+            CreateBarCube(iconRoot.transform, "Cube", Vector3.zero, Vector3.zero, Vector3.one * 0.9f, material);
             CreateWorldLabel(iconRoot.transform, new Vector3(0f, 0f, -0.36f),
                 ResourceFallbackChar(type), Color.white, 30, 0.08f, false);
         }
 
-        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.55f, -0.68f, -0.02f),
+        // 中文名标签：图标下方，让人一眼看懂这是什么资源（用户要求"带中文解释"）
+        CreateWorldLabel(iconRoot.transform, new Vector3(0f, -1.05f, -0.02f),
+            ResourceChineseName(type), new Color(1f, 0.93f, 0.72f), 30, 0.075f, true);
+
+        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.7f, -0.7f, -0.02f),
             string.Empty, GoldColor, 28, 0.07f, false);
         return new ResourceIcon { root = iconRoot, count = count };
     }
@@ -465,6 +469,19 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             marker.row.localPosition = new Vector3(0f, y, 0f);
         }
     }
+
+    /// <summary>资源中文名（站点徽章下方标签，让人一眼看懂）。</summary>
+    static string ResourceChineseName(string type) => type switch
+    {
+        "ICE_BOX" => "冰盒",
+        "FAST_HORSE" => "快马",
+        "SHORT_HORSE" => "驽马",
+        "PASS_TOKEN" => "通关牒",
+        "OFFICIAL_PERMIT" => "官凭",
+        "INTEL" => "情报",
+        "BOAT_RIGHT" => "船引",
+        _ => "物资"
+    };
 
     static string ResourceSpriteFile(string type) => type switch
     {

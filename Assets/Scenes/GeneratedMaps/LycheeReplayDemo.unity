@@ -170748,6 +170748,8 @@ MonoBehaviour:
   blueGeneralModel: {fileID: 8771091787928289351, guid: ca28e0a2f4d68452da81420941fdbd45, type: 3}
   redGeneralWalkClip: {fileID: -8559126739998960628, guid: 3565334b0c649422c9d644ceb5576c8d, type: 3}
   blueGeneralWalkClip: {fileID: -8559126739998960628, guid: ca28e0a2f4d68452da81420941fdbd45, type: 3}
+  redGeneralAttackClip: {fileID: -5736745432439746524, guid: b9f6e91d68f734be881cf6945a58bfd5, type: 3}
+  blueGeneralAttackClip: {fileID: 7916048911729411752, guid: b5616c7859a724578a42e4eadf1d3a2d, type: 3}
   useRuntimeHud: 1
   showLegacyTopHud: 0
   defaultTeamSize: 16
