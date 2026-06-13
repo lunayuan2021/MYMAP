@@ -25,6 +25,13 @@ public class LycheeReplayPlayer : MonoBehaviour
     public GameObject captainModel;
     public GameObject squadMemberModel;
     public GameObject roadObstacleModel;
+    /// <summary>红/蓝队将军模型（取代队长 figure，由 LycheeGeneralHookup_20260613 赋值，带 walking 子动画）：
+    /// 红队将军走在车队最前领队、蓝队将军居中坐镇；某队为空时该队回退用 captainModel 占位。</summary>
+    public GameObject redGeneralModel;
+    public GameObject blueGeneralModel;
+    /// <summary>将军行走 AnimationClip（各自 GLB 子资产，可空）：有则 Playables 播放，空则程序化兜底。</summary>
+    public AnimationClip redGeneralWalkClip;
+    public AnimationClip blueGeneralWalkClip;
 
     [Header("Presentation")]
     public bool useRuntimeHud = true;
@@ -478,7 +485,10 @@ public class LycheeReplayPlayer : MonoBehaviour
                 // 3.2：组合马车（马+车一体）比纯货车长，归一到 2.4 会让车厢显小；纯货车模型用此值也不违和
                 carriage = CreateNormalizedModel(carriageModel, root.transform, "Carriage", 3.2f),
                 boat = CreateNormalizedModel(boatModel, root.transform, "Boat", 3.0f),
-                captain = CreateNormalizedModel(captainModel, root.transform, "Captain", 1.25f)
+                // 将军取代队长（"Captain" wrapper 名保留，内部换将军模型）：红队用赤龙将军、蓝队用蓝将军，
+                // 某队将军模型缺失则回退 captainModel 占位（蓝将军待用户提供，先用绑骨队长占位居中）
+                captain = CreateNormalizedModel(
+                    ResolveGeneralModel(player.camp), root.transform, "Captain", 1.35f)
             };
             // AI 导出的组合马车正面不一定符合 +Z 约定，按装配脚本实测的偏航修正整体转正
             if (visual.carriage != null && Mathf.Abs(carriageYawOffset) > 0.01f)
@@ -487,8 +497,14 @@ public class LycheeReplayPlayer : MonoBehaviour
             teamRosterSizes[player.playerId] = teamSize;
             if (visual.captain != null)
             {
-                visual.captain.transform.localPosition = new Vector3(player.camp == 0 ? -1.1f : 1.1f, 0.2f, -0.4f);
-                TintModel(visual.captain, player.camp == 0 ? new Color(1f, 0.36f, 0.28f, 1f) : new Color(0.36f, 0.62f, 1f, 1f), 0.14f);
+                // 红队将军走在车队最前领队（+Z 前方居中），蓝队将军居中坐镇（车侧偏后）
+                visual.captain.transform.localPosition = player.camp == 0
+                    ? new Vector3(0f, 0f, 2.8f)
+                    : new Vector3(1.4f, 0.2f, -0.3f);
+                // 将军模型自带贴图，只在用 captainModel 占位时才上队色 tint（避免把贴图染脏）
+                bool generalIsPlaceholder = (player.camp == 0 ? redGeneralModel : blueGeneralModel) == null;
+                if (generalIsPlaceholder)
+                    TintModel(visual.captain, player.camp == 0 ? new Color(1f, 0.36f, 0.28f, 1f) : new Color(0.36f, 0.62f, 1f, 1f), 0.14f);
             }
             CreateTeamMembers(visual, Mathf.Max(0, teamSize - 1), player.camp);
             visual.label = CreateLabel(root.transform, player.teamId, player.camp == 0
@@ -497,6 +513,20 @@ public class LycheeReplayPlayer : MonoBehaviour
             CreateTeamRing(root.transform, player.camp);
             convoys[player.playerId] = visual;
         }
+    }
+
+    /// <summary>按阵营选将军模型：红队(0)=赤龙将军、蓝队(1)=蓝将军；该队将军未提供则回退 captainModel 占位。</summary>
+    GameObject ResolveGeneralModel(int camp)
+    {
+        GameObject general = camp == 0 ? redGeneralModel : blueGeneralModel;
+        return general != null ? general : captainModel;
+    }
+
+    /// <summary>按阵营取将军行走 clip（供 LycheeCharacterMotion 播放；占位的 captainModel 无 clip 返回 null 走程序化）。</summary>
+    public AnimationClip GetGeneralWalkClip(int camp)
+    {
+        if (camp == 0) return redGeneralModel != null ? redGeneralWalkClip : null;
+        return blueGeneralModel != null ? blueGeneralWalkClip : null;
     }
 
     int ResolveTeamSize(LycheeReplayPlayerState player)

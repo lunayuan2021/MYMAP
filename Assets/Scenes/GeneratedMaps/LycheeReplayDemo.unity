@@ -170744,6 +170744,10 @@ MonoBehaviour:
   captainModel: {fileID: 6635245195314443262, guid: 4f6ed66c25fce4fed850b623c8270102, type: 3}
   squadMemberModel: {fileID: 6635245195314443262, guid: 77c9f4a11fa2f4eb6bfa6c148b31846e, type: 3}
   roadObstacleModel: {fileID: -6922187488808801084, guid: c7199e42e89494bbea6de12344a8c565, type: 3}
+  redGeneralModel: {fileID: 8771091787928289351, guid: 3565334b0c649422c9d644ceb5576c8d, type: 3}
+  blueGeneralModel: {fileID: 0}
+  redGeneralWalkClip: {fileID: -8559126739998960628, guid: 3565334b0c649422c9d644ceb5576c8d, type: 3}
+  blueGeneralWalkClip: {fileID: 0}
   useRuntimeHud: 1
   showLegacyTopHud: 0
   defaultTeamSize: 16

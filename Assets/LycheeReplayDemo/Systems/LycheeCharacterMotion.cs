@@ -177,6 +177,16 @@ public class LycheeCharacterMotion : MonoBehaviour
         public PlayableGraph graph;
         public bool graphValid;
         public int playingState = -1; // 0=walk 1=row 2=idle
+
+        // 将军（取代队长）：非 Mixamo 的将军模型自带 walking clip，走独立 Playables 播放（speed 同步）。
+        // captainGroup 非空（Mixamo 占位队长）时此路不启用，仍走原程序化骨骼驱动。
+        public int camp;
+        public AnimationClip generalWalkClip;     // 该队将军行走 clip；空=占位队长或无 clip
+        public Transform generalWrapper;          // = captainWrapper，便于语义清晰
+        public Animator generalAnimator;
+        public PlayableGraph generalGraph;
+        public bool generalGraphValid;
+        public AnimationClipPlayable generalPlayable;
     }
 
     static LycheeCharacterMotion instance;
@@ -268,6 +278,7 @@ public class LycheeCharacterMotion : MonoBehaviour
         foreach (CharacterRig rig in rigs)
         {
             ReleasePlayable(rig);
+            ReleaseGeneralClip(rig);
             if (rig != null) ReleaseHorsePlayable(rig.carriage);
         }
         rigs.Clear();
@@ -307,6 +318,7 @@ public class LycheeCharacterMotion : MonoBehaviour
             {
                 playerId = state.playerId,
                 root = root,
+                camp = state.camp,
                 idleSeed = state.playerId * 2.13f + 0.7f,
                 lastPosition = root.position,
                 hasLastPosition = true,
@@ -314,10 +326,22 @@ public class LycheeCharacterMotion : MonoBehaviour
             };
             rig.waterBlend = rig.water ? 1f : 0f;
 
-            rig.captainWrapper = root.Find("Captain");
-            // Captain 组相位种子取 0：保持与历史版本完全一致的步伐基准，错相位交给队员组
-            rig.captainGroup = CollectBoneGroup(rig.captainWrapper, 0f, rig.idleSeed);
-            if (rig.captainGroup != null) rig.boneGroups.Add(rig.captainGroup);
+            rig.captainWrapper = root.Find("Captain"); // wrapper 名仍叫 Captain，但内部可能是将军模型
+            rig.generalWrapper = rig.captainWrapper;
+            // 将军模型自带 walking clip（GetGeneralWalkClip 仅在该队将军模型已赋值时返回非空）→ 强制走
+            // Playables 播放，绝不采 Mixamo 骨骼组：赤龙将军骨骼名与 Mixamo 列表大量重合会被误采、
+            // 导致程序化驱动抢占而 clip 不播。占位队长（captainModel）或将军无 clip 才走原程序化骨骼。
+            AnimationClip generalClip = player != null ? player.GetGeneralWalkClip(state.camp) : null;
+            if (generalClip != null)
+            {
+                rig.generalWalkClip = generalClip;
+            }
+            else
+            {
+                // Captain 组相位种子取 0：保持与历史版本完全一致的步伐基准，错相位交给队员组
+                rig.captainGroup = CollectBoneGroup(rig.captainWrapper, 0f, rig.idleSeed);
+                if (rig.captainGroup != null) rig.boneGroups.Add(rig.captainGroup);
+            }
             CollectWrappers(rig);
             rigs.Add(rig);
         }
@@ -917,6 +941,7 @@ public class LycheeCharacterMotion : MonoBehaviour
                 {
                     RestoreBasePose(rig);
                     ReleasePlayable(rig);
+                    ReleaseGeneralClip(rig);
                     if (rig != null) ReleaseHorsePlayable(rig.carriage); // 重新启用后 UpdateWrappers 懒重建
                 }
                 foreach (BoneGroup group in squadGroups)
@@ -1038,8 +1063,54 @@ public class LycheeCharacterMotion : MonoBehaviour
             ReleasePlayable(rig);
         }
 
+        // 将军（非 Mixamo 模型自带 walking clip）：独立 Playables 播放，速率随车速
+        DriveGeneralClip(rig);
+
         UpdateBones(rig, playableActive);
         UpdateWrappers(rig, deltaTime);
+    }
+
+    /// <summary>
+    /// 播放将军自带的 walking clip（赤龙将军等非 Mixamo 模型）：clip 是原地走，靠车队带着前进，
+    /// 腿臂循环即"行军"观感。仅 captainGroup 为空（非 Mixamo 占位队长）且该队有 clip 时启用；
+    /// Animator 必须挂 GLB 实例根（captainWrapper 下首个子物体），clip 曲线路径相对它才能绑上骨骼。
+    /// </summary>
+    void DriveGeneralClip(CharacterRig rig)
+    {
+        if (rig.generalWalkClip == null || rig.captainGroup != null) return;
+        if (rig.generalWalkClip.legacy) return; // legacy clip 进 Playables 会报错
+        if (rig.generalWrapper == null || rig.generalWrapper.childCount == 0) return;
+
+        if (!rig.generalGraphValid || !rig.generalGraph.IsValid())
+        {
+            Transform modelRoot = rig.generalWrapper.GetChild(0); // CreateNormalizedModel 内的 GLB 实例
+            if (rig.generalAnimator == null)
+            {
+                rig.generalAnimator = modelRoot.GetComponent<Animator>();
+                if (rig.generalAnimator == null)
+                    rig.generalAnimator = modelRoot.gameObject.AddComponent<Animator>();
+            }
+            if (rig.generalAnimator == null) return;
+            rig.generalPlayable = AnimationPlayableUtilities.PlayClip(
+                rig.generalAnimator, rig.generalWalkClip, out rig.generalGraph);
+            rig.generalGraphValid = rig.generalGraph.IsValid();
+        }
+        if (rig.generalGraphValid && rig.generalGraph.IsValid())
+        {
+            // 红队将军领队基本一直在走：移动时正常步速，静止放慢近站立（不完全停，保持待命踏步感）
+            float playSpeed = rig.speed < 0.1f ? 0.35f : Mathf.Min(1.5f, 0.7f + rig.speed * 0.22f);
+            rig.generalPlayable.SetSpeed(playSpeed);
+            if (!rig.generalWalkClip.isLooping && rig.generalWalkClip.length > 0.01f &&
+                rig.generalPlayable.GetTime() >= rig.generalWalkClip.length)
+                rig.generalPlayable.SetTime(rig.generalPlayable.GetTime() % rig.generalWalkClip.length);
+        }
+    }
+
+    static void ReleaseGeneralClip(CharacterRig rig)
+    {
+        if (rig == null) return;
+        if (rig.generalGraphValid && rig.generalGraph.IsValid()) rig.generalGraph.Destroy();
+        rig.generalGraphValid = false;
     }
 
     void UpdateBones(CharacterRig rig, bool playableActive)
