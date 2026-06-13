@@ -33,7 +33,7 @@ public static class LycheeReplayDemoBuilder
             "Assets/LycheeReplayDemo/ModelsGLB/Member.glb");
         replay.roadObstacleModel = AssetDatabase.LoadAssetAtPath<GameObject>(
             "Assets/LycheeReplayDemo/ModelsGLB/RoadObstacle.glb");
-        replay.secondsPerRound = 0.22f;
+        replay.secondsPerRound = 0.40f;
         replay.playOnStart = true;
 
         PlaceStationModels();

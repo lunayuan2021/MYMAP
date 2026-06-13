@@ -170733,7 +170733,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayPlayer
   replayFile: {fileID: 4900000, guid: cf7c973212b3a43cc915481427ede047, type: 3}
-  secondsPerRound: 0.22
+  secondsPerRound: 0.4
   playOnStart: 1
   loop: 0
   carriageModel: {fileID: 489627813733477026, guid: 896972fba4a8f484f8693c7ce5c99927, type: 3}

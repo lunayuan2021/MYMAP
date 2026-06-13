@@ -8,7 +8,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     [Header("Replay")]
     public TextAsset replayFile;
     // 0.22 秒/回合：0.10 时 600 回合一分钟跑完，事件演出根本来不及看；场景序列化值由编辑器脚本同步
-    [Range(0.03f, 1f)] public float secondsPerRound = 0.22f;
+    [Range(0.03f, 1f)] public float secondsPerRound = 0.40f;
     public bool playOnStart = true;
     public bool loop;
 

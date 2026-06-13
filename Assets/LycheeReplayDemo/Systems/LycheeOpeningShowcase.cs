@@ -29,7 +29,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
     const float FadeInSeconds = 0.2f;
     const float FadeOutSeconds = 0.6f;
     const float SkipFadeSeconds = 0.2f;   // 点击关闭时的快速淡出
-    const float VideoPrepareTimeout = 4f; // 视频准备超时则跳过视频
+    const float VideoPrepareTimeout = 12f; // 视频准备超时则跳过视频（WebGL 首次解码缓冲慢，4s 太短会跳过开场视频）
 
     static readonly Color GoldColor = new Color(1f, 0.84f, 0.30f, 1f);
     static readonly Color RedTeamColor = new Color(0.96f, 0.30f, 0.20f, 1f);
