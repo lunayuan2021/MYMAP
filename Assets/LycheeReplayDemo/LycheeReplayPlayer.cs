@@ -831,7 +831,8 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
-            if (stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
+            if (!string.IsNullOrEmpty(payload.targetNodeId) &&
+                stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
                 SetEventFocus(squadTarget.transform.position, 2.8f, 30f);
             if (runtimeHud != null)
             {
@@ -1104,8 +1105,20 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     void SpawnSquad(LycheeReplayPayload payload, int round)
     {
-        if (!stations.TryGetValue(payload.fromNodeId, out MapStationAnchor from)) return;
-        if (!stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return;
+        // 目标站必须有（否则无处攻坚）；注意 Dictionary.TryGetValue 传 null key 会抛 ArgumentNullException，
+        // 务必先判空——新版回放小队派发只给 targetNodeId，fromNodeId 缺省会导致初始化崩溃卡死。
+        if (string.IsNullOrEmpty(payload.targetNodeId) ||
+            !stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return;
+        // 出发点：有 fromNodeId 就用该站，否则回退到派发方车队当前位置（小队从本队出发去攻坚）
+        Vector3 startPos;
+        if (!string.IsNullOrEmpty(payload.fromNodeId) &&
+            stations.TryGetValue(payload.fromNodeId, out MapStationAnchor from))
+            startPos = from.transform.position + Vector3.up * 0.15f;
+        else
+        {
+            Transform convoy = GetConvoyRoot(payload.playerId);
+            startPos = (convoy != null ? convoy.position : target.transform.position) + Vector3.up * 0.15f;
+        }
         GameObject root = new GameObject("Squad_" + payload.tactic + "_" + round);
         root.transform.SetParent(eventRoot, false);
         // 水面状态要在 NotifySquadSpawned 之前挂上，骨骼系统建组时会缓存它的引用
@@ -1131,7 +1144,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         squads.Add(new SquadVisual
         {
             root = root,
-            start = from.transform.position + Vector3.up * 0.15f,
+            start = startPos,
             end = target.transform.position + Vector3.up * 0.15f,
             startRound = round,
             endRound = payload.arriveRound > round ? payload.arriveRound : round + 12,
