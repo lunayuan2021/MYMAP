@@ -31,6 +31,7 @@ Material:
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap:
+    LycheeBright20260613: 1
     RenderType: Opaque
   disabledShaderPasses:
   - MOTIONVECTORS
@@ -129,8 +130,8 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.12, g: 0.15, b: 0.12, a: 1}
-    - _Color: {r: 0.11999995, g: 0.14999998, b: 0.11999995, a: 1}
+    - _BaseColor: {r: 0.16799994, g: 0.20999996, b: 0.16799994, a: 1}
+    - _Color: {r: 0.1679999, g: 0.20999989, b: 0.1679999, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
