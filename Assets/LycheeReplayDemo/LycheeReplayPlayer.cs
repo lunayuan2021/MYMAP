@@ -96,6 +96,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         public int startRound;
         public int endRound;
         public int memberCount;
+        /// <summary>攻坚目标站 nodeId（抵达时请求建筑透视，让攻击动作不被楼挡）。</summary>
+        public string targetNodeId;
         /// <summary>抵达后的真实时间戳；&lt;0 表示仍在行军。抵达后停留做攻击演出再销毁。</summary>
         public float arrivedRealTime = -1f;
         /// <summary>跨河时垫在脚下的小船（懒创建，仅水面段激活）。</summary>
@@ -460,6 +462,20 @@ public class LycheeReplayPlayer : MonoBehaviour
                         overPlayer.playerName, sum, overPlayer.totalScore, overPlayer.totalScore - sum));
                 }
             }
+            // 3. HUD vs 结算的真正错位源：游戏内顶层比分条读 round 帧 scores.RED/BLUE（见 RuntimeHud），
+            //    结算页读 over.totalScore。两者由生成器分别累计，不一致就是"HUD 最高 682、结算 800+"。
+            if (lastFrame.scores != null)
+            {
+                int running = overPlayer.camp == 0 ? lastFrame.scores.RED : lastFrame.scores.BLUE;
+                if (running != overPlayer.totalScore)
+                {
+                    Debug.LogWarning(string.Format(
+                        "[回放数据不一致] {0}(camp{1}): 末回合顶层 scores={2}（游戏内比分条显示），" +
+                        "但 over.totalScore={3}（结算页显示），差 {4}。这就是\"HUD 与结算分数对不上\"的根源——" +
+                        "顶层运行分与结算总分须同源，请检查回放生成器。",
+                        overPlayer.playerName, overPlayer.camp, running, overPlayer.totalScore, overPlayer.totalScore - running));
+                }
+            }
         }
     }
 
@@ -497,10 +513,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             teamRosterSizes[player.playerId] = teamSize;
             if (visual.captain != null)
             {
-                // 红队将军走在车队最前领队（+Z 前方居中），蓝队将军居中坐镇（车侧偏后）
-                visual.captain.transform.localPosition = player.camp == 0
-                    ? new Vector3(0f, 0f, 2.8f)
-                    : new Vector3(1.4f, 0.2f, -0.3f);
+                // 红蓝两队将军都走在各自车队最前领队（+Z 前方居中）
+                visual.captain.transform.localPosition = new Vector3(0f, 0f, 2.8f);
                 // 将军模型自带贴图，只在用 captainModel 占位时才上队色 tint（避免把贴图染脏）
                 bool generalIsPlaceholder = (player.camp == 0 ? redGeneralModel : blueGeneralModel) == null;
                 if (generalIsPlaceholder)
@@ -1122,6 +1136,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             startRound = round,
             endRound = payload.arriveRound > round ? payload.arriveRound : round + 12,
             memberCount = count,
+            targetNodeId = payload.targetNodeId,
             waterState = waterState
         });
     }
@@ -1166,7 +1181,10 @@ public class LycheeReplayPlayer : MonoBehaviour
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
-                    SetEventFocus(squad.end, 3.2f, 30f);
+                    // 攻坚聚焦拉近（22m，比普通 30m 近）+ 透视目标站建筑，让攻击动作不被楼挡
+                    SetEventFocus(squad.end, 3.2f, 22f);
+                    if (!string.IsNullOrEmpty(squad.targetNodeId))
+                        LycheeContestBuildingXray.RequestXray(squad.targetNodeId, 3.0f);
                 }
             }
             else
