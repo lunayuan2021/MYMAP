@@ -95,10 +95,34 @@ static class LycheeCarriageSwap_20260613
                 ? "(null)" : AssetDatabase.GetAssetPath(player.horseModel);
             player.carriageModel = combined;
             player.horseModel = null;     // 组合模型自含马匹，独立马退役防双马
-            player.horseWalkClip = null;  // 旧 clip 对应旧马骨架，组合模型暂无动画
             report.Add("carriageModel: " + oldCarriage + " → " + CombinedModelPath);
             report.Add("horseModel: " + oldHorse + " → (null，组合模型自含)");
-            report.Add("horseWalkClip → (null)");
+
+            // v2：组合模型自带动画 clip 时挑选给 horseWalkClip（组合车体复用马匹 Playables 管线）；
+            // 当前 horse_new.glb 无动画——用户在 Meshy 补 Walking 重导出后菜单 rerun 即自动接上
+            AnimationClip pickedClip = null;
+            var clipNames = new List<string>();
+            foreach (UnityEngine.Object sub in AssetDatabase.LoadAllAssetRepresentationsAtPath(CombinedModelPath))
+            {
+                AnimationClip clip = sub as AnimationClip;
+                if (clip == null || clip.legacy) continue;
+                clipNames.Add(clip.name);
+                string lower = clip.name.ToLowerInvariant();
+                if (pickedClip == null ||
+                    lower.Contains("walk") || lower.Contains("run") || lower.Contains("move"))
+                {
+                    if (pickedClip == null || lower.Contains("walk")) pickedClip = clip;
+                }
+            }
+            player.horseWalkClip = pickedClip;
+            report.Add("组合模型 clip 名单: " + (clipNames.Count == 0 ? "(无动画——腿部静态，待 Meshy 补 Walking)" : string.Join(", ", clipNames)));
+            report.Add("horseWalkClip → " + (pickedClip != null ? pickedClip.name : "(null)"));
+
+            // v3：朝向不再手猜——运行时 LycheeCharacterMotion.AlignCombinedCarriage 量出马头方向
+            // 自动转正对齐车队前进方向，故这里清零手动偏航（自动对齐对任何残留值都自纠正）。
+            float oldYaw = player.carriageYawOffset;
+            player.carriageYawOffset = 0f;
+            report.Add(string.Format("carriageYawOffset: {0} → 0（改由运行时自动对齐）", oldYaw));
 
             EditorUtility.SetDirty(player);
             bool saved = EditorSceneManager.SaveScene(active);

@@ -121,6 +121,23 @@ public class LycheeCharacterMotion : MonoBehaviour
         public PlayableGraph horseGraph;
         public bool horseGraphValid;
         public AnimationClipPlayable horsePlayable; // 留引用以便每帧按 rig.speed 调播放速率/手动回卷循环
+
+        // —— 组合马车（horse_new.glb 马+车一体）专用：模型自带骨骼但无动画 clip，
+        //    程序化驱动 4 条腿做行走摆动（车轮焊在蒙皮网格里无法转，故只动腿+车身轻晃）——
+        public List<HorseLeg> horseLegs;     // 运行时按蹄子世界高度认出的 4 条腿；null=非组合模型或未识别到
+        public float horseWalkPhase;         // 腿摆相位累加器，随 rig.speed 推进（同假车轮的 wheelSpin 思路）
+    }
+
+    /// <summary>一条腿的程序化摆动数据：上段（髋/肩）+ 中段（膝）的绑定姿态与摆动轴，相位区分四蹄步态。</summary>
+    sealed class HorseLeg
+    {
+        public Transform upper;            // 上段骨（髋/肩，摆幅最大）
+        public Transform mid;              // 中段骨（膝，抬腿时附加弯曲）
+        public Quaternion upperBind;       // 绑定局部旋转（摆动以此为锚不漂移）
+        public Quaternion midBind;
+        public Vector3 swingAxisUpper;     // 上段局部空间内"前后摆"的旋转轴
+        public Vector3 swingAxisMid;
+        public float phase;                // 步态相位偏移（对角腿同相，0 或 0.5）
     }
 
     sealed class CharacterRig
@@ -400,6 +417,21 @@ public class LycheeCharacterMotion : MonoBehaviour
                     // 马拉车：horseModel 已接线（Horse.glb 落地且编辑器脚本装配过）才挂，否则静默无马
                     AttachHorse(rig.carriage);
                 }
+                else if (child.childCount > 0)
+                {
+                    // 组合马车：把整个车体实例当"马"接入既有 Playables 管线——
+                    // horseWalkClip（由 CarriageSwap 从 horse_new.glb 挑选）可用时播骨骼行走，
+                    // 无 clip 时落到腿部程序化兜底（见 CaptureHorseLegs / DriveHorseLegs）
+                    Transform combinedRoot = child.GetChild(0);
+                    rig.carriage.horse = combinedRoot;
+                    rig.carriage.horseBasePosition = combinedRoot.localPosition;
+                    rig.carriage.horseBaseRotation = combinedRoot.localRotation;
+                    // 先把车体朝向自动转正（对齐车队前进方向），再识别四腿做程序化行走
+                    // （有动画 clip 则不识别腿，让 Playables 接管）
+                    AlignCombinedCarriage(child, combinedRoot, rig.root);
+                    if (player == null || player.horseWalkClip == null)
+                        CaptureHorseLegs(rig.carriage, child);
+                }
             }
             else if (child.name == "Boat")
             {
@@ -578,6 +610,160 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (carriage == null) return;
         if (carriage.horseGraphValid && carriage.horseGraph.IsValid()) carriage.horseGraph.Destroy();
         carriage.horseGraphValid = false;
+    }
+
+    /// <summary>
+    /// 把组合马车自动转正：AI 导出的模型正面朝向不定（实测 horse_new 头朝局部 +X），
+    /// 与车队前进方向（convoy 根 +Z）不一致就会"横着走"。这里量出马头方向自动对齐，
+    /// 根除手猜偏航角——马头方向 = 蹄群质心 → 离质心水平最远的骨（马颈/头总比尾巴伸得远）。
+    /// 把转正量加到 Carriage 包装(child)的局部旋转上（child 是 convoy 根的直接子物体，会随车队转向）。
+    /// </summary>
+    static void AlignCombinedCarriage(Transform carriageWrapper, Transform combinedRoot, Transform convoyRoot)
+    {
+        if (carriageWrapper == null || combinedRoot == null || convoyRoot == null) return;
+        var skinned = combinedRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (skinned == null || skinned.bones == null || skinned.bones.Length < 6) return;
+        Transform[] bones = skinned.bones;
+
+        // 4 个最低骨=四蹄，求其质心（身体中心的水平位置）
+        var ordered = new List<Transform>(bones);
+        ordered.Sort((a, b) =>
+        {
+            if (a == null) return 1; if (b == null) return -1;
+            return a.position.y.CompareTo(b.position.y);
+        });
+        Vector3 centroid = Vector3.zero; int taken = 0;
+        foreach (Transform t in ordered)
+        {
+            if (t == null) continue;
+            centroid += t.position; taken++;
+            if (taken == 4) break;
+        }
+        if (taken < 4) return;
+        centroid /= taken;
+
+        // 马头 = 离蹄群质心水平距离最远的骨
+        Transform head = null; float far = -1f;
+        foreach (Transform b in bones)
+        {
+            if (b == null) continue;
+            Vector3 d = b.position - centroid; d.y = 0f;
+            if (d.sqrMagnitude > far) { far = d.sqrMagnitude; head = b; }
+        }
+        if (head == null) return;
+
+        Vector3 headWorld = head.position - centroid; headWorld.y = 0f;
+        if (headWorld.sqrMagnitude < 1e-6f) return;
+        // 换到 convoy 根局部空间求与 +Z 的夹角，加到 child 局部旋转上（绕局部 Y）
+        Vector3 headLocal = convoyRoot.InverseTransformDirection(headWorld.normalized);
+        headLocal.y = 0f;
+        if (headLocal.sqrMagnitude < 1e-6f) return;
+        float yaw = Vector3.SignedAngle(headLocal.normalized, Vector3.forward, Vector3.up);
+        carriageWrapper.localRotation = Quaternion.AngleAxis(yaw, Vector3.up) * carriageWrapper.localRotation;
+    }
+
+    /// <summary>
+    /// 识别组合马车（horse_new.glb）的 4 条腿，建程序化行走数据。模型骨骼名是通用的
+    /// （UniRig 自动绑定 Bone_xxx），不能按名字找腿，改按"绑定姿势下 4 个最低骨=四蹄"反推：
+    /// 蹄→祖父级=上段腿骨。再用前后/左右象限分配对角步态相位（对角腿同相，像真马慢步）。
+    /// 摆动轴 = 马身横向轴（左右）变换到各骨局部空间——绕它转即前后甩腿。
+    /// </summary>
+    static void CaptureHorseLegs(WrapperPose carriage, Transform combinedWrapper)
+    {
+        if (carriage == null || combinedWrapper == null) return;
+        var skinned = combinedWrapper.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (skinned == null || skinned.bones == null || skinned.bones.Length < 6) return;
+        Transform[] bones = skinned.bones;
+
+        // 1. 找 4 个最低骨（世界 Y 最低）= 四蹄
+        var ordered = new List<Transform>(bones);
+        ordered.Sort((a, b) =>
+        {
+            if (a == null) return 1; if (b == null) return -1;
+            return a.position.y.CompareTo(b.position.y);
+        });
+        var hooves = new List<Transform>();
+        foreach (Transform t in ordered)
+        {
+            if (t == null || t.parent == null || t.parent.parent == null) continue;
+            hooves.Add(t);
+            if (hooves.Count == 4) break;
+        }
+        if (hooves.Count < 4) return;
+
+        // 2. 马身前向 = 前蹄群中心 → 由整体蹄群质心指向最远蹄的水平方向（足够区分前后/左右即可）
+        Vector3 centroid = Vector3.zero;
+        foreach (Transform h in hooves) centroid += h.position;
+        centroid /= hooves.Count;
+        // 用蹄子在水平面的主轴当身体前向：取离质心最远两蹄连线方向
+        Vector3 forward = Vector3.forward;
+        float maxd = 0f;
+        for (int i = 0; i < hooves.Count; i++)
+            for (int j = i + 1; j < hooves.Count; j++)
+            {
+                Vector3 d = hooves[i].position - hooves[j].position;
+                d.y = 0f;
+                if (d.sqrMagnitude > maxd) { maxd = d.sqrMagnitude; forward = d.normalized; }
+            }
+        Vector3 lateral = Vector3.Cross(Vector3.up, forward).normalized; // 横向（左右）轴=摆动轴
+
+        carriage.horseLegs = new List<HorseLeg>(4);
+        foreach (Transform hoof in hooves)
+        {
+            Transform mid = hoof.parent;
+            Transform upper = mid.parent;
+            if (upper == null) continue;
+            // 象限：沿 forward 投影分前后、沿 lateral 投影分左右；对角腿（前左+后右 / 前右+后左）同相
+            Vector3 rel = hoof.position - centroid;
+            bool front = Vector3.Dot(rel, forward) >= 0f;
+            bool left = Vector3.Dot(rel, lateral) >= 0f;
+            float phase = (front == left) ? 0f : 0.5f;
+            carriage.horseLegs.Add(new HorseLeg
+            {
+                upper = upper,
+                mid = mid,
+                upperBind = upper.localRotation,
+                midBind = mid.localRotation,
+                swingAxisUpper = upper.InverseTransformDirection(lateral),
+                swingAxisMid = mid.InverseTransformDirection(lateral),
+                phase = phase
+            });
+        }
+        if (carriage.horseLegs.Count < 4) carriage.horseLegs = null; // 识别不全就放弃，回退静态
+    }
+
+    /// <summary>程序化驱动四腿行走：上段前后摆 ±幅度、中段在抬腿半程附加弯曲，整体幅度随车速。</summary>
+    static void DriveHorseLegs(WrapperPose carriage, float speed)
+    {
+        if (carriage == null || carriage.horseLegs == null) return;
+        // 速度→幅度：静止收敛到 0（站立），行进抬到满幅；步频也随速度（像真马越快步越急）
+        float gait = Mathf.Clamp01(speed / 2.2f);
+        float swingAmp = 17f * gait;           // 上段最大摆角（度）
+        float kneeAmp = 14f * gait;            // 中段抬腿弯曲（度）
+        foreach (HorseLeg leg in carriage.horseLegs)
+        {
+            if (leg.upper == null) continue;
+            float ph = carriage.horseWalkPhase + leg.phase * TwoPi;
+            float swing = Mathf.Sin(ph) * swingAmp;
+            leg.upper.localRotation = leg.upperBind * Quaternion.AngleAxis(swing, leg.swingAxisUpper);
+            if (leg.mid != null)
+            {
+                // 腿向前摆（sin>0）时膝盖抬起弯曲，向后蹬地时伸直
+                float knee = Mathf.Max(0f, Mathf.Sin(ph)) * kneeAmp;
+                leg.mid.localRotation = leg.midBind * Quaternion.AngleAxis(knee, leg.swingAxisMid);
+            }
+        }
+    }
+
+    /// <summary>还原四腿到绑定姿态（水路隐藏/Disabled 时调，防止停在半摆姿势）。</summary>
+    static void RestoreHorseLegs(WrapperPose carriage)
+    {
+        if (carriage == null || carriage.horseLegs == null) return;
+        foreach (HorseLeg leg in carriage.horseLegs)
+        {
+            if (leg.upper != null) leg.upper.localRotation = leg.upperBind;
+            if (leg.mid != null) leg.mid.localRotation = leg.midBind;
+        }
     }
 
     /// <summary>扫描出击小队根下的 Member_* wrapper（Member.glb 实例）采集骨骼组，加入临时驱动列表。</summary>
@@ -1164,8 +1350,19 @@ public class LycheeCharacterMotion : MonoBehaviour
                 {
                     carriage.horseHidden = hideHorse;
                     carriage.horse.gameObject.SetActive(!hideHorse);
+                    if (hideHorse) RestoreHorseLegs(carriage); // 隐藏前归位四腿，防下次显形停在半摆姿势
                 }
-                if (!hideHorse)
+                if (!hideHorse && carriage.horseLegs != null)
+                {
+                    // 组合马车无动画 clip：程序化驱动四腿行走。步频随车速，静止收敛站立。
+                    // 车体本身（含车轮，焊在蒙皮网格里转不了）保持基准姿态不做整体晃动，只腿在动。
+                    carriage.horseWalkPhase += (1.2f + rig.speed * 1.6f) * deltaTime;
+                    if (carriage.horseWalkPhase > TwoPi) carriage.horseWalkPhase -= TwoPi;
+                    DriveHorseLegs(carriage, rig.speed);
+                    carriage.horse.localPosition = carriage.horseBasePosition;
+                    carriage.horse.localRotation = carriage.horseBaseRotation;
+                }
+                else if (!hideHorse)
                 {
                     AnimationClip horseClip = player != null ? player.horseWalkClip : null;
                     if (horseClip != null && horseClip.legacy) horseClip = null; // legacy 进 Playables 会报错，当无 clip 处理

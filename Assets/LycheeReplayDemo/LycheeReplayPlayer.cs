@@ -18,6 +18,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     /// <summary>马模型（Tripo3D Horse.glb，由 LycheeHorseHookup_20260613 编辑器脚本赋值）：
     /// 为空时"马拉车"特性整体静默不存在；消费方在 LycheeCharacterMotion，本类不读不实例化。</summary>
     public GameObject horseModel;
+    /// <summary>车体模型整体偏航修正（度）：AI 导出的组合马车正面朝向不一定符合 +Z 约定，由装配脚本按实测设置。</summary>
+    [Range(-180f, 180f)] public float carriageYawOffset;
     /// <summary>马行走 AnimationClip（Horse.glb 子资产，可空）：空则 LycheeCharacterMotion 程序化 bob 兜底。</summary>
     public AnimationClip horseWalkClip;
     public GameObject captainModel;
@@ -407,6 +409,51 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
             (OverFrame != null ? ", over frame parsed." : "."), this);
+        ValidateScoreConsistency();
+    }
+
+    /// <summary>
+    /// 回放数据一致性体检：测试中出现过"回合帧分数最高 682、结算页 800+"的反馈——
+    /// 引擎只忠实显示数据，HUD 用 round 帧的 score、结算页用 over 帧的 totalScore、
+    /// 明细行用 scoreDetail；三者由生成器分别写出，互相矛盾时这里点名报警，方便服务端定位。
+    /// </summary>
+    void ValidateScoreConsistency()
+    {
+        if (OverFrame == null || OverFrame.players == null || frames.Count == 0) return;
+        LycheeReplayFrame lastFrame = frames[frames.Count - 1];
+        foreach (LycheeReplayOverPlayer overPlayer in OverFrame.players)
+        {
+            if (overPlayer == null) continue;
+            // 1. over.totalScore vs 最后一个 round 帧的实时分
+            if (lastFrame.players != null)
+            {
+                foreach (LycheeReplayPlayerState state in lastFrame.players)
+                {
+                    if (state == null || state.playerId != overPlayer.playerId) continue;
+                    if (state.score != overPlayer.totalScore)
+                    {
+                        Debug.LogWarning(string.Format(
+                            "[回放数据不一致] {0}: over帧 totalScore={1}，但最后一个 round 帧 score={2}。" +
+                            "HUD 显示前者轨迹、结算页显示后者，观感即\"分数对不上\"。请检查回放生成器。",
+                            overPlayer.playerName, overPlayer.totalScore, state.score));
+                    }
+                }
+            }
+            // 2. scoreDetail 明细和 vs totalScore（结算页明细行加总应等于总分）
+            LycheeReplayScoreDetail detail = overPlayer.scoreDetail;
+            if (detail != null)
+            {
+                int sum = detail.delivery + detail.goodFruit + detail.freshness +
+                          detail.time + detail.tasks - Mathf.Abs(detail.penalty);
+                if (sum != overPlayer.totalScore)
+                {
+                    Debug.LogWarning(string.Format(
+                        "[回放数据不一致] {0}: scoreDetail 明细和={1} ≠ totalScore={2}（差 {3}）。" +
+                        "结算页明细行将与总分对不上。请检查回放生成器的分项拆解。",
+                        overPlayer.playerName, sum, overPlayer.totalScore, overPlayer.totalScore - sum));
+                }
+            }
+        }
     }
 
     void CreateDynamicRoots()
@@ -433,6 +480,9 @@ public class LycheeReplayPlayer : MonoBehaviour
                 boat = CreateNormalizedModel(boatModel, root.transform, "Boat", 3.0f),
                 captain = CreateNormalizedModel(captainModel, root.transform, "Captain", 1.25f)
             };
+            // AI 导出的组合马车正面不一定符合 +Z 约定，按装配脚本实测的偏航修正整体转正
+            if (visual.carriage != null && Mathf.Abs(carriageYawOffset) > 0.01f)
+                visual.carriage.transform.localRotation = Quaternion.Euler(0f, carriageYawOffset, 0f);
             int teamSize = ResolveTeamSize(player);
             teamRosterSizes[player.playerId] = teamSize;
             if (visual.captain != null)
