@@ -205,11 +205,13 @@ public class LycheeOpeningShowcase : MonoBehaviour
         if (videoPlayer != null && videoImage != null && !videoFailed)
         {
             videoImage.gameObject.SetActive(true);
+            // 准备超时必须用真实时间累加：UiDelta() 每帧钳到 0.05s，会把 12s 超时压成 ~4s 真实时间，
+            // 视频（首帧解码缓冲约 5s，WebGL 更久）来不及准备就被跳过——这正是"开场视频从没播出"的根因。
             float prepareWait = 0f;
             while (videoPlayer != null && !videoPlayer.isPrepared && !videoFailed &&
                 !skipRequested && !Disabled && prepareWait < VideoPrepareTimeout)
             {
-                prepareWait += UiDelta();
+                prepareWait += Time.unscaledDeltaTime;
                 EnforcePause();
                 if (rootGroup != null) rootGroup.alpha = Mathf.Clamp01(prepareWait / FadeInSeconds);
                 yield return null;
