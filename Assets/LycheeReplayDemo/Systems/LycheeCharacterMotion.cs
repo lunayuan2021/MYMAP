@@ -45,7 +45,7 @@ public class LycheeCharacterMotion : MonoBehaviour
     public static bool Disabled;
 
     const float WeightFadeSeconds = 0.18f;   // 各层权重渐变时长
-    const float MoveSpeedThreshold = 0.2f;   // 行进判定速度阈值（m/s，忽略 Y）
+    const float MoveSpeedThreshold = 0.05f;  // 行进判定速度阈值（m/s，忽略 Y）。0.2 太高→车队慢速移动时小兵不走，降到 0.05 让有位移即迈步
     const float SquadMoveSpeedThreshold = 0.1f; // 出击小队自估速度的行进判定阈值（小队整体移速较低）
     const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护
     const float RowHz = 0.9f;                // 划桨节奏

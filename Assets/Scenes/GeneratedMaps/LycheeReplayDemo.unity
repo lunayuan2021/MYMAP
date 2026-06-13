@@ -81070,11 +81070,11 @@ MonoBehaviour:
   perspectiveDistanceSpanScale: 1.25
   perspectiveDistancePadding: 12
   perspectiveMinDistance: 17
-  perspectiveMaxDistance: 62
+  perspectiveMaxDistance: 115
   perspectiveEventDistance: 15
   rotationSmoothTime: 0.4
   perspectiveZoomMultiplier: 1
-  focusFollowEnabled: 1
+  focusFollowEnabled: 0
   focusSpanThreshold: 26
   focusSwapSeconds: 14
   focusedSpan: 24
@@ -170733,7 +170733,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayPlayer
   replayFile: {fileID: 4900000, guid: cf7c973212b3a43cc915481427ede047, type: 3}
-  secondsPerRound: 0.4
+  secondsPerRound: 0.5
   playOnStart: 1
   loop: 0
   carriageModel: {fileID: 489627813733477026, guid: 896972fba4a8f484f8693c7ce5c99927, type: 3}

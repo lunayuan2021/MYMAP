@@ -23,14 +23,15 @@ public class LycheeReplayCameraController : MonoBehaviour
     public float perspectiveDistanceSpanScale = 1.25f;
     public float perspectiveDistancePadding = 12f;
     public float perspectiveMinDistance = 17f;
-    public float perspectiveMaxDistance = 62f;
+    public float perspectiveMaxDistance = 115f; // 两队兵分两路时也要能拉远装下双方（地图约 80x60，跨度可达 70m+）
     public float perspectiveEventDistance = 15f;
     public float rotationSmoothTime = 0.4f;
 
     [Min(0.5f)] public float perspectiveZoomMultiplier = 1f; // 画面整体放大倍率：镜头拉近实现，HUD 不受影响；默认 1 即不额外拉近，保留字段供调参
 
     [Header("Focus Follow（两队拉开后轮流跟拍近景）")]
-    public bool focusFollowEnabled = true;
+    // 关闭：用户要求镜头时刻能看见两个队伍，兵分两路时拉远景而非抛弃一队去单独跟拍
+    public bool focusFollowEnabled = false;
     [Min(5f)] public float focusSpanThreshold = 26f;   // 两队间距超过该值时切换为单队跟拍
     [Min(2f)] public float focusSwapSeconds = 14f;     // 轮流跟拍的切换周期
     [Min(2f)] public float focusedSpan = 24f;          // 跟拍单队时使用的取景跨度（取宽些，保持远景感）

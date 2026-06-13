@@ -507,7 +507,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 // 将军取代队长（"Captain" wrapper 名保留，内部换将军模型）：红队用赤龙将军、蓝队用蓝将军，
                 // 某队将军模型缺失则回退 captainModel 占位（蓝将军待用户提供，先用绑骨队长占位居中）
                 captain = CreateNormalizedModel(
-                    ResolveGeneralModel(player.camp), root.transform, "Captain", 1.35f)
+                    ResolveGeneralModel(player.camp), root.transform, "Captain", 2.0f)
             };
             // AI 导出的组合马车正面不一定符合 +Z 约定，按装配脚本实测的偏航修正整体转正
             if (visual.carriage != null && Mathf.Abs(carriageYawOffset) > 0.01f)
@@ -841,9 +841,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
-            if (!string.IsNullOrEmpty(payload.targetNodeId) &&
-                stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
-                SetEventFocus(squadTarget.transform.position, 2.8f, 30f);
+            // 不再把镜头甩到小队目标（会丢掉两支车队）；小队演出靠 HUD 提示 + 建筑透视即可，镜头保持框住两队
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
@@ -883,7 +881,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             bool combatEvent = message.type.Contains("GUARD") ||
                 message.type.Contains("WINDOW") ||
                 message.type.Contains("FORCED");
-            SetEventFocus(station.transform.position, combatEvent ? 4.5f : 2.8f, combatEvent ? 15f : 30f);
+            // 只有对抗类事件才拉近抢镜头；普通事件不动镜头，保持框住两支车队（用户要求时刻能看见两队）
+            if (combatEvent)
+                SetEventFocus(station.transform.position, 4.5f, 15f);
             SpawnEventPulse(station.transform.position, ShortEventName(message.type), EventColor(message.type));
         }
     }
@@ -1204,8 +1204,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
-                    // 攻坚聚焦拉近（22m，比普通 30m 近）+ 透视目标站建筑，让攻击动作不被楼挡
-                    SetEventFocus(squad.end, 3.2f, 22f);
+                    // 不再把镜头甩到攻坚点（会丢两队）；保留建筑透视，攻坚动作在两队远景里也能瞥见
                     if (!string.IsNullOrEmpty(squad.targetNodeId))
                         LycheeContestBuildingXray.RequestXray(squad.targetNodeId, 3.0f);
                 }
@@ -1321,6 +1320,29 @@ public class LycheeReplayPlayer : MonoBehaviour
         Debug.Log("[LycheeReplayPlayer] 河面三角形缓存: " + waterTriangleA.Count + " 个");
     }
 
+    Material eventPulseMaterial;
+
+    /// <summary>事件光点粒子材质（URP 兼容）：默认粒子材质在 URP 下渲染成洋红错误色，必须自建一份共享。</summary>
+    Material EventPulseMaterial()
+    {
+        if (eventPulseMaterial != null) return eventPulseMaterial;
+        Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        if (shader == null) return null;
+        eventPulseMaterial = new Material(shader) { name = "LycheeEventPulseMat" };
+        // 用 alpha 混合（与红尘拖尾同款，已验证 WebGL 构建里该变体不被裁剪、不会品红）；
+        // 加色混合变体在 WebGL 构建会被 shader 变体裁剪掉导致品红，故不用 Additive
+        if (eventPulseMaterial.HasProperty("_Surface")) eventPulseMaterial.SetFloat("_Surface", 1f);
+        if (eventPulseMaterial.HasProperty("_Blend")) eventPulseMaterial.SetFloat("_Blend", 0f); // Alpha
+        if (eventPulseMaterial.HasProperty("_SrcBlend")) eventPulseMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        if (eventPulseMaterial.HasProperty("_DstBlend")) eventPulseMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        if (eventPulseMaterial.HasProperty("_ZWrite")) eventPulseMaterial.SetFloat("_ZWrite", 0f);
+        eventPulseMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        eventPulseMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        return eventPulseMaterial;
+    }
+
     void SpawnEventPulse(Vector3 position, string text, Color color)
     {
         GameObject root = new GameObject("Event_" + text);
@@ -1328,6 +1350,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         root.transform.position = position + Vector3.up * 0.25f;
         ParticleSystem particles = root.AddComponent<ParticleSystem>();
         particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        // 关键：设 URP 兼容材质，否则用默认粒子材质在 URP 下渲染成满屏洋红色块
+        ParticleSystemRenderer pulseRenderer = particles.GetComponent<ParticleSystemRenderer>();
+        Material pulseMat = EventPulseMaterial();
+        if (pulseRenderer != null && pulseMat != null) pulseRenderer.material = pulseMat;
         ParticleSystem.MainModule main = particles.main;
         main.duration = 0.65f;
         main.startLifetime = 0.65f;

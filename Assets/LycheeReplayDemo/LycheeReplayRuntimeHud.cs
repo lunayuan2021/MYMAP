@@ -820,8 +820,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         //   中央标签 -36..36 / track 44..234（宽 190，距标签 8px）/ 数值 242..294（距条外端 8px）/ Delta 300..344（距数值 6px）。
         // 红侧数值右对齐固定在条左外侧，蓝侧数值左对齐固定在条右外侧，百分比/Delta 均不会压在填充条上。
         DualBar bar = new DualBar { maxValue = max };
-        Text labelText = Text(label + "Label", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(labelText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(72f, 22f), new Vector2(0.5f, 0.5f));
+        Text labelText = Text(label + "Label", parent, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(labelText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(86f, 24f), new Vector2(0.5f, 0.5f));
         // 红条填充用朱红（提一点透明度补足暗色底上的对比），蓝条保留队蓝
         bar.redFill = BarFill(parent, label + "RedTrack", new Vector2(-139f, y), new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.94f));
         bar.blueFill = BarFill(parent, label + "BlueTrack", new Vector2(139f, y), new Color(0.20f, 0.48f, 1f, 0.94f));
