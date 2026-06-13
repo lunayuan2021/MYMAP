@@ -27,11 +27,12 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     const float FadeSeconds = 0.45f;
     const int CanvasSortingOrder = 235;   // 压在常规 HUD 之上、开场演出(230)之上、结算(220)之下不冲突
 
+    // 事件→插播视频。事件名按实际回放数据对齐：冲刺是 RUSH_START（非 RUSH_PHASE_START）。
     static readonly Dictionary<string, string> EventVideo = new Dictionary<string, string>
     {
-        { "WINDOW_CONTEST_START", "contest.mp4" },
-        { "RUSH_PHASE_START", "rush.mp4" },
-        { "DELIVER_SUCCESS", "deliver.mp4" },
+        { "WINDOW_CONTEST_START", "contest.mp4" }, // 对抗大战（有对抗的回放才触发）
+        { "RUSH_START", "rush.mp4" },              // 冲刺阶段开始
+        { "DELIVER_SUCCESS", "deliver.mp4" },      // 荔枝交付成功
     };
 
     LycheeReplayPlayer player;
