@@ -6,6 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+    guid: b27de45d24068484d80b0ccbc08ccb56
+  - enabled: 1
+    path: Assets/Scenes/GeneratedMaps/Map_medium.unity
+    guid: 3406a2d54b28142d48b5659b7410c7ed
+  - enabled: 1
     path: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
     guid: be5f7c9b4c9094170905e11dcd9b4bb7
   m_configObjects:

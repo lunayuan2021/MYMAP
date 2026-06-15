@@ -202,9 +202,17 @@ public class LycheeOpeningShowcase : MonoBehaviour
         if (versusLayer != null) versusLayer.SetActive(false);
 
         // 阶段一：开场视频（存在且可播时）。播完自动进入对阵图，点击可跳过。
-        if (videoPlayer != null && videoImage != null && !videoFailed)
+        if (videoPlayer != null && videoImage != null)
         {
+            // VideoPlayer 与 RawImage 同处一个 GameObject：必须先激活 GameObject，Prepare() 才会推进。
             videoImage.gameObject.SetActive(true);
+            // 准备期间先隐藏画面（只关 RawImage 渲染，不关 GameObject，保证 VideoPlayer 仍在 Prepare）：
+            // 让红蓝背景可见，而不是盖一层未初始化的黑色 RenderTexture。
+            videoImage.enabled = false;
+            videoFinished = false;
+            videoFailed = false;
+            // 关键修复：在 GameObject 激活后才 Prepare()。TryBuildVideo 已不再 Prepare（那时 GO 即将失活）。
+            videoPlayer.Prepare();
             // 准备超时必须用真实时间累加：UiDelta() 每帧钳到 0.05s，会把 12s 超时压成 ~4s 真实时间，
             // 视频（首帧解码缓冲约 5s，WebGL 更久）来不及准备就被跳过——这正是"开场视频从没播出"的根因。
             float prepareWait = 0f;
@@ -218,6 +226,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
             }
             if (videoPlayer != null && videoPlayer.isPrepared && !videoFailed && !skipRequested && !Disabled)
             {
+                videoImage.enabled = true; // 准备就绪、即将播放：显示视频画面
                 videoFinished = false;
                 videoPlayer.Play();
                 float guard = videoPlayer.length > 0.5 ? (float)videoPlayer.length + 2f : 20f;
@@ -616,7 +625,10 @@ public class LycheeOpeningShowcase : MonoBehaviour
         videoPlayer.url = videoUrl;
         videoPlayer.loopPointReached += OnVideoFinished;
         videoPlayer.errorReceived += OnVideoError;
-        videoPlayer.Prepare();
+        // 不在此处 Prepare()：VideoPlayer 所在 GameObject 紧接着被 SetActive(false)，
+        // 非激活的 GameObject 上 Prepare() 永远完不成（isPrepared 一直 false）→ RunShowcase 等满
+        // 12s 超时后跳过视频——这正是“开场视频从没播出 + 卡在对阵图很久(~16s)”的真正根因。
+        // 改为在 RunShowcase 把视频层激活后再 Prepare()。
         rect.gameObject.SetActive(false);
     }
 

@@ -22,7 +22,7 @@ using UnityEngine.InputSystem.UI;
 /// </summary>
 public sealed class LycheeVideoInterlude : MonoBehaviour
 {
-    const float PrepareTimeout = 10f;     // 视频准备超时（WebGL 首次解码慢）
+    const float PrepareTimeout = 12f;     // 视频准备超时（WebGL 首次解码慢，对齐开场演出的 12s）
     const float CooldownSeconds = 20f;    // 两次插播之间的最小真实间隔，避免连环打断
     const float FadeSeconds = 0.45f;
     const int CanvasSortingOrder = 235;   // 压在常规 HUD 之上、开场演出(230)之上、结算(220)之下不冲突
@@ -30,9 +30,11 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     // 事件→插播视频。事件名按实际回放数据对齐：冲刺是 RUSH_START（非 RUSH_PHASE_START）。
     static readonly Dictionary<string, string> EventVideo = new Dictionary<string, string>
     {
-        { "WINDOW_CONTEST_START", "contest.mp4" }, // 对抗大战（有对抗的回放才触发）
-        { "RUSH_START", "rush.mp4" },              // 冲刺阶段开始
-        { "DELIVER_SUCCESS", "deliver.mp4" },      // 荔枝交付成功
+        // 对抗大战。注意：当前 reply.txt 不含任何对抗事件（contests 恒为空，无 WINDOW_CONTEST_START），
+        // 因此 contest.mp4 在这份回放里不会触发；需换用含对抗的回放，或把键改成本回放实际存在的事件名。
+        { "WINDOW_CONTEST_START", "contest.mp4" },
+        { "RUSH_START", "rush.mp4" },              // 冲刺阶段开始（本回放第 ~450 回合触发）
+        { "DELIVER_SUCCESS", "deliver.mp4" },      // 荔枝交付成功（本回放第 ~490 / 503 回合触发）
     };
 
     LycheeReplayPlayer player;
@@ -85,6 +87,13 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         busy = true;
         EnsureCanvas();
 
+        // 关键修复：VideoPlayer 挂在 canvasRoot 上，Prepare() 只有在 GameObject 处于激活态时才会推进。
+        // 旧实现先 Prepare() 后才 SetActive(true)，于是 isPrepared 永远为 false → 等满 PrepareTimeout 后被
+        // 判为缺失写入 knownMissing → 该视频此后永不再播。这正是“中段插播(contest/rush/deliver)从没出现”的根因。
+        // 准备阶段让 canvasRoot 处于「激活但全透明、不拦截点击」，回放无感继续，确认能播再淡黑展示。
+        canvasRoot.SetActive(true);
+        if (group != null) { group.alpha = 0f; group.blocksRaycasts = false; }
+
         // 1. 静默准备视频（回放继续跑，不暂停）——缺失/坏文件在这一步被识破，绝不打断回放
         string url = Application.streamingAssetsPath + "/Video/" + fileName;
         videoFinished = false;
@@ -111,6 +120,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         player.SetPlaying(false);
         skipRequested = false;
         canvasRoot.SetActive(true);
+        if (group != null) group.blocksRaycasts = true; // 开始展示：恢复点击跳过
         videoImage.gameObject.SetActive(true);
         yield return Fade(0f, 1f, FadeSeconds);
 

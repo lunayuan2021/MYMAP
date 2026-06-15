@@ -122,6 +122,9 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     RenderTexture minimapTexture;
     Coroutine renderLoop;
     Vector3 mapCenter;
+    // 俯视相机实际正交半径：按站点包围盒动态求得，保证首末站（尤其右上角终点 S15）不被裁切。
+    // 默认值仅作兜底；Awake 里用 ComputeMapOrthoSize() 覆盖。
+    float mapOrthoSize = CameraOrthoSize;
 
     LycheeReplayFrame currentFrame;
     bool rushActive;
@@ -143,6 +146,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         if (replayPlayer == null) replayPlayer = FindFirstObjectByType<LycheeReplayPlayer>();
         EnsureSprites();
         mapCenter = ComputeMapCenter();
+        mapOrthoSize = ComputeMapOrthoSize();
         BuildMinimapCamera();
         BuildUi();
         nodePool = new IconPool(nodeIconLayer);
@@ -219,7 +223,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             cameraObject.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             minimapCamera = cameraObject.AddComponent<Camera>();
             minimapCamera.orthographic = true;
-            minimapCamera.orthographicSize = CameraOrthoSize;
+            minimapCamera.orthographicSize = mapOrthoSize;
             minimapCamera.cullingMask = ~0;
             minimapCamera.clearFlags = CameraClearFlags.SolidColor;
             minimapCamera.backgroundColor = MinimapGroundColor;
@@ -319,6 +323,26 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             max = Vector3.Max(max, position);
         }
         return (min + max) * 0.5f;
+    }
+
+    /// <summary>按站点包围盒求俯视相机正交半径：取 X/Z 跨度较大者的一半再留 12% 余量，
+    /// 保证整条路线（含右上角终点站）都落在小地图内——固定的 32 只能容下 64 宽，而站点横跨约 73，
+    /// 终点 S15 会被裁出右边界，正是“右上角小地图显示不全”的根因。</summary>
+    static float ComputeMapOrthoSize()
+    {
+        MapStationAnchor[] anchors = FindObjectsByType<MapStationAnchor>(FindObjectsSortMode.None);
+        if (anchors == null || anchors.Length == 0) return CameraOrthoSize;
+        Vector3 min = anchors[0].transform.position;
+        Vector3 max = min;
+        for (int i = 1; i < anchors.Length; i++)
+        {
+            if (anchors[i] == null) continue;
+            Vector3 position = anchors[i].transform.position;
+            min = Vector3.Min(min, position);
+            max = Vector3.Max(max, position);
+        }
+        float halfSpan = Mathf.Max(max.x - min.x, max.z - min.z) * 0.5f;
+        return Mathf.Max(CameraOrthoSize, halfSpan * 1.12f);
     }
 
     // ------------------------------------------------------------------
@@ -607,7 +631,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             return true;
         }
         // 相机缺失时按正交参数手动映射，保证图标层仍可用。
-        float extent = CameraOrthoSize * 2f;
+        float extent = mapOrthoSize * 2f;
         if (extent <= 0.0001f) return false;
         local = new Vector2(
             (Mathf.Clamp01((world.x - mapCenter.x) / extent + 0.5f) - 0.5f) * MapSize,

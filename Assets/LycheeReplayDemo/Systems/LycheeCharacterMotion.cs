@@ -133,10 +133,13 @@ public class LycheeCharacterMotion : MonoBehaviour
     {
         public Transform upper;            // 上段骨（髋/肩，摆幅最大）
         public Transform mid;              // 中段骨（膝，抬腿时附加弯曲）
+        public Transform lower;            // 蹄/末端骨，给玩家一个更明显的抬蹄信号
         public Quaternion upperBind;       // 绑定局部旋转（摆动以此为锚不漂移）
         public Quaternion midBind;
+        public Quaternion lowerBind;
         public Vector3 swingAxisUpper;     // 上段局部空间内"前后摆"的旋转轴
         public Vector3 swingAxisMid;
+        public Vector3 swingAxisLower;
         public float phase;                // 步态相位偏移（对角腿同相，0 或 0.5）
     }
 
@@ -457,6 +460,9 @@ public class LycheeCharacterMotion : MonoBehaviour
                     // 先把车体朝向自动转正（对齐车队前进方向），再识别四腿做程序化行走
                     // （有动画 clip 则不识别腿，让 Playables 接管）
                     AlignCombinedCarriage(child, combinedRoot, rig.root);
+                    // AlignCombinedCarriage 会改 Carriage wrapper 的局部旋转；必须同步 baseRotation，
+                    // 否则 UpdateWrappers 下一帧的车身颠簸会用旧基准把转正结果覆盖掉。
+                    rig.carriage.baseRotation = child.localRotation;
                     if (player == null || player.horseWalkClip == null)
                         CaptureHorseLegs(rig.carriage, child);
                 }
@@ -651,43 +657,70 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (carriageWrapper == null || combinedRoot == null || convoyRoot == null) return;
         var skinned = combinedRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
         if (skinned == null || skinned.bones == null || skinned.bones.Length < 6) return;
-        Transform[] bones = skinned.bones;
-
-        // 4 个最低骨=四蹄，求其质心（身体中心的水平位置）
-        var ordered = new List<Transform>(bones);
-        ordered.Sort((a, b) =>
-        {
-            if (a == null) return 1; if (b == null) return -1;
-            return a.position.y.CompareTo(b.position.y);
-        });
-        Vector3 centroid = Vector3.zero; int taken = 0;
-        foreach (Transform t in ordered)
-        {
-            if (t == null) continue;
-            centroid += t.position; taken++;
-            if (taken == 4) break;
-        }
-        if (taken < 4) return;
-        centroid /= taken;
-
-        // 马头 = 离蹄群质心水平距离最远的骨
-        Transform head = null; float far = -1f;
-        foreach (Transform b in bones)
-        {
-            if (b == null) continue;
-            Vector3 d = b.position - centroid; d.y = 0f;
-            if (d.sqrMagnitude > far) { far = d.sqrMagnitude; head = b; }
-        }
-        if (head == null) return;
-
-        Vector3 headWorld = head.position - centroid; headWorld.y = 0f;
-        if (headWorld.sqrMagnitude < 1e-6f) return;
-        // 换到 convoy 根局部空间求与 +Z 的夹角，加到 child 局部旋转上（绕局部 Y）
-        Vector3 headLocal = convoyRoot.InverseTransformDirection(headWorld.normalized);
+        if (!TryEstimateHorseHeadDirection(skinned.bones, convoyRoot, out Vector3 headLocal)) return;
+        // 换到 convoy 根局部空间求与 +Z 的夹角，加到 child 局部旋转上（绕局部 Y）。
+        // horse_new.glb 的头在模型局部 +X；旧算法取"离四蹄最远骨"会误把尾骨当头。
         headLocal.y = 0f;
         if (headLocal.sqrMagnitude < 1e-6f) return;
         float yaw = Vector3.SignedAngle(headLocal.normalized, Vector3.forward, Vector3.up);
         carriageWrapper.localRotation = Quaternion.AngleAxis(yaw, Vector3.up) * carriageWrapper.localRotation;
+    }
+
+    /// <summary>
+    /// 估计马头方向（reference 局部空间）：先找水平最长轴，再比较两端高骨数量/高度。
+    /// AI 绑骨常把尾巴伸得比头更远，不能再用"离四蹄最远"当头；头颈端通常有更高的骨。
+    /// </summary>
+    static bool TryEstimateHorseHeadDirection(Transform[] bones, Transform reference, out Vector3 headLocal)
+    {
+        headLocal = Vector3.forward;
+        if (bones == null || reference == null) return false;
+
+        var points = new List<Vector3>(bones.Length);
+        for (int i = 0; i < bones.Length; i++)
+        {
+            Transform bone = bones[i];
+            if (bone == null) continue;
+            points.Add(reference.InverseTransformPoint(bone.position));
+        }
+        if (points.Count < 6) return false;
+
+        float minX = float.MaxValue, maxX = float.MinValue;
+        float minZ = float.MaxValue, maxZ = float.MinValue;
+        for (int i = 0; i < points.Count; i++)
+        {
+            Vector3 p = points[i];
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.z < minZ) minZ = p.z;
+            if (p.z > maxZ) maxZ = p.z;
+        }
+
+        float spanX = maxX - minX;
+        float spanZ = maxZ - minZ;
+        bool useX = spanX >= spanZ;
+        float min = useX ? minX : minZ;
+        float max = useX ? maxX : maxZ;
+        float span = Mathf.Max(0.0001f, max - min);
+        float band = Mathf.Max(span * 0.22f, 0.04f);
+
+        float lowEndScore = HighestEndY(points, useX, min, band, false);
+        float highEndScore = HighestEndY(points, useX, max, band, true);
+        float sign = highEndScore >= lowEndScore ? 1f : -1f;
+        headLocal = useX ? new Vector3(sign, 0f, 0f) : new Vector3(0f, 0f, sign);
+        return true;
+    }
+
+    static float HighestEndY(List<Vector3> points, bool useX, float edge, float band, bool highEnd)
+    {
+        float best = float.MinValue;
+        for (int i = 0; i < points.Count; i++)
+        {
+            Vector3 p = points[i];
+            float axis = useX ? p.x : p.z;
+            bool inBand = highEnd ? axis >= edge - band : axis <= edge + band;
+            if (inBand && p.y > best) best = p.y;
+        }
+        return best == float.MinValue ? 0f : best;
     }
 
     /// <summary>
@@ -719,20 +752,30 @@ public class LycheeCharacterMotion : MonoBehaviour
         }
         if (hooves.Count < 4) return;
 
-        // 2. 马身前向 = 前蹄群中心 → 由整体蹄群质心指向最远蹄的水平方向（足够区分前后/左右即可）
+        // 2. 马身前向：优先用头颈端估计；失败再落回蹄子主轴。这样不会把尾巴当头，
+        // 四腿相位与摆动轴也会跟随已转正的组合马车。
         Vector3 centroid = Vector3.zero;
         foreach (Transform h in hooves) centroid += h.position;
         centroid /= hooves.Count;
-        // 用蹄子在水平面的主轴当身体前向：取离质心最远两蹄连线方向
-        Vector3 forward = Vector3.forward;
-        float maxd = 0f;
-        for (int i = 0; i < hooves.Count; i++)
-            for (int j = i + 1; j < hooves.Count; j++)
-            {
-                Vector3 d = hooves[i].position - hooves[j].position;
-                d.y = 0f;
-                if (d.sqrMagnitude > maxd) { maxd = d.sqrMagnitude; forward = d.normalized; }
-            }
+        Vector3 forward;
+        if (TryEstimateHorseHeadDirection(bones, combinedWrapper, out Vector3 headLocal))
+            forward = combinedWrapper.TransformDirection(headLocal);
+        else
+        {
+            // 用蹄子在水平面的主轴当身体前向：取离质心最远两蹄连线方向
+            forward = Vector3.forward;
+            float maxd = 0f;
+            for (int i = 0; i < hooves.Count; i++)
+                for (int j = i + 1; j < hooves.Count; j++)
+                {
+                    Vector3 d = hooves[i].position - hooves[j].position;
+                    d.y = 0f;
+                    if (d.sqrMagnitude > maxd) { maxd = d.sqrMagnitude; forward = d.normalized; }
+                }
+        }
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 1e-6f) forward = combinedWrapper.forward;
+        forward.Normalize();
         Vector3 lateral = Vector3.Cross(Vector3.up, forward).normalized; // 横向（左右）轴=摆动轴
 
         carriage.horseLegs = new List<HorseLeg>(4);
@@ -750,10 +793,13 @@ public class LycheeCharacterMotion : MonoBehaviour
             {
                 upper = upper,
                 mid = mid,
+                lower = hoof,
                 upperBind = upper.localRotation,
                 midBind = mid.localRotation,
+                lowerBind = hoof.localRotation,
                 swingAxisUpper = upper.InverseTransformDirection(lateral),
                 swingAxisMid = mid.InverseTransformDirection(lateral),
+                swingAxisLower = hoof.InverseTransformDirection(lateral),
                 phase = phase
             });
         }
@@ -766,8 +812,9 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (carriage == null || carriage.horseLegs == null) return;
         // 速度→幅度：静止收敛到 0（站立），行进抬到满幅；步频也随速度（像真马越快步越急）
         float gait = Mathf.Clamp01(speed / 2.2f);
-        float swingAmp = 17f * gait;           // 上段最大摆角（度）
-        float kneeAmp = 14f * gait;            // 中段抬腿弯曲（度）
+        float swingAmp = 28f * gait;           // 上段最大摆角（度）
+        float kneeAmp = 24f * gait;            // 中段抬腿弯曲（度）
+        float hoofAmp = 12f * gait;            // 末端蹄骨补一段反向摆，近景更看得出在迈步
         foreach (HorseLeg leg in carriage.horseLegs)
         {
             if (leg.upper == null) continue;
@@ -780,6 +827,11 @@ public class LycheeCharacterMotion : MonoBehaviour
                 float knee = Mathf.Max(0f, Mathf.Sin(ph)) * kneeAmp;
                 leg.mid.localRotation = leg.midBind * Quaternion.AngleAxis(knee, leg.swingAxisMid);
             }
+            if (leg.lower != null)
+            {
+                float hoof = -Mathf.Sin(ph) * hoofAmp;
+                leg.lower.localRotation = leg.lowerBind * Quaternion.AngleAxis(hoof, leg.swingAxisLower);
+            }
         }
     }
 
@@ -791,6 +843,7 @@ public class LycheeCharacterMotion : MonoBehaviour
         {
             if (leg.upper != null) leg.upper.localRotation = leg.upperBind;
             if (leg.mid != null) leg.mid.localRotation = leg.midBind;
+            if (leg.lower != null) leg.lower.localRotation = leg.lowerBind;
         }
     }
 
@@ -916,10 +969,37 @@ public class LycheeCharacterMotion : MonoBehaviour
             StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 4f, false);
             return;
         }
+        if (type == "TASK_COMPLETE" || type == "BOUNTY_COMPLETE" || type == "RESOURCE_CLAIM")
+        {
+            StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 2.2f, false);
+            return;
+        }
+        if (type == "PROCESS_START" || type == "PROCESS_PROGRESS")
+        {
+            if (IsBreakOrClearAction(payload))
+                StartAction(payloadPlayer, LycheeCharacterActionKind.Attack, 1.4f, false);
+            else
+                StartAction(payloadPlayer, LycheeCharacterActionKind.Build, 1.2f, false);
+            return;
+        }
+        if (type == "OBSTACLE_CLEAR" || type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS")
+        {
+            StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 1.8f, false);
+            return;
+        }
         if (type == "VERIFY_GATE_COMPLETE")
         {
             StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 2f, false);
         }
+    }
+
+    static bool IsBreakOrClearAction(LycheeReplayPayload payload)
+    {
+        if (payload == null) return false;
+        string action = payload.action ?? "";
+        string process = payload.processType ?? "";
+        return action.Contains("BREAK") || action.Contains("CLEAR") ||
+            process.Contains("BREAK") || process.Contains("CLEAR");
     }
 
     void StartAction(int playerId, LycheeCharacterActionKind kind, float durationSeconds, bool fromContest)
@@ -1443,12 +1523,15 @@ public class LycheeCharacterMotion : MonoBehaviour
                 if (!hideHorse && carriage.horseLegs != null)
                 {
                     // 组合马车无动画 clip：程序化驱动四腿行走。步频随车速，静止收敛站立。
-                    // 车体本身（含车轮，焊在蒙皮网格里转不了）保持基准姿态不做整体晃动，只腿在动。
+                    // 车体本身（含车轮，焊在蒙皮网格里转不了）只做很轻的随步起伏，重点是腿骨在动。
                     carriage.horseWalkPhase += (1.2f + rig.speed * 1.6f) * deltaTime;
                     if (carriage.horseWalkPhase > TwoPi) carriage.horseWalkPhase -= TwoPi;
                     DriveHorseLegs(carriage, rig.speed);
-                    carriage.horse.localPosition = carriage.horseBasePosition;
-                    carriage.horse.localRotation = carriage.horseBaseRotation;
+                    float horseGait = Mathf.Clamp01(rig.speed / 2.2f) * (1f - rig.waterBlend);
+                    float horseBob = Mathf.Abs(Mathf.Sin(carriage.horseWalkPhase * 2f)) * 0.026f * horseGait;
+                    float horsePitch = Mathf.Sin(carriage.horseWalkPhase) * 1.6f * horseGait;
+                    carriage.horse.localPosition = carriage.horseBasePosition + new Vector3(0f, horseBob, 0f);
+                    carriage.horse.localRotation = carriage.horseBaseRotation * Quaternion.Euler(horsePitch, 0f, 0f);
                 }
                 else if (!hideHorse)
                 {

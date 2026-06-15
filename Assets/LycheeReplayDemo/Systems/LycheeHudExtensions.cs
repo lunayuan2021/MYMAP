@@ -20,6 +20,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     const float FeedWidth = 332f;
     const float FeedEntryHeight = 36f;
     const float FeedLifetime = 12f;
+    const float TickerWidth = 960f;
+    const float TickerHeight = 44f;
+    const float TickerSpeed = 92f;
     const float RushDuration = 2.8f;
 
     // ---- 唐风统一调色板：墨底承画面、鎏金点题、绢黄走正文、朱红示警、暗金收边 ----
@@ -89,6 +92,22 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     readonly List<FeedEntry> feedEntries = new List<FeedEntry>();
     readonly List<PendingFeed> pendingFeed = new List<PendingFeed>();
     bool feedPaused;
+    readonly Dictionary<int, int> lastFeedFreshRoundByPlayer = new Dictionary<int, int>();
+
+    // ---- 底部机制说明滚动条 ----
+    RectTransform tickerRoot;
+    RectTransform tickerClip;
+    RectTransform tickerTextRect;
+    CanvasGroup tickerGroup;
+    Image tickerAccent;
+    Text tickerText;
+    readonly Queue<PendingFeed> tickerQueue = new Queue<PendingFeed>();
+    readonly Dictionary<int, int> lastTickerFreshRoundByPlayer = new Dictionary<int, int>();
+    readonly Dictionary<int, int> lastStateExplainRoundByPlayer = new Dictionary<int, int>();
+    string tickerCurrentLabel;
+    float tickerStart;
+    float tickerDuration = 6f;
+    float tickerTextWidth = 800f;
 
     // ---- 天气横幅 ----
     CanvasGroup weatherGroup;
@@ -175,6 +194,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
                     speedIndex = i;
                 }
             }
+            player.secondsPerRound = SpeedSeconds[speedIndex];
         }
         LoadWeatherSprites();
         BuildCanvas();
@@ -216,6 +236,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (!active) return;
         float now = Time.unscaledTime;
         UpdateFeed(now);
+        UpdateTicker(now);
         UpdateWeatherBanner(now);
         UpdateControls();
         UpdateFloaters(now);
@@ -229,8 +250,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (Disabled || message == null || string.IsNullOrEmpty(message.type)) return;
         string type = message.type;
         if (type == "RUSH_PHASE_START") TriggerRushTransition(round);
+        if (type == "RUSH_START") TriggerRushTransition(round);
         if (type == "GOOD_TO_BAD" || type == "FRESHNESS_DROP") HandleFreshnessEvent(message, round);
         PushFeedEvent(message, round);
+        PushMechanicTicker(message, round);
     }
 
     void HandleRoundApplied(LycheeReplayFrame previous, LycheeReplayFrame current)
@@ -247,6 +270,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (previous != null && current.phase == "RUSH" && previous.phase != "RUSH" && current.round >= previous.round)
             TriggerRushTransition(current.round);
         CheckFreshnessThresholds(previous, current);
+        ExplainStationaryStates(previous, current);
     }
 
     // ================= 构建 =================
@@ -268,6 +292,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         BuildFeed(canvasRect);
         BuildWeatherBanner(canvasRect);
         BuildControls(canvasRect);
+        BuildMechanicTicker(canvasRect);
         BuildRushOverlay(canvasRect);
     }
 
@@ -291,6 +316,40 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         feedGroup.alpha = 0f;
         feedGroup.interactable = false;
         feedGroup.blocksRaycasts = false;
+    }
+
+    void BuildMechanicTicker(Transform parent)
+    {
+        tickerRoot = MakeRect("MechanicTicker", parent);
+        SetRect(tickerRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 224f), new Vector2(TickerWidth, TickerHeight));
+        tickerGroup = tickerRoot.gameObject.AddComponent<CanvasGroup>();
+        tickerGroup.alpha = 0f;
+        tickerGroup.interactable = false;
+        tickerGroup.blocksRaycasts = false;
+        Image bg = tickerRoot.gameObject.AddComponent<Image>();
+        bg.raycastTarget = false;
+        ApplyPanelSkin(bg);
+
+        RectTransform accentRt = MakeRect("TickerAccent", tickerRoot);
+        SetRect(accentRt, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(5f, 0f));
+        tickerAccent = accentRt.gameObject.AddComponent<Image>();
+        tickerAccent.color = GoldTitle;
+        tickerAccent.raycastTarget = false;
+
+        Text caption = MakeText("TickerCaption", tickerRoot, 16, FontStyle.Bold, GoldTitle, TextAnchor.MiddleLeft);
+        SetRect(caption.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(76f, 0f));
+        caption.text = "提示";
+
+        tickerClip = MakeRect("TickerClip", tickerRoot);
+        SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(64f, 0f), new Vector2(-112f, -10f));
+        tickerClip.gameObject.AddComponent<RectMask2D>();
+
+        tickerText = MakeText("TickerText", tickerClip, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
+        tickerText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        tickerText.verticalOverflow = VerticalWrapMode.Truncate;
+        tickerTextRect = tickerText.rectTransform;
+        SetRect(tickerTextRect, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(2200f, 28f));
+        PushTicker("回放提示会在这里解释停留、处理回合、任务收益、清障和悬赏判定。", GoldTitle);
     }
 
     void BuildWeatherBanner(Transform parent)
@@ -331,7 +390,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 控制条加宽 440->500、加高 84->104：按钮字号提升到 20 后行高 36，
         // 顶部按钮行与底部滑杆行垂直间隔 12px，内容距背景边缘 16px。
         RectTransform panel = MakeRect("ControlPanel", parent);
-        SetRect(panel, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-16f, 16f), new Vector2(500f, 104f));
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(500f, 104f));
         controlGroup = panel.gameObject.AddComponent<CanvasGroup>();
         controlGroup.alpha = 0f;
         Image bg = panel.gameObject.AddComponent<Image>();
@@ -512,6 +571,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         string type = message.type;
         if (type == "MOVE_PROGRESS" || type == "ROUND_STATE") return;
+        if (type == "FRESHNESS_DROP" && !ShouldSurfaceFreshnessDrop(message.payload, round, lastFeedFreshRoundByPlayer, 24, 0.22f))
+            return;
         string node = ResolveNodeName(message.payload);
         string label = "R" + round + " " + CategoryIcon(type) + " " +
             (string.IsNullOrEmpty(node) ? "" : node + " ") + EventNameCn(type);
@@ -652,6 +713,353 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (player != null && player.TryGetStationPosition(nodeId, out _, out string displayName) && !string.IsNullOrEmpty(displayName))
             return displayName;
         return nodeId;
+    }
+
+    // ================= 机制说明滚动条 =================
+
+    void PushMechanicTicker(LycheeReplayMessage message, int round)
+    {
+        if (message == null || string.IsNullOrEmpty(message.type)) return;
+        if (TryBuildMechanicText(message, round, out string text, out Color color))
+            PushTicker(text, color);
+    }
+
+    void PushTicker(string label, Color color)
+    {
+        if (tickerText == null || string.IsNullOrEmpty(label)) return;
+        tickerQueue.Enqueue(new PendingFeed { label = label, color = color });
+        while (tickerQueue.Count > 8) tickerQueue.Dequeue();
+    }
+
+    void UpdateTicker(float now)
+    {
+        if (tickerGroup == null || tickerText == null || tickerTextRect == null) return;
+        if (tickerCurrentLabel == null && tickerQueue.Count > 0)
+            StartNextTicker(now);
+
+        float targetAlpha = tickerCurrentLabel == null ? 0f : 1f;
+        tickerGroup.alpha = Mathf.MoveTowards(tickerGroup.alpha, targetAlpha, Time.unscaledDeltaTime / 0.18f);
+        if (tickerCurrentLabel == null) return;
+
+        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 112f;
+        float t = tickerDuration <= 0.001f ? 1f : Mathf.Clamp01((now - tickerStart) / tickerDuration);
+        float x = Mathf.Lerp(clipWidth, -tickerTextWidth, t);
+        tickerTextRect.anchoredPosition = new Vector2(x, 0f);
+        if (t >= 1f)
+        {
+            tickerCurrentLabel = null;
+            if (tickerQueue.Count > 0) StartNextTicker(now);
+        }
+    }
+
+    void StartNextTicker(float now)
+    {
+        PendingFeed next = tickerQueue.Dequeue();
+        tickerCurrentLabel = next.label;
+        tickerText.text = next.label;
+        tickerText.color = SilkText;
+        if (tickerAccent != null) tickerAccent.color = next.color;
+        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 112f;
+        tickerTextWidth = Mathf.Max(tickerText.preferredWidth + 40f, 420f);
+        tickerTextRect.sizeDelta = new Vector2(Mathf.Max(2200f, tickerTextWidth + 40f), 28f);
+        tickerStart = now;
+        tickerDuration = Mathf.Clamp((clipWidth + tickerTextWidth) / TickerSpeed, 5.2f, 14f);
+        tickerTextRect.anchoredPosition = new Vector2(clipWidth, 0f);
+    }
+
+    bool TryBuildMechanicText(LycheeReplayMessage message, int round, out string text, out Color color)
+    {
+        text = null;
+        color = FeedColor(message.type);
+        string type = message.type;
+        LycheeReplayPayload payload = message.payload ?? new LycheeReplayPayload();
+        string team = TeamName(payload.playerId);
+        string node = ResolveNodeName(payload);
+        string reward = RewardHint(payload);
+
+        if (type == "FRESHNESS_DROP")
+        {
+            if (!ShouldSurfaceFreshnessDrop(payload, round, lastTickerFreshRoundByPlayer, 28, 0.25f)) return false;
+            string before = payload.before > 0f ? payload.before.ToString("0.#") : "?";
+            string after = payload.after > 0f ? payload.after.ToString("0.#") : (payload.freshness > 0f ? payload.freshness.ToString("0.#") : "?");
+            string loss = payload.loss > 0f ? " -" + payload.loss.ToString("0.##") : "";
+            text = "R" + round + " " + team + " 鲜度 " + before + " → " + after + loss + "：鲜度会折算最终分，天气、长距离和等待处理都会持续消耗。";
+            return true;
+        }
+        if (type == "GOOD_TO_BAD")
+        {
+            string fruit = payload.badFruit > 0 ? "，坏果 " + payload.badFruit : "";
+            text = "R" + round + " " + team + " 出现好果转坏" + fruit + "：好果数和鲜度都会影响最终分，低鲜度会拖低结算。";
+            return true;
+        }
+        if (type == "PROCESS_PROGRESS")
+        {
+            string left = payload.remainingRound >= 0 ? "，剩余 " + payload.remainingRound + " 回合" : "";
+            text = "R" + round + " " + team + " 停留在 " + SafeNode(node) + "：" + ProcessName(payload.processType) + left + reward + "；该行动完成后会恢复推进。";
+            return true;
+        }
+        if (type == "PROCESS_START")
+        {
+            string cost = payload.processRound > 0 ? "，预计 " + payload.processRound + " 回合" : "";
+            text = "R" + round + " " + team + " 开始" + ProcessName(payload.processType) + " " + SafeNode(node) + cost + reward + "。";
+            return true;
+        }
+        if (type == "PROCESS_COMPLETE")
+        {
+            text = "R" + round + " " + team + " 完成" + ProcessName(payload.processType) + " " + SafeNode(node) + "，路线/资源/通行条件已更新。";
+            return true;
+        }
+        if (type == "SQUAD_DISPATCH")
+        {
+            string eta = payload.completeRound > round ? "，预计 R" + payload.completeRound + " 完成" : "";
+            text = "R" + round + " " + team + " 派出小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
+            return true;
+        }
+        if (type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS" || type == "OBSTACLE_CLEAR")
+        {
+            text = "R" + round + " " + team + " 清掉 " + SafeNode(node) + " 的障碍：路线恢复；若对方随后仍 +6s，通常是登船、转运、验核等站点处理时间。";
+            return true;
+        }
+        if (type == "TASK_REFRESH" || type == "TASK_SPAWN")
+        {
+            int score = FindTaskScore(payload);
+            string scoreText = score > 0 ? " +" + score + " 分" : " 任务分";
+            string expire = payload.expireRound > round ? "，R" + payload.expireRound + " 前有效" : "";
+            text = "R" + round + " 任务刷新 " + SafeNode(node) + "：完成可获得" + scoreText + expire + "；被抢先或过期就不会到账。";
+            return true;
+        }
+        if (type == "TASK_COMPLETE")
+        {
+            int score = payload.score > 0 ? payload.score : FindTaskScore(payload);
+            text = "R" + round + " " + team + " 完成 " + SafeNode(node) + " 任务" + (score > 0 ? "，得分 +" + score : "") + "。";
+            return true;
+        }
+        if (type == "TASK_EXPIRE")
+        {
+            text = "R" + round + " " + SafeNode(node) + " 任务过期：没有队伍在窗口内完成，所以这部分收益不会计入得分。";
+            return true;
+        }
+        if (type == "BOUNTY_SPAWN")
+        {
+            string score = payload.score > 0 ? " +" + payload.score + " 分" : " 额外奖励";
+            text = "R" + round + " " + SafeNode(node) + " 出现" + BountyName(payload.bountyType) + "：先满足破关/清障条件的队伍才能拿到" + score + "。";
+            return true;
+        }
+        if (type == "BOUNTY_COMPLETE")
+        {
+            string score = payload.score > 0 ? " +" + payload.score : "";
+            text = "R" + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，奖励 " + ResourceName(payload.reward) + " 已生效。";
+            return true;
+        }
+        if (type == "INVALID_ACTION" || type == "ACTION_REJECTED")
+        {
+            string reason = !string.IsNullOrEmpty(payload.message) ? payload.message : (!string.IsNullOrEmpty(payload.errorCode) ? payload.errorCode : "条件未满足");
+            text = "R" + round + " 行动未生效：" + reason + "。未满足节点、资源或时机条件时，不会获得任务/悬赏收益。";
+            return true;
+        }
+        if (type == "RESOURCE_CLAIM")
+        {
+            text = "R" + round + " " + team + " 在 " + SafeNode(node) + " 获取 " + ResourceName(payload.resourceType) + "：资源会影响后续通行、验核或抢时间能力。";
+            return true;
+        }
+        if (type == "RESOURCE_USE")
+        {
+            text = "R" + round + " " + team + " 使用 " + ResourceName(payload.resourceType) + "：这是为了降低后续路线成本或满足通行条件。";
+            return true;
+        }
+        if (type == "FORCED_PASS_START")
+        {
+            string tax = payload.timeTax > 0 ? "，时间税 +" + payload.timeTax + " 回合" : "";
+            text = "R" + round + " " + team + " 强制通行 " + SafeNode(node) + tax + "：能绕过阻拦，但会用时间换进度。";
+            return true;
+        }
+        if (type == "RUSH_START" || type == "RUSH_PHASE_START")
+        {
+            text = "R" + round + " 宫宴冲刺开启：最后阶段更看重验核、交付时机、好果数和鲜度保留。";
+            return true;
+        }
+        if (type == "VERIFY_GATE_START")
+        {
+            text = "R" + round + " " + team + " 开始朱雀门验核：验核完成后才具备进宫交付资格。";
+            return true;
+        }
+        if (type == "VERIFY_GATE_COMPLETE")
+        {
+            text = "R" + round + " " + team + " 朱雀门验核通过：已获得交付资格，接下来拼交付速度与保鲜结果。";
+            return true;
+        }
+        if (type == "DELIVER_SUCCESS")
+        {
+            text = "R" + round + " " + team + " 完成交付：好果 " + payload.goodFruit + "，鲜度 " + payload.freshness.ToString("0.#") + "%，本次交付分 " + payload.score + "。";
+            return true;
+        }
+        return false;
+    }
+
+    void ExplainStationaryStates(LycheeReplayFrame previous, LycheeReplayFrame current)
+    {
+        if (current == null || current.players == null) return;
+        for (int i = 0; i < current.players.Length; i++)
+        {
+            LycheeReplayPlayerState state = current.players[i];
+            if (state == null || state.delivered) continue;
+            string playerState = state.state ?? "";
+            bool stationary = playerState == "PROCESSING" || playerState == "IDLE";
+            if (!stationary || !string.IsNullOrEmpty(state.routeEdgeId)) continue;
+            if (lastStateExplainRoundByPlayer.TryGetValue(state.playerId, out int lastRound) &&
+                current.round - lastRound < 6)
+                continue;
+            lastStateExplainRoundByPlayer[state.playerId] = current.round;
+
+            string node = ResolveNodeName(new LycheeReplayPayload { nodeId = state.currentNodeId, playerId = state.playerId });
+            string process = NodeProcessName(current, state.currentNodeId);
+            string reason = playerState == "PROCESSING"
+                ? process + "进行中，完成后继续推进"
+                : "等待路线、资源、小队结果或下一步条件";
+            PushTicker("R" + current.round + " " + TeamName(state.playerId) + " 停留在 " + SafeNode(node) + "：" + reason + "。", playerState == "PROCESSING" ? SilkText : DarkGoldEdge);
+        }
+    }
+
+    static bool ShouldSurfaceFreshnessDrop(LycheeReplayPayload payload, int round, Dictionary<int, int> cache, int minInterval, float minLoss)
+    {
+        if (payload == null) return true;
+        int key = payload.playerId;
+        if (payload.loss >= minLoss) return true;
+        if (key == 0) key = -1;
+        if (cache.TryGetValue(key, out int lastRound) && round - lastRound < minInterval) return false;
+        cache[key] = round;
+        return true;
+    }
+
+    string TeamName(int playerId)
+    {
+        if (playerId == 0) return "车队";
+        LycheeReplayFrame frame = player != null ? player.CurrentFrame : null;
+        LycheeReplayPlayerState[] states = frame == null ? null : frame.players;
+        if (states != null)
+        {
+            for (int i = 0; i < states.Length; i++)
+            {
+                LycheeReplayPlayerState state = states[i];
+                if (state != null && state.playerId == playerId)
+                    return string.IsNullOrEmpty(state.teamId) ? state.name : state.teamId;
+            }
+        }
+        return "P" + playerId;
+    }
+
+    string RewardHint(LycheeReplayPayload payload)
+    {
+        int taskScore = FindTaskScore(payload);
+        int bountyScore = FindBountyScore(payload);
+        if (taskScore > 0 && bountyScore > 0) return "，潜在收益 +" + (taskScore + bountyScore) + " 分";
+        if (taskScore > 0) return "，任务收益 +" + taskScore + " 分";
+        if (bountyScore > 0) return "，悬赏收益 +" + bountyScore + " 分";
+        return "";
+    }
+
+    int FindTaskScore(LycheeReplayPayload payload)
+    {
+        if (payload == null) return 0;
+        if (payload.score > 0) return payload.score;
+        LycheeReplayFrame frame = player != null ? player.CurrentFrame : null;
+        LycheeReplayTaskState[] tasks = frame == null ? null : frame.tasks;
+        if (tasks == null) return 0;
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            LycheeReplayTaskState task = tasks[i];
+            if (task == null || task.score <= 0) continue;
+            if (!string.IsNullOrEmpty(payload.taskId) && task.taskId == payload.taskId) return task.score;
+            if (!string.IsNullOrEmpty(payload.taskTemplateId) &&
+                (task.taskTemplateId == payload.taskTemplateId || task.templateId == payload.taskTemplateId)) return task.score;
+            string taskNode = !string.IsNullOrEmpty(task.targetNodeId) ? task.targetNodeId : task.nodeId;
+            if (!string.IsNullOrEmpty(nodeId) && taskNode == nodeId) return task.score;
+        }
+        return 0;
+    }
+
+    int FindBountyScore(LycheeReplayPayload payload)
+    {
+        if (payload == null) return 0;
+        if (payload.score > 0 && !string.IsNullOrEmpty(payload.bountyId)) return payload.score;
+        LycheeReplayFrame frame = player != null ? player.CurrentFrame : null;
+        LycheeReplayBountyState[] bounties = frame == null ? null : frame.bounties;
+        if (bounties == null) return 0;
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        for (int i = 0; i < bounties.Length; i++)
+        {
+            LycheeReplayBountyState bounty = bounties[i];
+            if (bounty == null || bounty.score <= 0) continue;
+            if (!string.IsNullOrEmpty(payload.bountyId) && bounty.bountyId == payload.bountyId) return bounty.score;
+            if (!string.IsNullOrEmpty(nodeId) && bounty.targetNodeId == nodeId) return bounty.score;
+        }
+        return 0;
+    }
+
+    string NodeProcessName(LycheeReplayFrame frame, string nodeId)
+    {
+        if (frame != null && frame.nodes != null && !string.IsNullOrEmpty(nodeId))
+        {
+            for (int i = 0; i < frame.nodes.Length; i++)
+            {
+                LycheeReplayNodeState node = frame.nodes[i];
+                if (node != null && node.nodeId == nodeId && !string.IsNullOrEmpty(node.processType))
+                    return ProcessName(node.processType);
+            }
+        }
+        return "站点处理";
+    }
+
+    static string SafeNode(string node)
+    {
+        return string.IsNullOrEmpty(node) ? "当前位置" : node;
+    }
+
+    static string ProcessName(string value)
+    {
+        if (value == "CLEAR_OBSTACLE") return "清障";
+        if (value == "CLAIM_RESOURCE") return "领取资源";
+        if (value == "BOARD") return "登船";
+        if (value == "WATER_TRANSFER") return "水路换运";
+        if (value == "TRANSFER") return "驿站换运";
+        if (value == "PASS_TRANSFER") return "关隘通行";
+        if (value == "PALACE_TRANSFER") return "宫城换运";
+        if (value == "VERIFY" || value == "VERIFY_GATE" || value == "RUSH_VERIFY_GATE") return "朱雀门验核";
+        if (value == "PASS_NODE") return "限时过关";
+        if (value == "STATION_PROCESS") return "驿站催运";
+        if (value == "WIN_HORSE_WINDOW") return "争马换乘";
+        if (value == "WIN_DOCK_WINDOW") return "码头争船";
+        if (value == "BREAK_GUARD") return "破关";
+        return string.IsNullOrEmpty(value) ? "站点处理" : value.Replace("_", " ");
+    }
+
+    static string ActionName(string value)
+    {
+        if (value == "SQUAD_CLEAR") return "清障";
+        if (value == "BREAK_GUARD") return "破关";
+        if (value == "BOARD") return "登船";
+        if (value == "CLAIM_RESOURCE") return "领取资源";
+        if (value == "VERIFY_GATE") return "朱雀门验核";
+        return ProcessName(value);
+    }
+
+    static string ResourceName(string value)
+    {
+        if (value == "ICE_BOX") return "冰鉴";
+        if (value == "FAST_HORSE") return "快马";
+        if (value == "SHORT_HORSE") return "短驿马";
+        if (value == "PASS_TOKEN") return "通关令";
+        if (value == "OFFICIAL_PERMIT") return "官牒";
+        if (value == "INTEL") return "情报";
+        if (value == "BOAT_RIGHT") return "船班权益";
+        return string.IsNullOrEmpty(value) ? "资源" : value.Replace("_", " ");
+    }
+
+    static string BountyName(string value)
+    {
+        if (value == "KEY_BOUNTY") return "关隘悬赏";
+        return string.IsNullOrEmpty(value) ? "悬赏" : value.Replace("_", " ");
     }
 
     // ================= 天气横幅 =================
@@ -1191,9 +1599,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 杂项落暗金不抢戏；对抗组的匹配口径与 CategoryIcon 的 ⚔ 一致。
         if (string.IsNullOrEmpty(type)) return DarkGoldEdge;
         if (type.Contains("WEATHER")) return CloudGray;
-        if (type.Contains("GUARD") || type.Contains("FORCED") || type.Contains("CONTEST") || type.Contains("CARD")) return Vermilion;
+        if (type.Contains("GUARD") || type.Contains("FORCED") || type.Contains("CONTEST") || type.Contains("CARD") ||
+            type.Contains("OBSTACLE") || type.Contains("INVALID")) return Vermilion;
         if (type.Contains("TASK") || type.Contains("BOUNTY")) return GoldTitle;
-        if (type.Contains("RESOURCE") || type.Contains("DELIVER") || type.Contains("VERIFY") || type.Contains("PROCESS")) return SilkText;
+        if (type.Contains("RESOURCE") || type.Contains("DELIVER") || type.Contains("VERIFY") || type.Contains("PROCESS") ||
+            type.Contains("RUSH")) return SilkText;
         return DarkGoldEdge;
     }
 
@@ -1201,7 +1611,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (string.IsNullOrEmpty(type)) return "◆";
         if (type.Contains("WEATHER")) return "☁";
-        if (type.Contains("GUARD") || type.Contains("FORCED") || type.Contains("CONTEST") || type.Contains("CARD")) return "⚔";
+        if (type.Contains("GUARD") || type.Contains("FORCED") || type.Contains("CONTEST") || type.Contains("CARD") ||
+            type.Contains("OBSTACLE")) return "⚔";
         if (type.Contains("TASK") || type.Contains("BOUNTY")) return "★";
         if (type.Contains("DELIVER") || type.Contains("VERIFY")) return "✓";
         return "◆";
@@ -1215,30 +1626,39 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "MATCH_END": return "比赛结束";
             case "NODE_ENTER": return "进入节点";
             case "TASK_SPAWN": return "皇榜任务刷新";
+            case "TASK_REFRESH": return "皇榜任务刷新";
             case "TASK_COMPLETE": return "任务完成";
             case "TASK_EXPIRE": return "任务过期";
             case "WEATHER_FORECAST": return "天气预告";
             case "WEATHER_START": return "天气生效";
             case "WEATHER_END": return "天气结束";
             case "RESOURCE_CLAIM": return "资源获取";
+            case "RESOURCE_USE": return "资源使用";
             case "PROCESS_START": return "处理开始";
+            case "PROCESS_PROGRESS": return "处理中";
             case "PROCESS_COMPLETE": return "处理完成";
             case "SQUAD_DISPATCH": return "小队出发";
             case "SQUAD_ARRIVE": return "小队抵达";
+            case "SQUAD_CLEAR": return "清障完成";
             case "SQUAD_WEAKEN_SUCCESS": return "削弱奏效";
             case "SQUAD_REINFORCE_SUCCESS": return "增援奏效";
             case "SQUAD_CLEAR_SUCCESS": return "清障完成";
             case "SQUAD_SCOUT_SUCCESS": return "侦察完成";
+            case "SQUAD_FAILED": return "小队失败";
             case "GUARD_SET": return "设卡布防";
             case "GUARD_DECAY": return "设卡风化";
             case "GUARD_BREAK": return "攻破设卡";
+            case "OBSTACLE_CLEAR": return "障碍清除";
             case "BOUNTY_SPAWN": return "悬赏出现";
             case "BOUNTY_COMPLETE": return "悬赏完成";
             case "COST_COMMIT": return "代价投入";
             case "FORCED_PASS_START": return "强制通行";
             case "FORCED_PASS_END": return "通行结束";
             case "ACTION_REJECTED": return "行动被拒";
+            case "INVALID_ACTION": return "行动无效";
             case "RUSH_PHASE_START": return "宫宴冲刺开启";
+            case "RUSH_START": return "宫宴冲刺开启";
+            case "RUSH_TACTIC_USE": return "冲刺策略";
             case "VERIFY_GATE_START": return "验核开始";
             case "VERIFY_GATE_COMPLETE": return "验核完成";
             case "DELIVER_SUCCESS": return "交付成功";

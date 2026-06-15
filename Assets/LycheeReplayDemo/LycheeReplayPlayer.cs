@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -7,6 +8,11 @@ public class LycheeReplayPlayer : MonoBehaviour
 {
     [Header("Replay")]
     public TextAsset replayFile;
+    /// <summary>本场景要加载的 StreamingAssets 相对路径（默认 reply.txt = 现状）。
+    /// 锦标赛分场景方案下，地图生成器给每张图的场景写各自的回放（如 "Tournament/map2.txt"），
+    /// 这样切场景即换回放、零运行时耦合。向后兼容：旧场景在此字段加入前已序列化，反序列化时为 null/空，
+    /// ReplayRelative 会自动回退到 reply.txt，行为与旧版完全一致。</summary>
+    public string streamingReplayPath = "reply.txt";
     // 0.22 秒/回合：0.10 时 600 回合一分钟跑完，事件演出根本来不及看；场景序列化值由编辑器脚本同步
     [Range(0.03f, 1f)] public float secondsPerRound = 0.40f;
     public bool playOnStart = true;
@@ -45,6 +51,10 @@ public class LycheeReplayPlayer : MonoBehaviour
     public Sprite blueCaptainAvatar;
     public Sprite[] combatIllustrations;
 
+    const float IdleRoundMaxSeconds = 0.08f;
+    const float StationProcessRoundMaxSeconds = 0.10f;
+    const float MinRoundSeconds = 0.01f;
+
     LycheeReplayFrame startFrame;
     readonly List<LycheeReplayFrame> frames = new List<LycheeReplayFrame>();
     readonly Dictionary<int, ConvoyVisual> convoys = new Dictionary<int, ConvoyVisual>();
@@ -52,8 +62,17 @@ public class LycheeReplayPlayer : MonoBehaviour
     readonly Dictionary<string, MapStationAnchor> stations = new Dictionary<string, MapStationAnchor>();
     readonly Dictionary<string, MapRouteEdge> edges = new Dictionary<string, MapRouteEdge>();
     readonly Dictionary<string, GameObject> obstacles = new Dictionary<string, GameObject>();
+    readonly Dictionary<string, GameObject> obstacleGenericModels = new Dictionary<string, GameObject>();
+    readonly Dictionary<string, TextMesh> obstacleLabels = new Dictionary<string, TextMesh>();
+    readonly Dictionary<string, GameObject> obstacleRockPiles = new Dictionary<string, GameObject>();
+    readonly Dictionary<string, GameObject> obstacleBrokenBridges = new Dictionary<string, GameObject>();
+    readonly Dictionary<string, GameObject> obstacleDockBlocks = new Dictionary<string, GameObject>();
+    readonly Dictionary<string, string> activeObstacleTypes = new Dictionary<string, string>();
+    readonly Dictionary<string, bool> obstacleWasActive = new Dictionary<string, bool>();
+    readonly Dictionary<string, float> obstacleCueCooldown = new Dictionary<string, float>();
     readonly List<SquadVisual> squads = new List<SquadVisual>();
     readonly List<GameObject> eventEffects = new List<GameObject>();
+    readonly Dictionary<string, int> processCardRoundByKey = new Dictionary<string, int>();
 
     MapElevationData elevation;
     Transform dynamicRoot;
@@ -66,6 +85,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     bool matchOverRaised;
     string latestEvent = "READY";
     Vector3 eventFocusPosition;
+    Transform eventFocusTarget;
     float eventFocusUntil;
     /// <summary>当前事件聚焦的建议相机距离（米）；&lt;0 表示未指定、由相机自行决定。对抗类拉近（15）、普通事件保持远景（30）。</summary>
     float eventFocusDistance = -1f;
@@ -76,6 +96,11 @@ public class LycheeReplayPlayer : MonoBehaviour
     GUIStyle titleStyle;
     GUIStyle buttonStyle;
     LycheeReplayRuntimeHud runtimeHud;
+    Material rockMaterial;
+    Material woodMaterial;
+    Material warningMaterial;
+    Material cargoMaterial;
+    Material ropeMaterial;
 
     sealed class ConvoyVisual
     {
@@ -98,11 +123,18 @@ public class LycheeReplayPlayer : MonoBehaviour
         public Vector3 end;
         public int startRound;
         public int endRound;
+        public int playerId;
         public int memberCount;
+        public string orderId;
         /// <summary>攻坚目标站 nodeId（抵达时请求建筑透视，让攻击动作不被楼挡）。</summary>
         public string targetNodeId;
+        public string tactic;
         /// <summary>抵达后的真实时间戳；&lt;0 表示仍在行军。抵达后停留做攻击演出再销毁。</summary>
         public float arrivedRealTime = -1f;
+        public float holdSeconds = 3.2f;
+        public bool resultResolved;
+        public bool resultSuccess;
+        public TextMesh label;
         /// <summary>跨河时垫在脚下的小船（懒创建，仅水面段激活）。</summary>
         public GameObject boat;
         /// <summary>与 LycheeCharacterMotion 共享的水面状态（船上站立 vs 陆上行军）。</summary>
@@ -133,7 +165,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     public LycheeReplayOverFrame OverFrame { get; private set; }
     public string ReplaySource { get; private set; }
     public int TotalRounds => frames.Count == 0 ? 0 : frames[frames.Count - 1].round;
-    public float FrameInterpolation => secondsPerRound <= 0f ? 1f : Mathf.Clamp01(frameTime / secondsPerRound);
+    public float FrameInterpolation => Mathf.Clamp01(frameTime / EffectiveSecondsForFrame(CurrentFrame));
 
     public bool TryGetStationPosition(string nodeId, out Vector3 position, out string displayName)
     {
@@ -214,9 +246,18 @@ public class LycheeReplayPlayer : MonoBehaviour
     /// <summary>事件聚焦扩展查询：除位置外返回建议聚焦距离（米）。focusDistance &lt; 0 表示事件未指定，由相机沿用自身默认值。</summary>
     public bool TryGetEventFocus(out Vector3 position, out float focusDistance)
     {
+        if (Time.unscaledTime >= eventFocusUntil)
+        {
+            eventFocusTarget = null;
+            position = eventFocusPosition;
+            focusDistance = eventFocusDistance;
+            return false;
+        }
+        if (eventFocusTarget != null)
+            eventFocusPosition = eventFocusTarget.position;
         position = eventFocusPosition;
         focusDistance = eventFocusDistance;
-        return Time.unscaledTime < eventFocusUntil;
+        return true;
     }
 
     public string GetRouteAlignmentReport()
@@ -235,7 +276,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 continue;
             }
 
-            Vector3 center = edge.Evaluate(state.moveProgress);
+            Vector3 center = edge.Evaluate(PlayerEdgeProgress(state));
             float offset = Vector2.Distance(
                 new Vector2(convoy.root.transform.position.x, convoy.root.transform.position.z),
                 new Vector2(center.x, center.z));
@@ -303,8 +344,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 保证 HUD/演出构建时缓存已就绪，不会静默回落到程序化兜底。
         yield return LycheeThemeCache.Preload();
         // WebGL 上 StreamingAssets 是 URL，System.IO 不可用，必须走网络请求；
-        // 加时间戳参数避免浏览器缓存旧的 reply.txt。
-        string url = Application.streamingAssetsPath + "/reply.txt?t=" + DateTime.UtcNow.Ticks;
+        // 加时间戳参数避免浏览器缓存旧的回放文件。文件名由 streamingReplayPath 决定（默认 reply.txt）。
+        string relative = ReplayRelative;
+        string url = Application.streamingAssetsPath + "/" + relative + "?t=" + DateTime.UtcNow.Ticks;
         string text = null;
         using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
         {
@@ -312,11 +354,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
                 text = request.downloadHandler.text;
-                ReplaySource = "StreamingAssets/reply.txt";
+                ReplaySource = "StreamingAssets/" + relative;
             }
             else
             {
-                Debug.LogWarning("Failed to fetch StreamingAssets/reply.txt: " + request.error, this);
+                Debug.LogWarning("Failed to fetch StreamingAssets/" + relative + ": " + request.error, this);
             }
         }
         ParseReplay(text);
@@ -330,9 +372,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (playing)
         {
             frameTime += Time.deltaTime;
-            while (frameTime >= secondsPerRound && playing)
+            float frameSeconds = EffectiveSecondsForFrame(CurrentFrame);
+            while (frameTime >= frameSeconds && playing)
             {
-                frameTime -= secondsPerRound;
+                frameTime -= frameSeconds;
                 if (frameIndex >= frames.Count - 1)
                 {
                     if (loop) SeekFrame(0);
@@ -349,13 +392,74 @@ public class LycheeReplayPlayer : MonoBehaviour
                 }
                 frameIndex++;
                 ApplyFrame(frameIndex, false);
+                frameSeconds = EffectiveSecondsForFrame(CurrentFrame);
             }
         }
 
-        float interpolation = secondsPerRound <= 0f ? 1f : Mathf.Clamp01(frameTime / secondsPerRound);
+        float interpolation = FrameInterpolation;
         InterpolateConvoys(interpolation);
         UpdateSquads(interpolation);
         UpdateRuntimeHud();
+    }
+
+    float EffectiveSecondsForFrame(LycheeReplayFrame frame)
+    {
+        float baseSeconds = Mathf.Max(MinRoundSeconds, secondsPerRound);
+        if (frame == null) return baseSeconds;
+        if (FrameHasMovingPlayer(frame) || FrameHasMajorEvent(frame)) return baseSeconds;
+        if (FrameHasStationProcess(frame)) return Mathf.Min(baseSeconds, StationProcessRoundMaxSeconds);
+        return Mathf.Min(baseSeconds, IdleRoundMaxSeconds);
+    }
+
+    static bool FrameHasMovingPlayer(LycheeReplayFrame frame)
+    {
+        if (frame.players == null) return false;
+        for (int i = 0; i < frame.players.Length; i++)
+        {
+            LycheeReplayPlayerState player = frame.players[i];
+            if (player == null) continue;
+            if (!string.IsNullOrEmpty(player.routeEdgeId)) return true;
+            if (string.Equals(player.state, "MOVING", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    static bool FrameHasStationProcess(LycheeReplayFrame frame)
+    {
+        if (frame.players != null)
+        {
+            for (int i = 0; i < frame.players.Length; i++)
+            {
+                string state = frame.players[i] == null ? "" : frame.players[i].state;
+                if (string.Equals(state, "PROCESSING", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(state, "IDLE", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        if (frame.messages == null) return false;
+        for (int i = 0; i < frame.messages.Length; i++)
+        {
+            string type = frame.messages[i] == null ? "" : frame.messages[i].type;
+            if (type == "PROCESS_PROGRESS" || type == "MOVE_PROGRESS" || type == "FRESHNESS_DROP")
+                return true;
+        }
+        return false;
+    }
+
+    static bool FrameHasMajorEvent(LycheeReplayFrame frame)
+    {
+        if (frame.messages == null) return false;
+        for (int i = 0; i < frame.messages.Length; i++)
+        {
+            string type = frame.messages[i] == null ? "" : frame.messages[i].type;
+            if (string.IsNullOrEmpty(type)) continue;
+            if (type == "MOVE_PROGRESS" || type == "PROCESS_PROGRESS" || type == "FRESHNESS_DROP")
+                continue;
+            if (type == "SQUAD_DISPATCH")
+                continue;
+            return true;
+        }
+        return false;
     }
 
     void CacheSceneData()
@@ -367,21 +471,25 @@ public class LycheeReplayPlayer : MonoBehaviour
         elevation = FindFirstObjectByType<MapElevationData>();
     }
 
+    /// <summary>本场景回放文件的 StreamingAssets 相对路径，空值回退 reply.txt（向后兼容）。</summary>
+    string ReplayRelative => string.IsNullOrEmpty(streamingReplayPath) ? "reply.txt" : streamingReplayPath;
+
     void LoadReplay()
     {
         string text = null;
+        string relative = ReplayRelative;
         try
         {
-            string streamingPath = System.IO.Path.Combine(Application.streamingAssetsPath, "reply.txt");
+            string streamingPath = System.IO.Path.Combine(Application.streamingAssetsPath, relative);
             if (System.IO.File.Exists(streamingPath))
             {
                 text = System.IO.File.ReadAllText(streamingPath);
-                ReplaySource = "StreamingAssets/reply.txt";
+                ReplaySource = "StreamingAssets/" + relative;
             }
         }
         catch (Exception exception)
         {
-            Debug.LogWarning("Failed to read StreamingAssets/reply.txt: " + exception.Message, this);
+            Debug.LogWarning("Failed to read StreamingAssets/" + relative + ": " + exception.Message, this);
             text = null;
         }
 
@@ -419,9 +527,24 @@ public class LycheeReplayPlayer : MonoBehaviour
             LycheeReplayFrame frame = JsonUtility.FromJson<LycheeReplayFrame>(line);
             if (frame != null && frame.type == "round") frames.Add(frame);
         }
+        BackfillPlayerScoresFromFrameScores();
         Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
             (OverFrame != null ? ", over frame parsed." : "."), this);
         ValidateScoreConsistency();
+    }
+
+    void BackfillPlayerScoresFromFrameScores()
+    {
+        foreach (LycheeReplayFrame frame in frames)
+        {
+            if (frame == null || frame.players == null || frame.scores == null) continue;
+            foreach (LycheeReplayPlayerState state in frame.players)
+            {
+                if (state == null) continue;
+                if (state.camp == 0) state.score = frame.scores.RED;
+                else if (state.camp == 1) state.score = frame.scores.BLUE;
+            }
+        }
     }
 
     /// <summary>
@@ -614,15 +737,28 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         foreach (MapStationAnchor station in stations.Values)
         {
-            GameObject obstacle = CreateNormalizedModel(
+            GameObject obstacle = new GameObject("Obstacle_" + station.stationId);
+            obstacle.transform.SetParent(eventRoot, false);
+            obstacle.transform.position = ObstacleWorldPosition(station);
+            obstacle.transform.rotation = ObstacleWorldRotation(station, null);
+
+            GameObject model = CreateNormalizedModel(
                 roadObstacleModel,
-                eventRoot,
-                "Obstacle_" + station.stationId,
+                obstacle.transform,
+                "ObstacleModel",
                 1.65f);
-            if (obstacle == null) continue;
-            obstacle.transform.position = station.transform.position + Vector3.up * 0.1f;
+            if (model != null)
+            {
+                model.transform.localPosition = Vector3.zero;
+                obstacleGenericModels[station.stationId] = model;
+            }
+
+            TextMesh label = CreateLabel(obstacle.transform, "", new Color(1f, 0.78f, 0.32f, 1f));
+            label.transform.localPosition = new Vector3(0f, 2.1f, 0f);
+
             obstacle.SetActive(false);
             obstacles[station.stationId] = obstacle;
+            obstacleLabels[station.stationId] = label;
         }
     }
 
@@ -697,37 +833,42 @@ public class LycheeReplayPlayer : MonoBehaviour
             LycheeReplayPlayerState nextPlayer = next.players == null
                 ? null
                 : next.players.FirstOrDefault(candidate => candidate.playerId == player.playerId);
-            EvaluatePlayerPose(player, nextPlayer, t, out Vector3 routePosition, out Vector3 tangent);
-            if (tangent.sqrMagnitude > 0.0001f)
-                visual.lastTangent = tangent.normalized;
+            EvaluatePlayerPose(player, nextPlayer, t, out Vector3 routePosition, out Vector3 tangent, out bool resolved);
+            // 未解析（无路径边、无可解析站点、且回放未提供 grid 坐标）时保持上一帧位置，
+            // 绝不把车队更新到 GridToWorld(0,0) 的地图角落——杜绝“开局一队马车闪出去又弹回起点”。
+            if (resolved)
+            {
+                if (tangent.sqrMagnitude > 0.0001f)
+                    visual.lastTangent = tangent.normalized;
 
-            Vector3 routeSide = Vector3.Cross(Vector3.up, visual.lastTangent);
-            Vector3 targetPosition = routePosition + routeSide * (player.camp == 0 ? -0.72f : 0.72f);
-            if (!visual.initialized)
-            {
-                visual.smoothedPosition = targetPosition;
-                visual.root.transform.position = targetPosition;
-                visual.root.transform.rotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
-                visual.initialized = true;
+                Vector3 routeSide = Vector3.Cross(Vector3.up, visual.lastTangent);
+                Vector3 targetPosition = routePosition + routeSide * (player.camp == 0 ? -0.72f : 0.72f);
+                if (!visual.initialized)
+                {
+                    visual.smoothedPosition = targetPosition;
+                    visual.root.transform.position = targetPosition;
+                    visual.root.transform.rotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
+                    visual.initialized = true;
+                }
+                else
+                {
+                    visual.smoothedPosition = Vector3.SmoothDamp(
+                        visual.smoothedPosition,
+                        targetPosition,
+                        ref visual.positionVelocity,
+                        0.055f,
+                        80f,
+                        Time.deltaTime);
+                    Quaternion targetRotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
+                    float rotationBlend = 1f - Mathf.Exp(-10f * Time.deltaTime);
+                    visual.root.transform.rotation = Quaternion.Slerp(
+                        visual.root.transform.rotation,
+                        targetRotation,
+                        rotationBlend);
+                }
+                visual.root.transform.position = visual.smoothedPosition +
+                    Vector3.up * (0.10f + Mathf.Sin(Time.time * 6f + player.camp) * 0.025f);
             }
-            else
-            {
-                visual.smoothedPosition = Vector3.SmoothDamp(
-                    visual.smoothedPosition,
-                    targetPosition,
-                    ref visual.positionVelocity,
-                    0.055f,
-                    80f,
-                    Time.deltaTime);
-                Quaternion targetRotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
-                float rotationBlend = 1f - Mathf.Exp(-10f * Time.deltaTime);
-                visual.root.transform.rotation = Quaternion.Slerp(
-                    visual.root.transform.rotation,
-                    targetRotation,
-                    rotationBlend);
-            }
-            visual.root.transform.position = visual.smoothedPosition +
-                Vector3.up * (0.10f + Mathf.Sin(Time.time * 6f + player.camp) * 0.025f);
 
             bool water = IsWaterEdge(player.routeEdgeId);
             if (visual.carriage != null) visual.carriage.SetActive(!water);
@@ -746,15 +887,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         LycheeReplayPlayerState nextPlayer,
         float interpolation,
         out Vector3 position,
-        out Vector3 tangent)
+        out Vector3 tangent,
+        out bool resolved)
     {
         tangent = Vector3.zero;
+        resolved = true;
         if (!string.IsNullOrEmpty(player.routeEdgeId) &&
             edges.TryGetValue(player.routeEdgeId, out MapRouteEdge edge))
         {
-            float progress = player.moveProgress;
+            float progress = PlayerEdgeProgress(player);
             if (nextPlayer != null && nextPlayer.routeEdgeId == player.routeEdgeId)
-                progress = Mathf.Lerp(player.moveProgress, nextPlayer.moveProgress, interpolation);
+                progress = Mathf.Lerp(progress, PlayerEdgeProgress(nextPlayer), interpolation);
             bool reverse = player.currentNodeId == edge.toStationId;
             float evaluatedProgress = reverse ? 1f - progress : progress;
             float travelSign = reverse ? -1f : 1f;
@@ -777,15 +920,41 @@ public class LycheeReplayPlayer : MonoBehaviour
             return;
         }
 
-        Vector2 grid = new Vector2(player.position.x, player.position.y);
+        // 回放数据未提供 grid 坐标时 player.position 恒为 (0,0)（JSON 用 progress/节点字段，无 position 键）。
+        // 落到这里说明既无路径边、也无可解析站点：GridToWorld(0,0) 会把车队丢到地图角落(-40,30)，
+        // 下一帧拿到有效节点又被 SmoothDamp 拉回起点——正是“开局一队马车一下子闪出去又弹回起点”的根因。
+        // 仅当确有非零 grid 坐标时才算解析成功；否则标记未解析，由调用方保持上一帧位置、绝不瞬移到角落。
+        Vector2 playerGrid = PlayerGridPosition(player);
+        Vector2 nextGrid = PlayerGridPosition(nextPlayer);
+        resolved =
+            playerGrid.sqrMagnitude > 0.0001f ||
+            (nextPlayer != null && nextGrid.sqrMagnitude > 0.0001f);
+        Vector2 grid = playerGrid;
         if (nextPlayer != null)
-            grid = Vector2.Lerp(grid, new Vector2(nextPlayer.position.x, nextPlayer.position.y), interpolation);
+            grid = Vector2.Lerp(grid, nextGrid, interpolation);
         position = GridToWorld(grid.x, grid.y);
         if (nextPlayer != null)
         {
-            Vector3 nextPosition = GridToWorld(nextPlayer.position.x, nextPlayer.position.y);
+            Vector3 nextPosition = GridToWorld(nextGrid.x, nextGrid.y);
             tangent = nextPosition - position;
         }
+    }
+
+    static float PlayerEdgeProgress(LycheeReplayPlayerState state)
+    {
+        if (state == null) return 0f;
+        if (state.edgeTotalMs > 0 && state.edgeProgressMs >= 0)
+            return Mathf.Clamp01(state.edgeProgressMs / (float)state.edgeTotalMs);
+        if (state.edgeProgressPermille > 0) return Mathf.Clamp01(state.edgeProgressPermille / 1000f);
+        if (state.moveProgress > 0f || state.position != null) return Mathf.Clamp01(state.moveProgress);
+        return Mathf.Clamp01(state.progress);
+    }
+
+    static Vector2 PlayerGridPosition(LycheeReplayPlayerState state)
+    {
+        return state == null || state.position == null
+            ? Vector2.zero
+            : new Vector2(state.position.x, state.position.y);
     }
 
     void ApplyObstacles(LycheeReplayFrame frame)
@@ -794,8 +963,129 @@ public class LycheeReplayPlayer : MonoBehaviour
         foreach (LycheeReplayNodeState node in frame.nodes)
         {
             if (obstacles.TryGetValue(node.nodeId, out GameObject obstacle))
+            {
+                bool wasActive = obstacleWasActive.TryGetValue(node.nodeId, out bool previous) && previous;
                 obstacle.SetActive(node.hasObstacle);
+                if (node.hasObstacle)
+                {
+                    string obstacleType = string.IsNullOrEmpty(node.obstacleType) ? "OBSTACLE" : node.obstacleType;
+                    ConfigureObstacleVisual(node, obstacle, obstacleType);
+                    if (!wasActive && frameIndex > 0)
+                        SpawnObstacleAppearFx(node.nodeId, obstacleType);
+                    activeObstacleTypes[node.nodeId] = obstacleType;
+                }
+                else
+                {
+                    activeObstacleTypes.Remove(node.nodeId);
+                    HideObstacleExtras(node.nodeId);
+                }
+                obstacleWasActive[node.nodeId] = node.hasObstacle;
+            }
         }
+    }
+
+    void ConfigureObstacleVisual(LycheeReplayNodeState node, GameObject obstacle, string obstacleType)
+    {
+        if (node == null || obstacle == null) return;
+        if (stations.TryGetValue(node.nodeId, out MapStationAnchor station) && station != null)
+        {
+            obstacle.transform.position = ObstacleWorldPosition(station);
+            obstacle.transform.rotation = ObstacleWorldRotation(station, obstacleType);
+        }
+        if (obstacleLabels.TryGetValue(node.nodeId, out TextMesh label) && label != null)
+            label.text = ObstacleName(obstacleType) + "\n" + DisplayNode(node.nodeId);
+
+        bool rockfall = obstacleType == "ROCKFALL";
+        bool brokenBridge = obstacleType == "BROKEN_BRIDGE";
+        bool dockBlock = obstacleType == "DOCK_BLOCK";
+        if (obstacleGenericModels.TryGetValue(node.nodeId, out GameObject genericModel) && genericModel != null)
+            genericModel.SetActive(!rockfall && !brokenBridge && !dockBlock);
+        GameObject rockPile = EnsureRockfallPile(node.nodeId, obstacle.transform);
+        if (rockPile != null)
+            rockPile.SetActive(rockfall);
+        GameObject bridge = EnsureBrokenBridge(node.nodeId, obstacle.transform);
+        if (bridge != null)
+            bridge.SetActive(brokenBridge);
+        GameObject dock = EnsureDockBlock(node.nodeId, obstacle.transform);
+        if (dock != null)
+            dock.SetActive(dockBlock);
+    }
+
+    void HideObstacleExtras(string nodeId)
+    {
+        if (obstacleRockPiles.TryGetValue(nodeId, out GameObject rockPile) && rockPile != null)
+            rockPile.SetActive(false);
+        if (obstacleBrokenBridges.TryGetValue(nodeId, out GameObject bridge) && bridge != null)
+            bridge.SetActive(false);
+        if (obstacleDockBlocks.TryGetValue(nodeId, out GameObject dock) && dock != null)
+            dock.SetActive(false);
+        if (obstacleGenericModels.TryGetValue(nodeId, out GameObject genericModel) && genericModel != null)
+            genericModel.SetActive(false);
+    }
+
+    Vector3 ObstacleWorldPosition(MapStationAnchor station)
+    {
+        if (station == null) return transform.position;
+        Transform anchor = station.obstacleAnchor != null ? station.obstacleAnchor : station.eventAnchor;
+        if (anchor != null)
+            return anchor.position + Vector3.up * 0.05f;
+
+        Vector3 position = station.transform.position;
+        if (elevation != null)
+            position.y = elevation.SampleWorldHeight(position.x, position.z) + 0.12f;
+        else
+            position += Vector3.up * 0.1f;
+        return position;
+    }
+
+    Quaternion ObstacleWorldRotation(MapStationAnchor station, string obstacleType)
+    {
+        if (station == null) return Quaternion.identity;
+        if (station.obstacleAnchor != null)
+            return Quaternion.Euler(0f, station.obstacleAnchor.eulerAngles.y, 0f);
+
+        bool preferWater = obstacleType == "DOCK_BLOCK";
+        if (TryGetConnectedRouteDirection(station.stationId, station.transform.position, preferWater, out Vector3 direction))
+            return Quaternion.LookRotation(direction, Vector3.up);
+        return Quaternion.Euler(0f, StableHash(station.stationId) % 360, 0f);
+    }
+
+    bool TryGetConnectedRouteDirection(string stationId, Vector3 stationPosition, bool preferWater, out Vector3 direction)
+    {
+        direction = Vector3.zero;
+        int bestScore = int.MinValue;
+        foreach (MapRouteEdge edge in edges.Values)
+        {
+            if (edge == null) continue;
+            bool from = edge.fromStationId == stationId;
+            bool to = edge.toStationId == stationId;
+            if (!from && !to) continue;
+
+            Vector3 candidate = Vector3.zero;
+            if (edge.pathPoints != null && edge.pathPoints.Length > 1)
+            {
+                if (from)
+                    candidate = edge.pathPoints[1].position - edge.pathPoints[0].position;
+                else
+                    candidate = edge.pathPoints[edge.pathPoints.Length - 2].position - edge.pathPoints[edge.pathPoints.Length - 1].position;
+            }
+            else
+            {
+                string otherId = from ? edge.toStationId : edge.fromStationId;
+                if (stations.TryGetValue(otherId, out MapStationAnchor other) && other != null)
+                    candidate = other.transform.position - stationPosition;
+            }
+
+            candidate.y = 0f;
+            if (candidate.sqrMagnitude <= 0.0001f) continue;
+            bool water = edge.routeType == MapRouteType.Water;
+            int score = water == preferWater ? 10 : 0;
+            if (!water && !preferWater) score += 4;
+            if (score <= bestScore) continue;
+            bestScore = score;
+            direction = candidate.normalized;
+        }
+        return direction.sqrMagnitude > 0.0001f;
     }
 
     void HandleEvent(LycheeReplayMessage message, int round)
@@ -841,19 +1131,29 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
-            // 不再把镜头甩到小队目标（会丢掉两支车队）；小队演出靠 HUD 提示 + 建筑透视即可，镜头保持框住两队
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
-                runtimeHud.ShowDispatch(teamName + "派出小分队 x" + SquadMemberCount(payload) + "  " + CleanNode(payload.fromNodeId) + " → " + CleanNode(payload.targetNodeId));
+                string fromNode = string.IsNullOrEmpty(payload.fromNodeId) ? "本队" : CleanNode(payload.fromNodeId);
+                runtimeHud.ShowDispatch(teamName + "派出小分队 x" + SquadMemberCount(payload) + "  " + fromNode + " → " + CleanNode(payload.targetNodeId));
             }
             ShowKeyEventIllustration(message, payload, round);
-            SpawnSquad(payload, round);
+            ShowObstacleCauseCue(payload.targetNodeId);
+            SquadVisual dispatched = SpawnSquad(payload, round);
+            if (dispatched != null && dispatched.root != null)
+            {
+                SetEventFocus(dispatched.root.transform, SquadFocusSeconds(dispatched, round), 14f);
+                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发", TeamColor(payload.playerId));
+            }
+            else if (!string.IsNullOrEmpty(payload.targetNodeId) &&
+                stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
+                SpawnEventPulse(squadTarget.transform.position, "小队出发", TeamColor(payload.playerId));
             return;
         }
 
         if (message.type.StartsWith("SQUAD_", StringComparison.Ordinal))
         {
+            BackfillSquadPayloadPlayer(payload);
             if (runtimeHud != null)
             {
                 string detail = ShortEventName(message.type);
@@ -861,7 +1161,14 @@ public class LycheeReplayPlayer : MonoBehaviour
                     detail += "  防御 " + payload.defenseBefore + " → " + payload.defenseAfter;
                 runtimeHud.ShowDispatch(detail + "  " + CleanNode(payload.targetNodeId));
             }
+            if (message.type == "SQUAD_CLEAR" || message.type == "SQUAD_CLEAR_SUCCESS")
+                ResolveSquadResult(payload, round, true);
+            else if (message.type == "SQUAD_FAILED")
+                ResolveSquadResult(payload, round, false);
         }
+
+        if (message.type == "OBSTACLE_CLEAR")
+            ShowObstacleClearResult(payload);
 
         ShowKeyEventIllustration(message, payload, round);
 
@@ -880,11 +1187,18 @@ public class LycheeReplayPlayer : MonoBehaviour
             // 普通事件给 30 米只轻微居中——平时保持远景看全局，是演出节奏的硬要求。
             bool combatEvent = message.type.Contains("GUARD") ||
                 message.type.Contains("WINDOW") ||
-                message.type.Contains("FORCED");
-            // 只有对抗类事件才拉近抢镜头；普通事件不动镜头，保持框住两支车队（用户要求时刻能看见两队）
+                message.type.Contains("FORCED") ||
+                message.type == "SQUAD_CLEAR" ||
+                message.type == "SQUAD_CLEAR_SUCCESS" ||
+                message.type == "SQUAD_FAILED" ||
+                message.type == "OBSTACLE_CLEAR" ||
+                message.type == "DELIVER_SUCCESS" ||
+                message.type == "RUSH_START" ||
+                message.type == "RUSH_PHASE_START";
+            // 只有突发/结果类事件才拉近抢镜头；资源领取、站点处理只给图卡和地图特效，不打断常态远景。
             if (combatEvent)
-                SetEventFocus(station.transform.position, 4.5f, 15f);
-            SpawnEventPulse(station.transform.position, ShortEventName(message.type), EventColor(message.type));
+                SetEventFocus(station.transform.position, 3.8f, 15f);
+            SpawnEventPulse(station.transform.position, WorldEventLabel(message.type, payload), EventColor(message.type));
         }
     }
 
@@ -904,8 +1218,12 @@ public class LycheeReplayPlayer : MonoBehaviour
             type == "GUARD_DECAY" ||
             type.StartsWith("COST_", StringComparison.Ordinal))
             return;
+        if (type == "PROCESS_PROGRESS" && !ShouldShowProcessProgressCard(payload, round))
+            return;
 
         payload = payload ?? new LycheeReplayPayload();
+        if (type.StartsWith("SQUAD_", StringComparison.Ordinal))
+            BackfillSquadPayloadPlayer(payload);
         string title = null;
         string subtitle = "";
         string left = "";
@@ -916,8 +1234,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         float seconds = 2.6f;
         string target = DisplayNode(!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
         string team = TeamName(payload.playerId);
+        bool priorityCard = IsPriorityEventCard(type);
 
-        if (type == "TASK_SPAWN")
+        if (type == "TASK_SPAWN" || type == "TASK_REFRESH")
         {
             title = "皇榜任务刷新";
             subtitle = target + "  " + ScoreText(payload.score);
@@ -961,6 +1280,16 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = "处理中";
             right = DurationText(payload.processRound);
         }
+        else if (type == "PROCESS_PROGRESS")
+        {
+            title = "站点行动";
+            subtitle = team + " 在 " + target + " 执行 " + ActionName(payload.processType);
+            left = "剩余";
+            right = payload.remainingRound >= 0 ? payload.remainingRound + "回合" : "即将完成";
+            center = ActionName(payload.processType);
+            imageIndex = 1;
+            seconds = 1.8f;
+        }
         else if (type == "PROCESS_COMPLETE")
         {
             title = "站点处理完成";
@@ -971,26 +1300,50 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         else if (type == "SQUAD_DISPATCH")
         {
-            title = "小分队出发";
+            title = team + "小分队出发";
             subtitle = team + " 派出 " + SquadMemberCount(payload) + " 人前往 " + target;
-            left = TacticName(payload.tactic);
-            right = "预计 R" + (payload.arriveRound > round ? payload.arriveRound : round + 12);
+            left = TacticName(PayloadTactic(payload));
+            right = "预计 R" + PayloadArrivalRound(payload, round);
+            center = "出发";
             imageIndex = 1;
+            seconds = 3.0f;
         }
         else if (type == "SQUAD_ARRIVE")
         {
-            title = "小分队抵达";
+            title = team + "小分队抵达";
             subtitle = team + " 抵达 " + target;
             left = TacticName(payload.tactic);
             right = "准备生效";
+            center = "抵达";
             imageIndex = 1;
+        }
+        else if (type == "OBSTACLE_CLEAR" || type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS")
+        {
+            title = team + "清障成功";
+            subtitle = team + " 清除 " + target + " 障碍";
+            left = target;
+            right = "路线恢复";
+            center = "成功";
+            imageIndex = 2;
+            seconds = 3.2f;
+        }
+        else if (type == "SQUAD_FAILED")
+        {
+            title = team + "小分队失败";
+            subtitle = team + " 未能完成 " + target + " 的" + TacticName(PayloadTactic(payload));
+            left = TacticName(PayloadTactic(payload));
+            right = "未达成";
+            center = "失败";
+            imageIndex = 0;
+            seconds = 3.2f;
         }
         else if (type.StartsWith("SQUAD_", StringComparison.Ordinal))
         {
-            title = "小分队战术生效";
+            title = team + "小分队战术生效";
             subtitle = ShortEventName(type) + "  " + target;
             left = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? "防御 " + payload.defenseBefore : team;
             right = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? "→ " + payload.defenseAfter : "行动完成";
+            center = "完成";
             imageIndex = 2;
         }
         else if (type == "GUARD_SET")
@@ -1041,7 +1394,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = "道路重新开放";
             imageIndex = 2;
         }
-        else if (type == "ACTION_REJECTED")
+        else if (type == "ACTION_REJECTED" || type == "INVALID_ACTION")
         {
             title = "行动被拒绝";
             subtitle = ActionName(payload.action);
@@ -1049,7 +1402,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = string.IsNullOrEmpty(payload.message) ? "无效试探" : ShortDetail(payload.message, 16);
             imageIndex = 0;
         }
-        else if (type == "RUSH_PHASE_START")
+        else if (type == "RUSH_PHASE_START" || type == "RUSH_START")
         {
             title = "宫宴冲刺开启";
             subtitle = "终局阶段开始，车队向长安冲刺";
@@ -1102,35 +1455,85 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
 
         if (!string.IsNullOrEmpty(title))
-            runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
+        {
+            if (priorityCard)
+                runtimeHud.ShowPriorityEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
+            else
+                runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
+        }
+    }
+
+    static bool IsPriorityEventCard(string type)
+    {
+        return type == "SQUAD_DISPATCH" ||
+            type == "SQUAD_CLEAR" ||
+            type == "SQUAD_CLEAR_SUCCESS" ||
+            type == "SQUAD_FAILED" ||
+            type == "OBSTACLE_CLEAR";
+    }
+
+    bool ShouldShowProcessProgressCard(LycheeReplayPayload payload, int round)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        string key = payload.playerId + "|" + nodeId + "|" + payload.processType;
+        if (processCardRoundByKey.TryGetValue(key, out int lastRound) && round - lastRound < 6)
+        {
+            if (payload.remainingRound <= 1 && round > lastRound)
+            {
+                processCardRoundByKey[key] = round;
+                return true;
+            }
+            return false;
+        }
+        processCardRoundByKey[key] = round;
+        return true;
     }
 
     void SetEventFocus(Vector3 position, float seconds = 2.8f, float focusDistance = -1f)
     {
+        eventFocusTarget = null;
         eventFocusPosition = position;
         eventFocusUntil = Time.unscaledTime + seconds;
         // 按事件类型区分聚焦距离：对抗类传 15 拉近看战斗，普通事件传 30 只轻微居中、保住远景；-1 由相机自行决定
         eventFocusDistance = focusDistance;
     }
 
-    void SpawnSquad(LycheeReplayPayload payload, int round)
+    void SetEventFocus(Transform target, float seconds = 2.8f, float focusDistance = -1f)
+    {
+        if (target == null) return;
+        eventFocusTarget = target;
+        eventFocusPosition = target.position;
+        eventFocusUntil = Time.unscaledTime + seconds;
+        eventFocusDistance = focusDistance;
+    }
+
+    SquadVisual SpawnSquad(LycheeReplayPayload payload, int round)
     {
         // 目标站必须有（否则无处攻坚）；注意 Dictionary.TryGetValue 传 null key 会抛 ArgumentNullException，
         // 务必先判空——新版回放小队派发只给 targetNodeId，fromNodeId 缺省会导致初始化崩溃卡死。
         if (string.IsNullOrEmpty(payload.targetNodeId) ||
-            !stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return;
-        // 出发点：有 fromNodeId 就用该站，否则回退到派发方车队当前位置（小队从本队出发去攻坚）
+            !stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return null;
+        // 出发点：有 fromNodeId 用站点；缺省时从该玩家当前车队位置出发，真实表现“派出一支小队”。
+        // 早版用目标附近 staging 避免突兀，现在改为跟拍小队出征，所以从车队走向目标更符合玩法语义。
         Vector3 startPos;
+        Vector3 endPos = target.transform.position + Vector3.up * 0.15f;
         if (!string.IsNullOrEmpty(payload.fromNodeId) &&
             stations.TryGetValue(payload.fromNodeId, out MapStationAnchor from))
             startPos = from.transform.position + Vector3.up * 0.15f;
         else
         {
             Transform convoy = GetConvoyRoot(payload.playerId);
-            startPos = (convoy != null ? convoy.position : target.transform.position) + Vector3.up * 0.15f;
+            startPos = convoy == null ? LocalSquadStagingPosition(target.transform.position, payload, round) : convoy.position + Vector3.up * 0.15f;
         }
-        GameObject root = new GameObject("Squad_" + payload.tactic + "_" + round);
+        ApplySquadLaneOffset(ref startPos, ref endPos, payload);
+        GameObject root = new GameObject("Squad_" + PayloadTactic(payload) + "_" + round);
         root.transform.SetParent(eventRoot, false);
+        root.transform.position = startPos;
+        Vector3 initialDirection = endPos - startPos;
+        initialDirection.y = 0f;
+        if (initialDirection.sqrMagnitude > 0.001f)
+            root.transform.rotation = Quaternion.LookRotation(initialDirection.normalized, Vector3.up);
         // 水面状态要在 NotifySquadSpawned 之前挂上，骨骼系统建组时会缓存它的引用
         LycheeSquadWaterState waterState = root.AddComponent<LycheeSquadWaterState>();
         int count = SquadMemberCount(payload);
@@ -1138,11 +1541,11 @@ public class LycheeReplayPlayer : MonoBehaviour
         int columns = Mathf.Clamp(Mathf.CeilToInt(Mathf.Sqrt(count)), 2, 5);
         for (int i = 0; i < count; i++)
         {
-            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 1.0f);
+            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 1.15f);
             if (member != null)
             {
-                float x = (i % columns - (columns - 1) * 0.5f) * 0.68f;
-                float z = (i / columns - 0.5f) * 0.68f;
+                float x = (i % columns - (columns - 1) * 0.5f) * 0.58f;
+                float z = (i / columns - 0.5f) * 0.58f;
                 member.transform.localPosition = new Vector3(x, 0f, z);
                 TintModel(member, tint, 0.18f);
             }
@@ -1150,18 +1553,50 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 成员全部创建完后通知骨骼动画系统接管（Member_* 是事件期临时对象，LycheeCharacterMotion
         // 的车队扫描覆盖不到，需要显式推送；对方实现为安全空操作兜底，没有骨骼也不会报错）
         LycheeCharacterMotion.NotifySquadSpawned(root);
-        CreateLabel(root.transform, "小分队 x" + count + "\n" + TacticName(payload.tactic), new Color(1f, 0.82f, 0.22f));
-        squads.Add(new SquadVisual
+        TextMesh label = CreateLabel(root.transform, TeamName(payload.playerId) + "小分队 x" + count + "\n" + TacticName(PayloadTactic(payload)) + " → " + DisplayNode(payload.targetNodeId), new Color(1f, 0.82f, 0.22f));
+        SquadVisual visual = new SquadVisual
         {
             root = root,
             start = startPos,
-            end = target.transform.position + Vector3.up * 0.15f,
+            end = endPos,
             startRound = round,
-            endRound = payload.arriveRound > round ? payload.arriveRound : round + 12,
+            endRound = PayloadArrivalRound(payload, round),
+            playerId = payload.playerId,
             memberCount = count,
+            orderId = payload.orderId,
             targetNodeId = payload.targetNodeId,
-            waterState = waterState
-        });
+            tactic = PayloadTactic(payload),
+            waterState = waterState,
+            label = label
+        };
+        squads.Add(visual);
+        return visual;
+    }
+
+    static void ApplySquadLaneOffset(ref Vector3 startPos, ref Vector3 endPos, LycheeReplayPayload payload)
+    {
+        Vector3 direction = endPos - startPos;
+        direction.y = 0f;
+        if (direction.sqrMagnitude < 0.001f) return;
+        Vector3 side = Vector3.Cross(Vector3.up, direction.normalized);
+        float sign = payload != null && payload.playerId >= 2000 ? 1f : -1f;
+        startPos += side * sign * 0.55f;
+        endPos += side * sign * 0.35f;
+    }
+
+    float SquadFocusSeconds(SquadVisual squad, int round)
+    {
+        if (squad == null) return 3.0f;
+        int rounds = Mathf.Max(1, squad.endRound - round);
+        return Mathf.Clamp(rounds * Mathf.Max(0.12f, secondsPerRound), 2.8f, 7.0f);
+    }
+
+    static Vector3 LocalSquadStagingPosition(Vector3 targetPosition, LycheeReplayPayload payload, int round)
+    {
+        int playerSeed = payload == null ? 0 : payload.playerId;
+        float angle = Mathf.Repeat(playerSeed * 0.017f + round * 1.37f, Mathf.PI * 2f);
+        Vector3 radial = new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+        return targetPosition + radial * 3.2f + Vector3.up * 0.15f;
     }
 
     void UpdateSquads(float interpolation)
@@ -1179,7 +1614,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             {
                 float duration = Mathf.Max(1f, squad.endRound - squad.startRound);
                 float t = Mathf.Clamp01((replayRound - squad.startRound) / duration);
-                Vector3 position = Vector3.Lerp(squad.start, squad.end, t);
+                float eased = Mathf.SmoothStep(0f, 1f, t);
+                Vector3 position = Vector3.Lerp(squad.start, squad.end, eased);
                 // 跨河段：人物坐船贴水面滑行，不走陆路的抛物线跃迁，否则像泡在河里行军
                 bool onWater = TrySampleWaterSurface(position.x, position.z, out float waterY);
                 if (onWater)
@@ -1190,7 +1626,10 @@ public class LycheeReplayPlayer : MonoBehaviour
                 }
                 else
                 {
-                    position.y += Mathf.Sin(t * Mathf.PI) * 1.35f;
+                    if (elevation != null)
+                        position.y = elevation.SampleWorldHeight(position.x, position.z) + 0.15f;
+                    else
+                        position.y = Mathf.Lerp(squad.start.y, squad.end.y, eased);
                     if (squad.boat != null && squad.boat.activeSelf) squad.boat.SetActive(false);
                 }
                 if (squad.waterState != null) squad.waterState.onWater = onWater;
@@ -1204,15 +1643,16 @@ public class LycheeReplayPlayer : MonoBehaviour
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
-                    // 不再把镜头甩到攻坚点（会丢两队）；保留建筑透视，攻坚动作在两队远景里也能瞥见
+                    SpawnClearActionFx(squad.end, TeamColor(squad.playerId), "清障中", true);
+                    SetEventFocus(squad.root.transform, 2.8f, 13.5f);
                     if (!string.IsNullOrEmpty(squad.targetNodeId))
                         LycheeContestBuildingXray.RequestXray(squad.targetNodeId, 3.0f);
                 }
             }
             else
             {
-                AnimateSquadMembers(squad, true, false);
-                if (Time.time - squad.arrivedRealTime > 2.4f)
+                AnimateSquadMembers(squad, true, false, squad.resultResolved && !squad.resultSuccess);
+                if (Time.time - squad.arrivedRealTime > squad.holdSeconds)
                 {
                     Destroy(squad.root);
                     squads.RemoveAt(i);
@@ -1222,7 +1662,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     }
 
     /// <summary>程序化小队动作：行军时交替起伏+前倾步伐，攻击时朝目标方向突刺，船上时站立随波。仅改 Y 坐标/旋转/缩放，不破坏阵型。</summary>
-    static void AnimateSquadMembers(SquadVisual squad, bool attacking, bool onWater)
+    static void AnimateSquadMembers(SquadVisual squad, bool attacking, bool onWater, bool failed = false)
     {
         Transform root = squad.root.transform;
         for (int m = 0; m < root.childCount; m++)
@@ -1230,7 +1670,15 @@ public class LycheeReplayPlayer : MonoBehaviour
             Transform member = root.GetChild(m);
             if (!member.name.StartsWith("Member_", StringComparison.Ordinal)) continue;
             float phase = Time.time * (attacking ? 8f : 10f) + m * 1.7f;
-            if (attacking)
+            if (failed)
+            {
+                Vector3 memberPosition = member.localPosition;
+                memberPosition.y = Mathf.Sin(phase * 0.35f) * 0.018f;
+                member.localPosition = memberPosition;
+                member.localRotation = Quaternion.Euler(18f + Mathf.Sin(phase * 0.4f) * 3f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase * 0.3f) * 5f);
+                member.localScale = new Vector3(1f, 0.9f, 1f);
+            }
+            else if (attacking)
             {
                 float lunge = Mathf.Max(0f, Mathf.Sin(phase));
                 member.localRotation = Quaternion.Euler(lunge * 24f, Mathf.Sin(m * 7.3f) * 8f, 0f);
@@ -1246,6 +1694,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 memberPosition.y = 0.24f + Mathf.Sin(phase * 0.32f) * 0.015f;
                 member.localPosition = memberPosition;
                 member.localRotation = Quaternion.Euler(0f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase * 0.28f) * 2.5f);
+                member.localScale = Vector3.one;
             }
             else
             {
@@ -1253,8 +1702,488 @@ public class LycheeReplayPlayer : MonoBehaviour
                 memberPosition.y = Mathf.Abs(Mathf.Sin(phase)) * 0.12f;
                 member.localPosition = memberPosition;
                 member.localRotation = Quaternion.Euler(6f, Mathf.Sin(m * 7.3f) * 8f, Mathf.Sin(phase) * 4f);
+                member.localScale = Vector3.one;
             }
         }
+    }
+
+    void ResolveSquadResult(LycheeReplayPayload payload, int round, bool success)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        SquadVisual squad = FindMatchingSquad(payload);
+        if (payload.playerId == 0 && squad != null)
+            payload.playerId = squad.playerId;
+        Vector3 focusPosition = squad != null ? squad.end : transform.position;
+        if (squad == null &&
+            !string.IsNullOrEmpty(payload.targetNodeId) &&
+            stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target))
+            focusPosition = target.transform.position + Vector3.up * 0.15f;
+
+        Color color = success ? TeamColor(payload.playerId) : new Color(1f, 0.24f, 0.16f, 1f);
+        string label = success ? TeamName(payload.playerId) + "清障成功" : TeamName(payload.playerId) + "小队失败";
+        SpawnClearActionFx(focusPosition, color, label, success);
+
+        if (squad == null || squad.root == null)
+        {
+            SetEventFocus(focusPosition, 3.0f, 14f);
+            return;
+        }
+
+        squad.resultResolved = true;
+        squad.resultSuccess = success;
+        squad.holdSeconds = success ? 4.0f : 3.6f;
+        squad.endRound = Mathf.Min(squad.endRound, round);
+        squad.root.transform.position = focusPosition;
+        Vector3 direction = squad.end - squad.start;
+        direction.y = 0f;
+        if (direction.sqrMagnitude > 0.001f)
+            squad.root.transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        if (squad.arrivedRealTime < 0f)
+            squad.arrivedRealTime = Time.time;
+        if (squad.label != null)
+            squad.label.text = TeamName(squad.playerId) + "小分队\n" + (success ? "清障成功" : "行动失败");
+        if (!string.IsNullOrEmpty(squad.targetNodeId))
+            LycheeContestBuildingXray.RequestXray(squad.targetNodeId, 3.2f);
+        SetEventFocus(squad.root.transform, success ? 3.4f : 3.2f, 13.5f);
+    }
+
+    void ShowObstacleClearResult(LycheeReplayPayload payload)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        Vector3 focusPosition = transform.position;
+        if (!string.IsNullOrEmpty(payload.targetNodeId) &&
+            stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target))
+            focusPosition = target.transform.position + Vector3.up * 0.15f;
+        SpawnClearActionFx(focusPosition, TeamColor(payload.playerId), TeamName(payload.playerId) + "清障成功", true);
+        SetEventFocus(focusPosition, 3.0f, 14f);
+    }
+
+    SquadVisual FindMatchingSquad(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        if (!string.IsNullOrEmpty(payload.orderId))
+        {
+            for (int i = squads.Count - 1; i >= 0; i--)
+            {
+                SquadVisual candidate = squads[i];
+                if (candidate != null && candidate.root != null && candidate.orderId == payload.orderId)
+                    return candidate;
+            }
+        }
+        for (int i = squads.Count - 1; i >= 0; i--)
+        {
+            SquadVisual candidate = squads[i];
+            if (candidate == null || candidate.root == null) continue;
+            if (payload.playerId != 0 && candidate.playerId != payload.playerId) continue;
+            if (!string.IsNullOrEmpty(payload.targetNodeId) && candidate.targetNodeId != payload.targetNodeId) continue;
+            return candidate;
+        }
+        if (!string.IsNullOrEmpty(payload.targetNodeId))
+        {
+            for (int i = squads.Count - 1; i >= 0; i--)
+            {
+                SquadVisual candidate = squads[i];
+                if (candidate != null && candidate.root != null && candidate.targetNodeId == payload.targetNodeId)
+                    return candidate;
+            }
+        }
+        return null;
+    }
+
+    void BackfillSquadPayloadPlayer(LycheeReplayPayload payload)
+    {
+        if (payload == null || payload.playerId != 0) return;
+        SquadVisual squad = FindMatchingSquad(payload);
+        if (squad != null)
+            payload.playerId = squad.playerId;
+    }
+
+    GameObject EnsureRockfallPile(string nodeId, Transform parent)
+    {
+        if (string.IsNullOrEmpty(nodeId) || parent == null) return null;
+        if (obstacleRockPiles.TryGetValue(nodeId, out GameObject existing) && existing != null)
+            return existing;
+
+        GameObject pile = new GameObject("RockfallPile");
+        pile.transform.SetParent(parent, false);
+        pile.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+        int seed = StableHash(nodeId);
+        int count = 9;
+        for (int i = 0; i < count; i++)
+        {
+            GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            rock.name = "FallenRock_" + i;
+            rock.transform.SetParent(pile.transform, false);
+            float angle = (seed * 0.017f + i * 2.399f) % (Mathf.PI * 2f);
+            float radius = 0.18f + 0.12f * (i % 4);
+            rock.transform.localPosition = new Vector3(Mathf.Cos(angle) * radius, 0.08f + i * 0.018f, Mathf.Sin(angle) * radius);
+            float scale = 0.28f + 0.07f * ((seed + i * 3) % 5);
+            rock.transform.localScale = new Vector3(scale * 1.25f, scale * 0.72f, scale);
+            rock.transform.localRotation = Quaternion.Euler((seed + i * 31) % 47, (seed + i * 73) % 360, (seed + i * 19) % 42);
+            Renderer renderer = rock.GetComponent<Renderer>();
+            if (renderer != null) renderer.sharedMaterial = RockMaterial();
+            Collider collider = rock.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+        }
+        pile.SetActive(false);
+        obstacleRockPiles[nodeId] = pile;
+        return pile;
+    }
+
+    GameObject EnsureBrokenBridge(string nodeId, Transform parent)
+    {
+        if (string.IsNullOrEmpty(nodeId) || parent == null) return null;
+        if (obstacleBrokenBridges.TryGetValue(nodeId, out GameObject existing) && existing != null)
+            return existing;
+
+        GameObject bridge = new GameObject("BrokenBridgeBlock");
+        bridge.transform.SetParent(parent, false);
+        bridge.transform.localPosition = new Vector3(0f, 0.04f, 0f);
+        int seed = StableHash(nodeId);
+
+        for (int i = 0; i < 5; i++)
+        {
+            float x = -0.52f + i * 0.26f;
+            float tilt = ((seed + i * 17) % 17) - 8f;
+            CreateObstaclePiece(
+                bridge.transform,
+                "BridgePlank_Near_" + i,
+                PrimitiveType.Cube,
+                new Vector3(x, 0.10f + i * 0.004f, -0.46f),
+                new Vector3(0.17f, 0.08f, 0.72f),
+                Quaternion.Euler(9f + tilt * 0.25f, 0f, -16f + tilt),
+                WoodMaterial());
+            CreateObstaclePiece(
+                bridge.transform,
+                "BridgePlank_Far_" + i,
+                PrimitiveType.Cube,
+                new Vector3(x + Mathf.Sin(seed + i) * 0.035f, 0.11f, 0.48f),
+                new Vector3(0.17f, 0.08f, 0.68f),
+                Quaternion.Euler(-11f + tilt * 0.2f, 0f, 14f - tilt),
+                WoodMaterial());
+        }
+
+        CreateObstaclePiece(bridge.transform, "BridgeBeam_BrokenA", PrimitiveType.Cube, new Vector3(0f, 0.16f, -1.00f), new Vector3(1.75f, 0.12f, 0.14f), Quaternion.Euler(0f, 0f, -7f), WoodMaterial());
+        CreateObstaclePiece(bridge.transform, "BridgeBeam_BrokenB", PrimitiveType.Cube, new Vector3(0.08f, 0.18f, 1.02f), new Vector3(1.55f, 0.12f, 0.14f), Quaternion.Euler(0f, 0f, 9f), WoodMaterial());
+        CreateObstaclePiece(bridge.transform, "WarningBar_A", PrimitiveType.Cube, new Vector3(0f, 0.54f, 0f), new Vector3(1.55f, 0.10f, 0.11f), Quaternion.Euler(0f, 0f, 24f), WarningMaterial());
+        CreateObstaclePiece(bridge.transform, "WarningBar_B", PrimitiveType.Cube, new Vector3(0f, 0.54f, 0f), new Vector3(1.55f, 0.10f, 0.11f), Quaternion.Euler(0f, 0f, -24f), WarningMaterial());
+        CreateObstaclePiece(bridge.transform, "WarningPost_L", PrimitiveType.Cylinder, new Vector3(-0.82f, 0.31f, 0f), new Vector3(0.05f, 0.32f, 0.05f), Quaternion.identity, WoodMaterial());
+        CreateObstaclePiece(bridge.transform, "WarningPost_R", PrimitiveType.Cylinder, new Vector3(0.82f, 0.31f, 0f), new Vector3(0.05f, 0.32f, 0.05f), Quaternion.identity, WoodMaterial());
+
+        bridge.SetActive(false);
+        obstacleBrokenBridges[nodeId] = bridge;
+        return bridge;
+    }
+
+    GameObject EnsureDockBlock(string nodeId, Transform parent)
+    {
+        if (string.IsNullOrEmpty(nodeId) || parent == null) return null;
+        if (obstacleDockBlocks.TryGetValue(nodeId, out GameObject existing) && existing != null)
+            return existing;
+
+        GameObject block = new GameObject("DockCargoBlock");
+        block.transform.SetParent(parent, false);
+        block.transform.localPosition = new Vector3(0f, 0.04f, 0f);
+        int seed = StableHash(nodeId);
+
+        Vector3[] cratePositions =
+        {
+            new Vector3(-0.52f, 0.23f, -0.18f),
+            new Vector3(0.02f, 0.23f, -0.22f),
+            new Vector3(0.56f, 0.23f, -0.10f),
+            new Vector3(-0.25f, 0.60f, 0.12f),
+            new Vector3(0.34f, 0.58f, 0.18f)
+        };
+        for (int i = 0; i < cratePositions.Length; i++)
+        {
+            CreateObstaclePiece(
+                block.transform,
+                "DockCrate_" + i,
+                PrimitiveType.Cube,
+                cratePositions[i],
+                new Vector3(0.46f, 0.42f, 0.42f),
+                Quaternion.Euler(0f, (seed + i * 31) % 24 - 12f, 0f),
+                CargoMaterial());
+        }
+
+        CreateObstaclePiece(block.transform, "DockBarrel_A", PrimitiveType.Cylinder, new Vector3(-0.78f, 0.26f, 0.42f), new Vector3(0.20f, 0.34f, 0.20f), Quaternion.Euler(90f, 0f, 10f), CargoMaterial());
+        CreateObstaclePiece(block.transform, "DockBarrel_B", PrimitiveType.Cylinder, new Vector3(0.76f, 0.26f, 0.38f), new Vector3(0.20f, 0.34f, 0.20f), Quaternion.Euler(90f, 0f, -12f), CargoMaterial());
+        CreateObstaclePiece(block.transform, "CargoSack_A", PrimitiveType.Sphere, new Vector3(-0.10f, 0.20f, 0.58f), new Vector3(0.44f, 0.22f, 0.34f), Quaternion.Euler(0f, 18f, 0f), RopeMaterial());
+        CreateObstaclePiece(block.transform, "CargoSack_B", PrimitiveType.Sphere, new Vector3(0.38f, 0.20f, 0.62f), new Vector3(0.38f, 0.20f, 0.30f), Quaternion.Euler(0f, -10f, 0f), RopeMaterial());
+
+        CreateObstaclePiece(block.transform, "RopeBarrier_Front", PrimitiveType.Cylinder, new Vector3(0f, 0.58f, -0.62f), new Vector3(0.035f, 0.92f, 0.035f), Quaternion.Euler(0f, 0f, 90f), RopeMaterial());
+        CreateObstaclePiece(block.transform, "RopeBarrier_Back", PrimitiveType.Cylinder, new Vector3(0f, 0.58f, 0.72f), new Vector3(0.035f, 0.86f, 0.035f), Quaternion.Euler(0f, 0f, 90f), RopeMaterial());
+        CreateObstaclePiece(block.transform, "DockPost_L", PrimitiveType.Cylinder, new Vector3(-0.95f, 0.37f, 0.02f), new Vector3(0.06f, 0.42f, 0.06f), Quaternion.identity, WoodMaterial());
+        CreateObstaclePiece(block.transform, "DockPost_R", PrimitiveType.Cylinder, new Vector3(0.95f, 0.37f, 0.02f), new Vector3(0.06f, 0.42f, 0.06f), Quaternion.identity, WoodMaterial());
+
+        block.SetActive(false);
+        obstacleDockBlocks[nodeId] = block;
+        return block;
+    }
+
+    GameObject CreateObstaclePiece(Transform parent, string name, PrimitiveType type, Vector3 localPosition, Vector3 localScale, Quaternion localRotation, Material material)
+    {
+        GameObject piece = GameObject.CreatePrimitive(type);
+        piece.name = name;
+        piece.transform.SetParent(parent, false);
+        piece.transform.localPosition = localPosition;
+        piece.transform.localScale = localScale;
+        piece.transform.localRotation = localRotation;
+        Renderer renderer = piece.GetComponent<Renderer>();
+        if (renderer != null && material != null)
+            renderer.sharedMaterial = material;
+        Collider collider = piece.GetComponent<Collider>();
+        if (collider != null) Destroy(collider);
+        return piece;
+    }
+
+    void ShowObstacleCauseCue(string nodeId)
+    {
+        string obstacleType = CurrentObstacleType(nodeId);
+        if (string.IsNullOrEmpty(obstacleType)) return;
+        if (obstacleCueCooldown.TryGetValue(nodeId, out float nextAllowed) && Time.unscaledTime < nextAllowed)
+            return;
+        obstacleCueCooldown[nodeId] = Time.unscaledTime + 2.8f;
+        SpawnObstacleAppearFx(nodeId, obstacleType);
+    }
+
+    string CurrentObstacleType(string nodeId)
+    {
+        if (string.IsNullOrEmpty(nodeId)) return null;
+        if (activeObstacleTypes.TryGetValue(nodeId, out string activeType) && !string.IsNullOrEmpty(activeType))
+            return activeType;
+        LycheeReplayFrame frame = frames.Count == 0 ? lastAppliedFrame : frames[Mathf.Clamp(frameIndex, 0, frames.Count - 1)];
+        if (frame != null && frame.nodes != null)
+        {
+            for (int i = 0; i < frame.nodes.Length; i++)
+            {
+                LycheeReplayNodeState node = frame.nodes[i];
+                if (node != null && node.nodeId == nodeId && node.hasObstacle)
+                    return string.IsNullOrEmpty(node.obstacleType) ? "OBSTACLE" : node.obstacleType;
+            }
+        }
+        return null;
+    }
+
+    void SpawnObstacleAppearFx(string nodeId, string obstacleType)
+    {
+        if (string.IsNullOrEmpty(nodeId) || !stations.TryGetValue(nodeId, out MapStationAnchor station))
+            return;
+        Vector3 position = ObstacleWorldPosition(station) + Vector3.up * 0.12f;
+        if (obstacles.TryGetValue(nodeId, out GameObject obstacle) && obstacle != null && obstacle.activeInHierarchy)
+            StartCoroutine(JoltObstacleVisual(obstacle.transform));
+        if (obstacleType == "BROKEN_BRIDGE")
+        {
+            SpawnBrokenBridgeFx(position, nodeId);
+            return;
+        }
+        if (obstacleType == "DOCK_BLOCK")
+        {
+            SpawnDockBlockFx(position, nodeId);
+            return;
+        }
+        if (obstacleType != "ROCKFALL")
+        {
+            SpawnEventPulse(position, ObstacleName(obstacleType), new Color(1f, 0.68f, 0.24f, 1f));
+            return;
+        }
+
+        GameObject root = new GameObject("RockfallFx_" + nodeId);
+        root.transform.SetParent(eventRoot, false);
+        root.transform.position = position;
+
+        ParticleSystem falling = root.AddComponent<ParticleSystem>();
+        falling.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        ParticleSystemRenderer renderer = falling.GetComponent<ParticleSystemRenderer>();
+        Material material = EventPulseMaterial();
+        if (renderer != null && material != null) renderer.material = material;
+
+        ParticleSystem.MainModule main = falling.main;
+        main.duration = 1.1f;
+        main.startLifetime = 1.15f;
+        main.startSpeed = 2.4f;
+        main.startSize = 0.22f;
+        main.startColor = new Color(0.56f, 0.50f, 0.42f, 0.95f);
+        main.gravityModifier = 1.65f;
+        main.maxParticles = 48;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        ParticleSystem.EmissionModule emission = falling.emission;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 38) });
+        ParticleSystem.ShapeModule shape = falling.shape;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = 0.75f;
+        shape.position = new Vector3(0f, 2.7f, 0f);
+        falling.Play();
+
+        TextMesh label = CreateLabel(root.transform, "落石阻路\n需要清障", new Color(1f, 0.76f, 0.28f, 1f));
+        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
+        SpawnEventPulse(position, "落石阻路", new Color(1f, 0.63f, 0.20f, 1f));
+        eventEffects.Add(root);
+        Destroy(root, 2.6f);
+    }
+
+    void SpawnBrokenBridgeFx(Vector3 position, string nodeId)
+    {
+        GameObject root = new GameObject("BrokenBridgeFx_" + nodeId);
+        root.transform.SetParent(eventRoot, false);
+        root.transform.position = position + Vector3.up * 0.25f;
+
+        SpawnObstacleParticles(root.transform, new Color(0.55f, 0.34f, 0.16f, 0.92f), 34, 1.9f, 0.13f, 1.1f);
+        int seed = StableHash(nodeId);
+        for (int i = 0; i < 7; i++)
+        {
+            float angle = seed * 0.011f + i * 0.9f;
+            Vector3 local = new Vector3(Mathf.Cos(angle) * 0.18f, 0.42f + i * 0.025f, Mathf.Sin(angle) * 0.18f);
+            Vector3 velocity = new Vector3(Mathf.Cos(angle) * 1.0f, 1.25f + i * 0.06f, Mathf.Sin(angle) * 0.9f);
+            SpawnFlyingObstaclePiece(
+                root.transform,
+                "FlyingSplinter_" + i,
+                PrimitiveType.Cube,
+                local,
+                new Vector3(0.08f, 0.035f, 0.42f),
+                Quaternion.Euler((seed + i * 17) % 60, (seed + i * 43) % 360, (seed + i * 29) % 50),
+                WoodMaterial(),
+                velocity,
+                new Vector3(2.8f + i, 3.6f - i * 0.25f, 4.2f));
+        }
+
+        TextMesh label = CreateLabel(root.transform, "断桥阻路\n需要修复", new Color(1f, 0.76f, 0.28f, 1f));
+        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
+        SpawnEventPulse(position, "断桥阻路", new Color(1f, 0.62f, 0.18f, 1f));
+        eventEffects.Add(root);
+        Destroy(root, 2.6f);
+    }
+
+    void SpawnDockBlockFx(Vector3 position, string nodeId)
+    {
+        GameObject root = new GameObject("DockBlockFx_" + nodeId);
+        root.transform.SetParent(eventRoot, false);
+        root.transform.position = position + Vector3.up * 0.2f;
+
+        SpawnObstacleParticles(root.transform, new Color(0.76f, 0.56f, 0.30f, 0.86f), 28, 1.25f, 0.16f, 0.55f);
+        int seed = StableHash(nodeId);
+        for (int i = 0; i < 5; i++)
+        {
+            float angle = seed * 0.013f + i * 1.22f;
+            PrimitiveType type = i % 2 == 0 ? PrimitiveType.Cube : PrimitiveType.Sphere;
+            Vector3 scale = type == PrimitiveType.Cube
+                ? new Vector3(0.18f, 0.16f, 0.18f)
+                : new Vector3(0.20f, 0.11f, 0.16f);
+            Vector3 local = new Vector3(Mathf.Cos(angle) * 0.22f, 0.34f + i * 0.03f, Mathf.Sin(angle) * 0.18f);
+            Vector3 velocity = new Vector3(Mathf.Cos(angle) * 0.7f, 0.78f + i * 0.04f, Mathf.Sin(angle) * 0.7f);
+            SpawnFlyingObstaclePiece(
+                root.transform,
+                "CargoBump_" + i,
+                type,
+                local,
+                scale,
+                Quaternion.Euler(0f, (seed + i * 37) % 360, 0f),
+                type == PrimitiveType.Cube ? CargoMaterial() : RopeMaterial(),
+                velocity,
+                new Vector3(1.8f + i * 0.25f, 2.2f, 2.6f - i * 0.2f));
+        }
+
+        TextMesh label = CreateLabel(root.transform, "码头堵塞\n需要疏通", new Color(1f, 0.78f, 0.32f, 1f));
+        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
+        SpawnEventPulse(position, "码头堵塞", new Color(1f, 0.70f, 0.24f, 1f));
+        eventEffects.Add(root);
+        Destroy(root, 2.6f);
+    }
+
+    void SpawnObstacleParticles(Transform parent, Color color, short count, float speed, float size, float gravity)
+    {
+        ParticleSystem particles = parent.gameObject.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        ParticleSystemRenderer renderer = particles.GetComponent<ParticleSystemRenderer>();
+        Material material = EventPulseMaterial();
+        if (renderer != null && material != null) renderer.material = material;
+
+        ParticleSystem.MainModule main = particles.main;
+        main.duration = 0.9f;
+        main.startLifetime = 0.9f;
+        main.startSpeed = speed;
+        main.startSize = size;
+        main.startColor = color;
+        main.gravityModifier = gravity;
+        main.maxParticles = Mathf.Max(32, count + 8);
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, count) });
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = 0.55f;
+        particles.Play();
+    }
+
+    GameObject SpawnFlyingObstaclePiece(Transform parent, string name, PrimitiveType type, Vector3 localPosition, Vector3 localScale, Quaternion localRotation, Material material, Vector3 velocity, Vector3 angularVelocity)
+    {
+        GameObject piece = CreateObstaclePiece(parent, name, type, localPosition, localScale, localRotation, material);
+        Rigidbody body = piece.AddComponent<Rigidbody>();
+        body.mass = 0.15f;
+        body.useGravity = true;
+        body.linearVelocity = velocity;
+        body.angularVelocity = angularVelocity;
+        return piece;
+    }
+
+    IEnumerator JoltObstacleVisual(Transform target)
+    {
+        if (target == null) yield break;
+        Vector3 baseScale = target.localScale;
+        Quaternion baseRotation = target.localRotation;
+        float seconds = 0.55f;
+        float elapsed = 0f;
+        while (elapsed < seconds && target != null)
+        {
+            float k = 1f - elapsed / seconds;
+            float shake = Mathf.Sin(elapsed * 38f) * k;
+            target.localScale = baseScale * (1f + 0.055f * Mathf.Abs(shake));
+            target.localRotation = baseRotation * Quaternion.Euler(0f, shake * 2.4f, 0f);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        if (target != null)
+        {
+            target.localScale = baseScale;
+            target.localRotation = baseRotation;
+        }
+    }
+
+    void SpawnClearActionFx(Vector3 position, Color color, string text, bool success)
+    {
+        GameObject root = new GameObject("ClearFx_" + text);
+        root.transform.SetParent(eventRoot, false);
+        root.transform.position = position + Vector3.up * 0.35f;
+
+        ParticleSystem particles = root.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        ParticleSystemRenderer renderer = particles.GetComponent<ParticleSystemRenderer>();
+        Material material = EventPulseMaterial();
+        if (renderer != null && material != null) renderer.material = material;
+
+        ParticleSystem.MainModule main = particles.main;
+        main.duration = success ? 1.05f : 0.85f;
+        main.startLifetime = success ? 0.8f : 0.65f;
+        main.startSpeed = success ? 2.8f : 1.7f;
+        main.startSize = success ? 0.22f : 0.18f;
+        main.startColor = success ? new Color(color.r, color.g, color.b, 0.92f) : new Color(1f, 0.28f, 0.18f, 0.9f);
+        main.gravityModifier = success ? 0.28f : 0.08f;
+        main.maxParticles = 70;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)(success ? 52 : 34)) });
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = success ? 38f : 24f;
+        shape.radius = success ? 0.8f : 0.5f;
+        particles.Play();
+
+        TextMesh label = CreateLabel(root.transform, text, success ? new Color(1f, 0.86f, 0.28f, 1f) : new Color(1f, 0.32f, 0.22f, 1f));
+        label.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+        eventEffects.Add(root);
+        Destroy(root, success ? 2.8f : 2.4f);
     }
 
     /// <summary>给跨河小队垫船（懒创建）。船体微沉入水线，成员在甲板高度由 AnimateSquadMembers 抬升。</summary>
@@ -1343,6 +2272,48 @@ public class LycheeReplayPlayer : MonoBehaviour
         return eventPulseMaterial;
     }
 
+    Material RockMaterial()
+    {
+        if (rockMaterial != null) return rockMaterial;
+        return rockMaterial = CreateLitMaterial("LycheeRockfallStoneMat", new Color(0.34f, 0.30f, 0.25f, 1f), 0.18f);
+    }
+
+    Material WoodMaterial()
+    {
+        if (woodMaterial != null) return woodMaterial;
+        return woodMaterial = CreateLitMaterial("LycheeObstacleWoodMat", new Color(0.44f, 0.24f, 0.10f, 1f), 0.22f);
+    }
+
+    Material WarningMaterial()
+    {
+        if (warningMaterial != null) return warningMaterial;
+        return warningMaterial = CreateLitMaterial("LycheeObstacleWarningMat", new Color(0.95f, 0.55f, 0.08f, 1f), 0.28f);
+    }
+
+    Material CargoMaterial()
+    {
+        if (cargoMaterial != null) return cargoMaterial;
+        return cargoMaterial = CreateLitMaterial("LycheeObstacleCargoMat", new Color(0.62f, 0.42f, 0.20f, 1f), 0.24f);
+    }
+
+    Material RopeMaterial()
+    {
+        if (ropeMaterial != null) return ropeMaterial;
+        return ropeMaterial = CreateLitMaterial("LycheeObstacleRopeMat", new Color(0.50f, 0.39f, 0.22f, 1f), 0.35f);
+    }
+
+    Material CreateLitMaterial(string name, Color color, float smoothness)
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) shader = Shader.Find("Standard");
+        if (shader == null) return null;
+        Material material = new Material(shader) { name = name };
+        if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+        else if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+        if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
+        return material;
+    }
+
     void SpawnEventPulse(Vector3 position, string text, Color color)
     {
         GameObject root = new GameObject("Event_" + text);
@@ -1390,7 +2361,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (runtimeHud != null) runtimeHud.CancelCombatPopups();
         // 对抗聚焦缓存同理：跳过 CONTEST_END 的跳转会让 CARD_REVEAL 续期到旧对抗节点
         hasContestFocus = false;
+        eventFocusTarget = null;
         eventFocusUntil = 0f;
+        processCardRoundByKey.Clear();
         ApplyFrame(frameIndex, true);
         InterpolateConvoys(0f);
         UpdateRuntimeHud();
@@ -1419,6 +2392,22 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (count <= 0) count = payload.squadCount;
         if (count <= 0) count = defaultDispatchMemberCount;
         return Mathf.Clamp(count, 1, 24);
+    }
+
+    static int PayloadArrivalRound(LycheeReplayPayload payload, int currentRound)
+    {
+        if (payload == null) return currentRound + 12;
+        if (payload.arriveRound > currentRound) return payload.arriveRound;
+        if (payload.completeRound > currentRound) return payload.completeRound;
+        return currentRound + 12;
+    }
+
+    static string PayloadTactic(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        if (!string.IsNullOrEmpty(payload.tactic)) return payload.tactic;
+        if (!string.IsNullOrEmpty(payload.action)) return payload.action;
+        return payload.processType;
     }
 
     string TeamName(int playerId)
@@ -1464,7 +2453,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (tactic == "WEAKEN") return "削弱";
         if (tactic == "REINFORCE") return "增援";
-        if (tactic == "CLEAR") return "清障";
+        if (tactic == "CLEAR" || tactic == "SQUAD_CLEAR" || tactic == "SQUAD_CLEAR_SUCCESS" || tactic == "CLEAR_OBSTACLE") return "清障";
         if (tactic == "SCOUT") return "侦察";
         return string.IsNullOrEmpty(tactic) ? "行动" : tactic;
     }
@@ -1526,9 +2515,13 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (value == "BOARD") return "登船";
         if (value == "WATER_TRANSFER") return "水路换运";
         if (value == "BREAK_GUARD") return "破关";
+        if (value == "CLEAR_OBSTACLE" || value == "SQUAD_CLEAR" || value == "SQUAD_CLEAR_SUCCESS" || value == "CLEAR") return "清障";
         if (value == "CLAIM_RESOURCE") return "领取资源";
         if (value == "VERIFY_GATE") return "宫门验核";
         if (value == "BREAK_ORDER") return "破令验核";
+        if (value == "PASS_NODE") return "限时过关";
+        if (value == "STATION_PROCESS") return "驿站催运";
+        if (value == "RUSH_VERIFY_GATE") return "宫门验核";
         return string.IsNullOrEmpty(value) ? "行动" : value.Replace("_", " ");
     }
 
@@ -1536,6 +2529,28 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (value == "KEY_BOUNTY") return "关隘悬赏";
         return string.IsNullOrEmpty(value) ? "悬赏" : value.Replace("_", " ");
+    }
+
+    static string ObstacleName(string value)
+    {
+        if (value == "ROCKFALL") return "落石阻路";
+        if (value == "BROKEN_BRIDGE") return "断桥阻路";
+        if (value == "DOCK_BLOCK") return "码头堵塞";
+        return string.IsNullOrEmpty(value) ? "道路障碍" : value.Replace("_", " ");
+    }
+
+    static int StableHash(string value)
+    {
+        unchecked
+        {
+            int hash = 23;
+            if (!string.IsNullOrEmpty(value))
+            {
+                for (int i = 0; i < value.Length; i++)
+                    hash = hash * 31 + value[i];
+            }
+            return Mathf.Abs(hash);
+        }
     }
 
     static bool IsMajorEvent(string type)
@@ -1611,6 +2626,22 @@ public class LycheeReplayPlayer : MonoBehaviour
     static string ShortEventName(string eventType)
     {
         return eventType.Replace("_", " ");
+    }
+
+    string WorldEventLabel(string eventType, LycheeReplayPayload payload)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        if (eventType == "RESOURCE_CLAIM") return "获得" + ResourceName(payload.resourceType);
+        if (eventType == "RESOURCE_USE") return "使用" + ResourceName(payload.resourceType);
+        if (eventType == "PROCESS_PROGRESS") return ActionName(payload.processType);
+        if (eventType == "PROCESS_COMPLETE") return "完成" + ActionName(payload.processType);
+        if (eventType == "SQUAD_CLEAR" || eventType == "SQUAD_CLEAR_SUCCESS" || eventType == "OBSTACLE_CLEAR") return TeamName(payload.playerId) + "清障成功";
+        if (eventType == "SQUAD_FAILED") return TeamName(payload.playerId) + "小队失败";
+        if (eventType == "TASK_COMPLETE") return "任务完成";
+        if (eventType == "TASK_REFRESH" || eventType == "TASK_SPAWN") return "任务刷新";
+        if (eventType == "DELIVER_SUCCESS") return "交付成功";
+        if (eventType == "VERIFY_GATE_COMPLETE") return "验核通过";
+        return ShortEventName(eventType);
     }
 
     static Color EventColor(string eventType)

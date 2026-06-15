@@ -31,6 +31,10 @@ public class LycheeReplayPlayerState
     public string routeEdgeId;
     public LycheeReplayPosition position;
     public float moveProgress;
+    public float progress;
+    public int edgeProgressPermille;
+    public int edgeProgressMs;
+    public int edgeTotalMs;
     public float freshness;
     public int goodFruit;
     public int badFruit;
@@ -73,6 +77,9 @@ public class LycheeReplayNodeState
     public int effectiveCombatCount;
     public bool hasObstacle;
     public bool canWindow;
+    public int processRound;
+    public string processType;
+    public string obstacleType;
 }
 
 [Serializable]
@@ -119,15 +126,23 @@ public class LycheeReplayWeatherState
 public class LycheeReplayTaskState
 {
     public string templateId;
+    public string taskTemplateId;
     public string name;
+    public string nodeId;
     public string targetNodeId;
     public int score;
     public int processRound;
+    public string processType;
     public string taskId;
     public int expireRound;
+    public int refreshRound;
     public string status;
     public string completedBy;
     public int completeRound;
+    public int ownerPlayerId;
+    public bool active;
+    public bool completed;
+    public bool failed;
 }
 
 [Serializable]
@@ -245,6 +260,11 @@ public class LycheeReplayPayload
     public string reward;
     public string trigger;
     public string rushTactic;
+    public string processType;
+    public string orderId;
+    public string taskTemplateId;
+    public string toNodeId;
+    public string routeEdgeId;
     public int arriveRound;
     public int totalRounds;
     public int roundIndex;
@@ -259,12 +279,21 @@ public class LycheeReplayPayload
     public float freshness;
     public int timeTax;
     public int processRound;
+    public int remainingRound;
     public int durationRound;
     public int startRound;
+    public int expireRound;
     public int completeRound;
     public int verifiedEffectiveRound;
     public int count;
     public int memberCount;
     public int squadCount;
     public int score;
+    public int edgeProgressPermille;
+    public int edgeProgressMs;
+    public int edgeTotalMs;
+    public float progress;
+    public float before;
+    public float after;
+    public float loss;
 }

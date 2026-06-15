@@ -204,6 +204,7 @@ public class LycheeCinematicDirector : MonoBehaviour
             // 场景里序列化的控制器组件是禁用状态（m_Enabled:0，历史遗留），必须显式启用，
             // 否则透视/跟拍/拉近全部不生效。
             cameraController.enabled = true;
+            ApplyCameraDefaults(cameraController);
             if (mainCamera.GetComponent<AudioListener>() == null)
                 mainCamera.gameObject.AddComponent<AudioListener>();
             if (!cameraConfigured)
@@ -237,6 +238,23 @@ public class LycheeCinematicDirector : MonoBehaviour
         {
             Debug.LogWarning("LycheeCinematicDirector 相机配置失败：" + exception.Message, this);
         }
+    }
+
+    static void ApplyCameraDefaults(LycheeReplayCameraController controller)
+    {
+        controller.perspectiveMode = true;
+        controller.perspectiveFieldOfView = 42f;
+        controller.perspectivePitch = 45f;
+        controller.perspectiveDistanceSpanScale = 1.35f;
+        controller.perspectiveDistancePadding = 16f;
+        controller.perspectiveMinDistance = 21f;
+        controller.perspectiveMaxDistance = 108f;
+        controller.perspectiveEventDistance = 15f;
+        controller.perspectiveZoomMultiplier = 1f;
+        controller.focusFollowEnabled = false;
+        controller.constrainFocusToPlayableBounds = true;
+        controller.playableMin = new Vector2(-34f, -21f);
+        controller.playableMax = new Vector2(34f, 18f);
     }
 
     // ---------- 回放事件 ----------

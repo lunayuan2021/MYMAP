@@ -286,6 +286,12 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
 
     List<RegionSpot> CollectRegionSpots(string type, string region)
     {
+        // 全图暴雨：region=ALL 的 HEAVY_RAIN 必须铺满整张地图。直接按地图包围盒生成一个大发射器，
+        // 不走「天气锚点/站点 → 合并包围盒」那条路径——一旦场景里存在局部天气锚点，那条路径会把雨幕
+        // 收缩到一隅，正是“全图暴雨没覆盖全图”的根因。
+        if (type == "HEAVY_RAIN" && region == "ALL")
+            return new List<RegionSpot> { BuildFullMapSpot() };
+
         List<RegionSpot> spots = new List<RegionSpot>();
 
         MapEnvironmentAnchor[] anchors = FindObjectsByType<MapEnvironmentAnchor>(FindObjectsSortMode.None);
@@ -324,6 +330,22 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         if ((region == "ALL" && spots.Count > 1) || spots.Count > MaxEmitterSpots)
             spots = MergeIntoBoundingSpot(spots);
         return spots;
+    }
+
+    /// <summary>整张地图的雨幕覆盖点：中心取世界原点（GridToWorld 让地图以原点为中心：X∈[-40,40], Z∈[-30,30]），
+    /// 半径按高程数据的网格尺寸推导并留余量，保证四角也落在雨盒内。无高程数据时按默认 80x60 兜底。</summary>
+    RegionSpot BuildFullMapSpot()
+    {
+        MapElevationData elevation = FindFirstObjectByType<MapElevationData>();
+        float halfX = 40f, halfZ = 30f;
+        if (elevation != null)
+        {
+            halfX = elevation.gridWidth * elevation.cellSize * 0.5f;
+            halfZ = elevation.gridHeight * elevation.cellSize * 0.5f;
+        }
+        // SpawnRain 用 side = radius*2 作雨盒边长（钳到 110），radius 取最大半边长加余量即可铺满全图。
+        float radius = Mathf.Max(halfX, halfZ) + 8f;
+        return new RegionSpot { position = Vector3.zero, radius = radius };
     }
 
     void AddStationFallback(List<RegionSpot> spots, string region)

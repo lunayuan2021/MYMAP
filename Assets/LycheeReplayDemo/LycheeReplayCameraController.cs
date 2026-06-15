@@ -20,12 +20,17 @@ public class LycheeReplayCameraController : MonoBehaviour
     // 默认取景刻意拉远拉低：平时呈现 3D 地图远景全貌，战斗/事件时才拉近聚焦。
     public float perspectiveFieldOfView = 42f;
     public float perspectivePitch = 41f;
-    public float perspectiveDistanceSpanScale = 1.25f;
-    public float perspectiveDistancePadding = 12f;
-    public float perspectiveMinDistance = 17f;
-    public float perspectiveMaxDistance = 115f; // 两队兵分两路时也要能拉远装下双方（地图约 80x60，跨度可达 70m+）
+    public float perspectiveDistanceSpanScale = 1.35f;
+    public float perspectiveDistancePadding = 16f;
+    public float perspectiveMinDistance = 21f;
+    public float perspectiveMaxDistance = 108f; // 两队兵分两路时也要能拉远装下双方（地图约 80x60，跨度可达 70m+）
     public float perspectiveEventDistance = 15f;
     public float rotationSmoothTime = 0.4f;
+
+    [Header("Playable Bounds Guard")]
+    public bool constrainFocusToPlayableBounds = true;
+    public Vector2 playableMin = new Vector2(-34f, -21f);
+    public Vector2 playableMax = new Vector2(34f, 18f);
 
     [Min(0.5f)] public float perspectiveZoomMultiplier = 1f; // 画面整体放大倍率：镜头拉近实现，HUD 不受影响；默认 1 即不额外拉近，保留字段供调参
 
@@ -213,6 +218,10 @@ public class LycheeReplayCameraController : MonoBehaviour
             return false;
 
         focus = center;
+        bool eventFocusActive = replay.TryGetEventFocus(out Vector3 eventPosition, out float eventFocusDistance);
+        if (constrainFocusToPlayableBounds && !eventFocusActive)
+            focus = ClampFocusToPlayableBounds(focus);
+
         if (focusFollowEnabled && span > focusSpanThreshold)
         {
             // 两队相距过远时框住双方会拉到最远，角色动画/血条全看不清；
@@ -234,7 +243,7 @@ public class LycheeReplayCameraController : MonoBehaviour
             span * perspectiveDistanceSpanScale + perspectiveDistancePadding,
             perspectiveMinDistance,
             perspectiveMaxDistance);
-        if (replay.TryGetEventFocus(out Vector3 eventPosition, out float eventFocusDistance))
+        if (eventFocusActive)
         {
             focus = eventPosition;
             // 事件可携带自定义聚焦距离（按事件类型区分拉近程度）；<=0 表示未指定，回退默认值。
@@ -243,6 +252,13 @@ public class LycheeReplayCameraController : MonoBehaviour
         // 画面放大 = 镜头拉近，代替 Game 视图 Scale 裁切（后者会把 HUD 裁出画面）；倍率 1 时为恒等运算。
         distance = Mathf.Max(10f, distance / Mathf.Max(0.5f, perspectiveZoomMultiplier));
         return true;
+    }
+
+    Vector3 ClampFocusToPlayableBounds(Vector3 focus)
+    {
+        focus.x = Mathf.Clamp(focus.x, playableMin.x, playableMax.x);
+        focus.z = Mathf.Clamp(focus.z, playableMin.y, playableMax.y);
+        return focus;
     }
 
     bool TryGetDesiredFraming(out Vector3 desiredPosition, out float desiredSize)
