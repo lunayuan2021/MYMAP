@@ -63,7 +63,7 @@ public static class LycheeMapLayoutGenerator_20260613
     const float RoadOverlayWidth = 0.34f, WaterOverlayWidth = 0.36f, MountainOverlayWidth = 0.32f, BranchOverlayWidth = 0.30f;
     const float OverlayLift = 0.045f;    // 彩带高于路面，避免被压进路面/地表
     const float RoadTuckUnder = 0.35f;   // 路头在建筑足迹内降到驿站地面下这么多 → 建筑盖住路头（不留缺口/不盖楼）
-    const float RoadUnderRiver = 0.12f;  // 路与河重叠处把路面降到河床（CarvedY）之下这么多 → 河床/水面盖住路（道路在最底层）
+    const float RoadUnderRiver = 0.22f;  // 路与河重叠处把路面降到河床（CarvedY）之下这么多 → 河床/水面盖住路（道路在最底层）
     const float AnchorLift = 0.018f;     // 锚点贴地抬升，与原生成器一致
     const float CoordEps = 0.001f;       // 网格坐标相等判定阈值
     // 水路质量约束：
@@ -74,19 +74,13 @@ public static class LycheeMapLayoutGenerator_20260613
     const float CarveDepth = 1.55f;        // 河谷中心相对原地表的下挖深度
     const float CarveEndTaperFrac = 0.14f; // 沿河两端收口到 0（端点是驿站，不能挖坑）
     const float WaterDepthFrac = 0.45f;    // （旧平面水面用）水面坐落在平底之上
-    const float WaterDrapeWidth = 1.85f;   // 水面比河谷窄，露出两侧下挖岸坡
+    const float WaterDrapeWidth = 1.75f;   // 水面比河谷窄，露出两侧下挖岸坡
     const float WaterDrapeLift = 0.105f;   // 水面贴河床上方的薄水膜高度
-    const float RiverBedWidth = 2.55f;     // 沙床只覆盖中心河槽，不再铺满一大片黄土
+    const float RiverBedWidth = 4.70f;     // 沙石河滩覆盖中心河槽和大部分下挖坡面，避免露出暗绿草坡/几何贴片
     const int RiverBedCrossSegs = 10;      // 沙床横向细分段数（贴合 U 形河槽）
-    const float RiverBedTrimFrac = 0.1f;   // 沙床不铺到最末端（避开驿站），首尾各裁掉这么多比例
+    const float RiverBedTrimFrac = 0.16f;  // 沙床不铺到最末端（避开驿站/码头广场），首尾各裁掉这么多比例
+    const float RiverEndpointClearFrac = 0.16f; // 端点驿站/码头附近不让水面或道路下沉规则盖住道路广场
     const float WaterOverlayLift = 0.05f;  // 水面高光带高于水面
-    const float RiverBankSlopeInnerOffset = 1.05f;
-    const float RiverBankSlopeOuterOffset = 1.34f;
-    const float RiverBankSlopeLift = 0.045f;
-    const int RiverBankSlopeCrossSegs = 5;
-    const float RiverBankTrimOffset = 2.55f;
-    const float RiverBankTrimWidth = 0.45f;
-    const float RiverBankTrimLift = 0.055f;
     const float FormerRiverRestoreHalfWidth = 3.2f;    // 旧水路改陆路时，回填旧河沟的影响半宽
     const float FormerRiverRestoreSampleOffset = 3.6f; // 采两侧岸高的偏移，略大于挖河半宽
     const float FormerRiverRestoreSettle = 0.04f;      // 回填后略低于两侧岸面，保留一点自然起伏
@@ -265,11 +259,22 @@ public static class LycheeMapLayoutGenerator_20260613
 
             // 预算所有水路中心线：建路时让路在与河重叠处下沉到河床以下（道路最底 < 河床 < 水面/建筑在上）。
             sceneCtx.waterTuples = new List<(MapRouteEdge edge, Vector3[] world)>();
+            var waterRelayerTuples = new List<(MapRouteEdge edge, Vector3[] world)>();
             foreach (var we in config.edges)
             {
                 if (ParseRouteType(we.routeType) != MapRouteType.Water) continue;
                 if (!newRoutePath.TryGetValue(we.edgeId, out var wp) || wp.points == null || wp.points.Count < 2) continue;
-                sceneCtx.waterTuples.Add((null, BuildTerrainFollowingRoute(wp.points, WaterLift, sceneCtx)));
+                Vector3[] waterWorld = BuildTerrainFollowingRoute(wp.points, WaterLift, sceneCtx);
+                sceneCtx.waterTuples.Add((null, waterWorld));
+                bool baseSameWaterSamePath =
+                    baseEdgeInfo.TryGetValue(we.edgeId, out var bwe) &&
+                    ParseRouteType(bwe.routeType) == MapRouteType.Water &&
+                    baseRoutePath.TryGetValue(we.edgeId, out var bwp) && SamePath(bwp, wp);
+                bool sceneAlreadyHasWater =
+                    edgeById.TryGetValue(we.edgeId, out var sceneWaterEdge) &&
+                    sceneWaterEdge != null && sceneWaterEdge.routeType == MapRouteType.Water;
+                if (!baseSameWaterSamePath || !sceneAlreadyHasWater)
+                    waterRelayerTuples.Add((null, waterWorld));
             }
 
             // 5. 站点：仅坐标变化的才平移。
@@ -322,6 +327,34 @@ public static class LycheeMapLayoutGenerator_20260613
                         sceneEdge.bidirectional = edge.bidirectional;
                         sceneEdge.logicalDistance = edge.distance;
                         EditorUtility.SetDirty(sceneEdge);
+                    }
+
+                    Vector3[] relayerWorld = null;
+                    bool forceWaterRelayer = false;
+                    if (type != MapRouteType.Water && waterRelayerTuples.Count > 0)
+                    {
+                        relayerWorld = BuildTerrainFollowingRoute(path.points, LiftFor(type), sceneCtx);
+                        forceWaterRelayer = RouteOverlapsWaters(relayerWorld, waterRelayerTuples,
+                            CarveHalfWidth + RoadbedWidthFor(type) * 0.5f + 0.2f);
+                    }
+                    if (forceWaterRelayer)
+                    {
+                        sceneCtx.endRampOn = false;
+                        if (anchorById.TryGetValue(edge.fromNodeId, out var fromAnchorRelayer) && fromAnchorRelayer != null &&
+                            anchorById.TryGetValue(edge.toNodeId, out var toAnchorRelayer) && toAnchorRelayer != null)
+                        {
+                            var fp = fromAnchorRelayer.transform.position; var tp = toAnchorRelayer.transform.position;
+                            sceneCtx.endA = new Vector2(fp.x, fp.z); sceneCtx.endB = new Vector2(tp.x, tp.z);
+                            sceneCtx.endAY = fp.y - RoadTuckUnder; sceneCtx.endBY = tp.y - RoadTuckUnder;
+                            sceneCtx.endRampA = BuildingRadius(fromAnchorRelayer) + 0.2f;
+                            sceneCtx.endRampB = BuildingRadius(toAnchorRelayer) + 0.2f;
+                            sceneCtx.endRampOn = true;
+                        }
+                        RebuildEdgeInPlace(sceneEdge, edge, type, relayerWorld, relayerWorld, sceneCtx, report);
+                        changedEdges.Add((sceneEdge, relayerWorld, type));
+                        rebuilt++;
+                        report.Add($"[层级重画] {edge.edgeId}: 与新增/变化水路交汇，路面与路基压到河床下");
+                        continue;
                     }
                     unchanged++; continue;
                 }
@@ -620,9 +653,13 @@ public static class LycheeMapLayoutGenerator_20260613
                 break;
             case MapRouteType.Water:
                 // 水路质量约束：模板里的中心宽 RiverBank 是旧版黄土贴片，克隆到新河道会显得没有下挖。
-                // 新水路统一由 CarveRivers 生成：下挖地形 + 中心沙床 + 窄水面 + 两侧岸线。
+                // 新水路统一由 CarveRivers 生成：下挖地形 + 中心沙床 + 窄水面；不生成深色外侧 trim。
                 DestroyChild(edgeObject.transform, edgeId + "_RiverBank");
                 DestroyChild(edgeObject.transform, edgeId + "_ShallowWater");
+                DestroyChild(edgeObject.transform, edgeId + "_L_BankTrim");
+                DestroyChild(edgeObject.transform, edgeId + "_R_BankTrim");
+                DestroyChild(edgeObject.transform, edgeId + "_L_BankSlope");
+                DestroyChild(edgeObject.transform, edgeId + "_R_BankSlope");
                 ReplaceRibbon(edgeObject, edgeId + "_WaterHighlight", world, width * 0.24f, ctx, ctx.terrainSurface, lift + 0.012f);
                 break;
             case MapRouteType.Mountain:
@@ -927,11 +964,29 @@ public static class LycheeMapLayoutGenerator_20260613
         float nearD = float.MaxValue;
         foreach (var (_, w) in ctx.waterTuples)
         {
-            float d = NearestOnPolylineXZ(x, z, w, out _, out _);
+            float d = NearestOnPolylineXZ(x, z, w, out float along, out _);
+            if (along < RiverEndpointClearFrac || along > 1f - RiverEndpointClearFrac) continue;
             if (d < nearD) nearD = d;
         }
-        if (nearD > RiverBedWidth * 0.5f + 0.6f) return float.MaxValue; // 不在河床范围
+        if (nearD > CarveHalfWidth + 0.15f) return float.MaxValue; // 不在河谷范围
         return CarvedY(ctx, x, z, ctx.waterTuples) - RoadUnderRiver;
+    }
+
+    static bool RouteOverlapsWaters(Vector3[] route, List<(MapRouteEdge edge, Vector3[] world)> waters, float threshold)
+    {
+        if (route == null || route.Length < 2 || waters == null || waters.Count == 0) return false;
+        foreach (var (_, water) in waters)
+        {
+            if (water == null || water.Length < 2) continue;
+            foreach (Vector3 p in route)
+            {
+                float d = NearestOnPolylineXZ(p.x, p.z, water, out float along, out _);
+                if (along < RiverEndpointClearFrac || along > 1f - RiverEndpointClearFrac) continue;
+                if (d <= threshold)
+                    return true;
+            }
+        }
+        return false;
     }
 
     static Vector3 GridToWorld(float x, float y, float lift, SceneContext ctx)
@@ -1243,19 +1298,17 @@ public static class LycheeMapLayoutGenerator_20260613
 
         // 3. 每条水路：先铺河床沙石、再沉水面/高光/彩带/行船点。
         Material sandMat = FindSandMaterial(ctx);
-        Material bankTrimMat = FindRiverBankTrimMaterial(ctx);
-        Material bankSlopeMat = FindRiverBankSlopeMaterial(ctx);
         foreach (var (edge, world) in waters)
         {
             if (edge == null) continue;
-            // 沙床（水下沙底 + 水线薄沙岸，U 形贴河床）。
+            Vector3[] visualWater = TrimEnds(world, RiverEndpointClearFrac);
+            if (visualWater.Length < 2) visualWater = world;
+            // 沙石河床（水下沙底 + 两侧河滩，U 形贴河床）。
             BuildRiverBed(edge, world, ctx, waters, sandMat, report);
-            BuildRiverBankSlopes(edge, world, ctx, waters, bankSlopeMat, report);
-            BuildRiverBankTrims(edge, world, ctx, waters, bankTrimMat, report);
 
             // 水面：只铺中心低槽，让两侧下挖岸坡和窄岸线可见，避免低质量蓝色大贴片。
-            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_Route", world, WaterDrapeWidth, WaterDrapeLift, ctx, waters);
-            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_WaterHighlight", world, WaterDrapeWidth * 0.22f,
+            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_Route", visualWater, WaterDrapeWidth, WaterDrapeLift, ctx, waters);
+            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_WaterHighlight", visualWater, WaterDrapeWidth * 0.22f,
                 WaterDrapeLift + 0.045f, ctx, waters);
 
             // 彩带蓝线随水面铺。
@@ -1263,7 +1316,7 @@ public static class LycheeMapLayoutGenerator_20260613
             if (line != null && line.GetComponent<MeshFilter>() != null)
             {
                 var lf = line.GetComponent<MeshFilter>();
-                Mesh lm = CreateCarvedGrid(world, OverlayWidthFor(MapRouteType.Water), 4, line.name, line, ctx, waters, WaterDrapeLift + 0.05f);
+                Mesh lm = CreateCarvedGrid(visualWater, OverlayWidthFor(MapRouteType.Water), 4, line.name, line, ctx, waters, WaterDrapeLift + 0.05f);
                 lf.sharedMesh = SaveMesh(lm, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + line.name + ".asset");
                 EditorUtility.SetDirty(lf);
             }
@@ -1310,7 +1363,7 @@ public static class LycheeMapLayoutGenerator_20260613
         return r;
     }
 
-    /// <summary>沿挖好的河谷铺一张沙石网格（河床/沙岸），裁掉首尾避开端点驿站。子物体缺失则新建。</summary>
+    /// <summary>沿挖好的河谷铺一张宽沙石网格（河床/河滩），裁掉首尾避开端点驿站。子物体缺失则新建。</summary>
     static void BuildRiverBed(MapRouteEdge edge, Vector3[] world, SceneContext ctx,
         List<(MapRouteEdge edge, Vector3[] world)> waters, Material sandMat, List<string> report)
     {
@@ -1329,85 +1382,11 @@ public static class LycheeMapLayoutGenerator_20260613
         var mf = bed.GetComponent<MeshFilter>();
         var mr = bed.GetComponent<MeshRenderer>();
         if (sandMat != null && mr != null) mr.sharedMaterial = sandMat;
-        Mesh mesh = CreateCarvedGrid(mid, RiverBedWidth, RiverBedCrossSegs, name, bed, ctx, waters, 0.04f);
+        Mesh mesh = CreateRiverbedGrid(mid, RiverBedWidth, RiverBedCrossSegs, name, bed, ctx, waters, 0.04f);
         mf.sharedMesh = SaveMesh(mesh, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + name + ".asset");
         EditorUtility.SetDirty(mf);
         if (mr != null) EditorUtility.SetDirty(mr);
-        report.Add($"[河床] {edge.edgeId} 沙石网格 {mid.Length}x{RiverBedCrossSegs + 1} mat={(sandMat ? sandMat.name : "<无>")}");
-    }
-
-    static void BuildRiverBankSlopes(MapRouteEdge edge, Vector3[] world, SceneContext ctx,
-        List<(MapRouteEdge edge, Vector3[] world)> waters, Material bankMat, List<string> report)
-    {
-        Vector3[] mid = TrimEnds(world, RiverBedTrimFrac);
-        if (mid.Length < 2) return;
-
-        BuildRiverBankSlope(edge, mid, ctx, waters, bankMat, -1, "L");
-        BuildRiverBankSlope(edge, mid, ctx, waters, bankMat, 1, "R");
-        report.Add($"[河岸坡] {edge.edgeId} 两侧坡岸 inner={RiverBankSlopeInnerOffset:F2} outer={RiverBankSlopeOuterOffset:F2} mat={(bankMat ? bankMat.name : "<无>")}");
-    }
-
-    static void BuildRiverBankSlope(MapRouteEdge edge, Vector3[] center, SceneContext ctx,
-        List<(MapRouteEdge edge, Vector3[] world)> waters, Material bankMat, int sideSign, string sideName)
-    {
-        string name = edge.edgeId + "_" + sideName + "_BankSlope";
-        Transform slope = FindChild(edge.transform, name);
-        if (slope == null)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(edge.transform, false);
-            go.AddComponent<MeshFilter>();
-            go.AddComponent<MeshRenderer>();
-            slope = go.transform;
-        }
-
-        MeshFilter mf = slope.GetComponent<MeshFilter>();
-        MeshRenderer mr = slope.GetComponent<MeshRenderer>();
-        if (bankMat != null && mr != null) mr.sharedMaterial = bankMat;
-
-        float centerOffset = sideSign * (RiverBankSlopeInnerOffset + RiverBankSlopeOuterOffset) * 0.5f;
-        float width = RiverBankSlopeOuterOffset - RiverBankSlopeInnerOffset;
-        Mesh mesh = CreateOffsetCarvedRibbon(center, centerOffset, width, RiverBankSlopeCrossSegs,
-            name, slope, ctx, waters, RiverBankSlopeLift);
-        mf.sharedMesh = SaveMesh(mesh, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + name + ".asset");
-        EditorUtility.SetDirty(mf);
-        if (mr != null) EditorUtility.SetDirty(mr);
-    }
-
-    static void BuildRiverBankTrims(MapRouteEdge edge, Vector3[] world, SceneContext ctx,
-        List<(MapRouteEdge edge, Vector3[] world)> waters, Material bankMat, List<string> report)
-    {
-        Vector3[] mid = TrimEnds(world, RiverBedTrimFrac);
-        if (mid.Length < 2) return;
-
-        BuildRiverBankTrim(edge, mid, ctx, waters, bankMat, -1, "L");
-        BuildRiverBankTrim(edge, mid, ctx, waters, bankMat, 1, "R");
-        report.Add($"[河岸] {edge.edgeId} 两侧窄岸线 width={RiverBankTrimWidth:F2} offset={RiverBankTrimOffset:F2} mat={(bankMat ? bankMat.name : "<无>")}");
-    }
-
-    static void BuildRiverBankTrim(MapRouteEdge edge, Vector3[] center, SceneContext ctx,
-        List<(MapRouteEdge edge, Vector3[] world)> waters, Material bankMat, int sideSign, string sideName)
-    {
-        string name = edge.edgeId + "_" + sideName + "_BankTrim";
-        Transform trim = FindChild(edge.transform, name);
-        if (trim == null)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(edge.transform, false);
-            go.AddComponent<MeshFilter>();
-            go.AddComponent<MeshRenderer>();
-            trim = go.transform;
-        }
-
-        MeshFilter mf = trim.GetComponent<MeshFilter>();
-        MeshRenderer mr = trim.GetComponent<MeshRenderer>();
-        if (bankMat != null && mr != null) mr.sharedMaterial = bankMat;
-
-        Mesh mesh = CreateOffsetCarvedRibbon(center, RiverBankTrimOffset * sideSign, RiverBankTrimWidth,
-            2, name, trim, ctx, waters, RiverBankTrimLift);
-        mf.sharedMesh = SaveMesh(mesh, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + name + ".asset");
-        EditorUtility.SetDirty(mf);
-        if (mr != null) EditorUtility.SetDirty(mr);
+        report.Add($"[河床] {edge.edgeId} 沙石河滩 {mid.Length}x{RiverBedCrossSegs + 1} width={RiverBedWidth:F1} mat={(sandMat ? sandMat.name : "<无>")}");
     }
 
     static Vector3[] TrimEnds(Vector3[] pts, float frac)
@@ -1456,10 +1435,16 @@ public static class LycheeMapLayoutGenerator_20260613
     /// <summary>从现役地形渲染器里找河床沙石材质（含 RiverBed/Sand 名）；找不到回退按资产名搜。</summary>
     static Material FindSandMaterial(SceneContext ctx)
     {
+        Material generated = EnsureMapLayoutRiverbedMaterial();
+        if (generated != null) return generated;
+
         string[] preferred =
         {
-            "Assets/LycheeMap15/Materials/RiverBed_Mud.mat",
+            "Assets/LycheeMap15/Materials/M_Config_BranchRoute_Border.mat",
+            "Assets/LycheeMap15/Materials/M_Config_OfficialRoad_Border.mat",
+            "Assets/LycheeMap15/Materials/M_Config_MountainRoute_Border.mat",
             "Assets/LycheeMap15/Materials/M_RiverBed_SandGravel.mat",
+            "Assets/LycheeMap15/Materials/RiverBed_Mud.mat",
             "Assets/LycheeMap15/Materials/M_RiverBank_Refined.mat"
         };
         foreach (string p in preferred)
@@ -1478,46 +1463,31 @@ public static class LycheeMapLayoutGenerator_20260613
         return null;
     }
 
-    static Material FindRiverBankSlopeMaterial(SceneContext ctx)
+    static Material EnsureMapLayoutRiverbedMaterial()
     {
-        string[] preferred =
+        const string path = "Assets/LycheeMap15/Materials/M_MapLayout_Riverbed_Sandy.mat";
+        Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
         {
-            "Assets/LycheeMap15/Materials/RiverBed_Mud.mat",
-            "Assets/LycheeMap15/Materials/M_RiverBank_Refined.mat",
-            "Assets/LycheeMap15/Materials/M_Config_MountainRoute_Border.mat",
-            "Assets/LycheeMap15/Materials/M_RiverBed_SandGravel.mat"
-        };
-        foreach (string p in preferred)
-        {
-            Material mat = AssetDatabase.LoadAssetAtPath<Material>(p);
-            if (mat != null) return mat;
-        }
-        return FindRiverBankTrimMaterial(ctx);
-    }
-
-    static Material FindRiverBankTrimMaterial(SceneContext ctx)
-    {
-        string[] preferred =
-        {
-            "Assets/LycheeMap15/Materials/M_RiverBankTrim_20260611Y.mat",
-            "Assets/LycheeMap15/Materials/M_RiverBankTrim_20260611X.mat",
-            "Assets/LycheeMap15/Materials/M_RiverBankTrim_20260611W.mat",
-            "Assets/LycheeMap15/Materials/M_RiverBank_Refined.mat"
-        };
-        foreach (string p in preferred)
-        {
-            Material mat = AssetDatabase.LoadAssetAtPath<Material>(p);
-            if (mat != null) return mat;
+            Material source =
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/LycheeMap15/Materials/M_Config_BranchRoute_Border.mat") ??
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/LycheeMap15/Materials/M_Config_OfficialRoad_Border.mat") ??
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/LycheeMap15/Materials/M_RiverBed_SandGravel.mat");
+            Shader shader = source != null ? source.shader : Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) shader = Shader.Find("Standard");
+            mat = source != null ? new Material(source) : new Material(shader);
+            mat.name = "M_MapLayout_Riverbed_Sandy";
+            EnsureFolderRecursive("Assets/LycheeMap15/Materials");
+            AssetDatabase.CreateAsset(mat, path);
         }
 
-        foreach (var mf in ctx.terrainFilters)
-        {
-            MeshRenderer mr = mf != null ? mf.GetComponent<MeshRenderer>() : null;
-            if (mr == null) continue;
-            foreach (Material m in mr.sharedMaterials)
-                if (m != null && (m.name.Contains("RiverBank") || m.name.Contains("BankTrim"))) return m;
-        }
-        return FindSandMaterial(ctx);
+        Color sand = new Color(0.84f, 0.62f, 0.34f, 1f);
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", sand);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", sand);
+        if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.035f);
+        if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
+        EditorUtility.SetDirty(mat);
+        return mat;
     }
 
     // ============================================================ 清障（植被/岩石不能挡新路）
@@ -1582,6 +1552,54 @@ public static class LycheeMapLayoutGenerator_20260613
         return t.gameObject;
     }
 
+    /// <summary>河床/河滩专用网格：边缘有稳定轻微起伏，首尾自然收窄，避免生成像矩形贴片一样的河道。</summary>
+    static Mesh CreateRiverbedGrid(Vector3[] center, float width, int crossSegs, string name, Transform target,
+        SceneContext ctx, List<(MapRouteEdge edge, Vector3[] world)> waters, float lift)
+    {
+        int n = center.Length;
+        int cols = crossSegs + 1;
+        var vertices = new Vector3[n * cols];
+        var uv = new Vector2[vertices.Length];
+        var tris = new List<int>((n - 1) * crossSegs * 6);
+        float distance = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 fwd = i == n - 1 ? center[i] - center[i - 1] : center[i + 1] - center[i];
+            fwd.y = 0f;
+            Vector3 side = Vector3.Cross(Vector3.up, fwd.sqrMagnitude < 1e-8f ? Vector3.forward : fwd.normalized);
+            if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
+
+            float endT = Mathf.Min(i / Mathf.Max(1f, (n - 1) * 0.20f), (n - 1 - i) / Mathf.Max(1f, (n - 1) * 0.20f));
+            float taper = Mathf.Lerp(0.58f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(endT)));
+            float leftNoise = (Mathf.PerlinNoise(i * 0.21f + 17.3f, 6.2f) - 0.5f) * 0.34f;
+            float rightNoise = (Mathf.PerlinNoise(i * 0.19f + 31.1f, 2.8f) - 0.5f) * 0.34f;
+            float leftHalf = width * 0.5f * taper + leftNoise;
+            float rightHalf = width * 0.5f * taper + rightNoise;
+
+            for (int j = 0; j < cols; j++)
+            {
+                float crossT = j / (float)crossSegs;
+                float lat = Mathf.Lerp(-leftHalf, rightHalf, crossT);
+                Vector3 wpt = center[i] + side * lat;
+                wpt.y = CarvedY(ctx, wpt.x, wpt.z, waters) + lift;
+                int idx = i * cols + j;
+                vertices[idx] = target.InverseTransformPoint(wpt);
+                uv[idx] = new Vector2(crossT, distance * 0.42f);
+            }
+        }
+        for (int i = 0; i < n - 1; i++)
+            for (int j = 0; j < crossSegs; j++)
+            {
+                int ll = i * cols + j, lr = i * cols + j + 1, nl = (i + 1) * cols + j, nr = (i + 1) * cols + j + 1;
+                tris.Add(ll); tris.Add(nl); tris.Add(lr);
+                tris.Add(lr); tris.Add(nl); tris.Add(nr);
+            }
+        var mesh = new Mesh { name = name };
+        mesh.vertices = vertices; mesh.uv = uv; mesh.SetTriangles(tris, 0);
+        mesh.RecalculateNormals(); mesh.RecalculateBounds();
+        return mesh;
+    }
+
     /// <summary>沿挖好的河谷铺一张网格：沿路 n 点 × 横向 (crossSegs+1) 列，每顶点贴挖后河谷面 + lift。
     /// 横向细分让沙床贴合 V 形河谷底/坡，不再是悬空平板。顶点存 target 局部空间。</summary>
     static Mesh CreateCarvedGrid(Vector3[] center, float width, int crossSegs, string name, Transform target,
@@ -1622,44 +1640,6 @@ public static class LycheeMapLayoutGenerator_20260613
         return mesh;
     }
 
-    static Mesh CreateOffsetCarvedRibbon(Vector3[] center, float offset, float width, int crossSegs, string name,
-        Transform target, SceneContext ctx, List<(MapRouteEdge edge, Vector3[] world)> waters, float lift)
-    {
-        int n = center.Length;
-        int cols = crossSegs + 1;
-        var vertices = new Vector3[n * cols];
-        var uv = new Vector2[vertices.Length];
-        var tris = new List<int>((n - 1) * crossSegs * 6);
-        float distance = 0f;
-        for (int i = 0; i < n; i++)
-        {
-            Vector3 fwd = i == n - 1 ? center[i] - center[i - 1] : center[i + 1] - center[i];
-            fwd.y = 0f;
-            Vector3 side = Vector3.Cross(Vector3.up, fwd.sqrMagnitude < 1e-8f ? Vector3.forward : fwd.normalized);
-            if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
-            for (int j = 0; j < cols; j++)
-            {
-                float lat = offset - width * 0.5f + width * (j / (float)crossSegs);
-                Vector3 wpt = center[i] + side * lat;
-                wpt.y = CarvedY(ctx, wpt.x, wpt.z, waters) + lift;
-                int idx = i * cols + j;
-                vertices[idx] = target.InverseTransformPoint(wpt);
-                uv[idx] = new Vector2(j / (float)crossSegs, distance * 0.42f);
-            }
-        }
-        for (int i = 0; i < n - 1; i++)
-            for (int j = 0; j < crossSegs; j++)
-            {
-                int ll = i * cols + j, lr = i * cols + j + 1, nl = (i + 1) * cols + j, nr = (i + 1) * cols + j + 1;
-                tris.Add(ll); tris.Add(nl); tris.Add(lr);
-                tris.Add(lr); tris.Add(nl); tris.Add(nr);
-            }
-        var mesh = new Mesh { name = name };
-        mesh.vertices = vertices; mesh.uv = uv; mesh.SetTriangles(tris, 0);
-        mesh.RecalculateNormals(); mesh.RecalculateBounds();
-        return mesh;
-    }
-
     static Mesh CreateConformedGrid(Vector3[] center, float width, int crossSegs, string name,
         Transform target, SceneContext ctx, float lift)
     {
@@ -1680,6 +1660,7 @@ public static class LycheeMapLayoutGenerator_20260613
                 float lat = -width * 0.5f + width * (j / (float)crossSegs);
                 Vector3 wpt = center[i] + side * lat;
                 wpt.y = ConformY(ctx, ctx.terrainSurface, wpt.x, wpt.z, lift, center[i].y);
+                wpt.y = Mathf.Min(wpt.y, RoadUnderRiverY(ctx, wpt.x, wpt.z));
                 int idx = i * cols + j;
                 vertices[idx] = target.InverseTransformPoint(wpt);
                 uv[idx] = new Vector2(j / (float)crossSegs, distance * 0.42f);
