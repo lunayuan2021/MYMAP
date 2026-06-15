@@ -1168,7 +1168,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
 
         if (message.type == "OBSTACLE_CLEAR")
-            ShowObstacleClearResult(payload);
+        {
+            if (!ResolveObstacleClearSquads(payload, round))
+                ShowObstacleClearResult(payload);
+        }
 
         ShowKeyEventIllustration(message, payload, round);
 
@@ -1756,6 +1759,59 @@ public class LycheeReplayPlayer : MonoBehaviour
             focusPosition = target.transform.position + Vector3.up * 0.15f;
         SpawnClearActionFx(focusPosition, TeamColor(payload.playerId), TeamName(payload.playerId) + "清障成功", true);
         SetEventFocus(focusPosition, 3.0f, 14f);
+    }
+
+    bool ResolveObstacleClearSquads(LycheeReplayPayload payload, int round)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        if (string.IsNullOrEmpty(payload.targetNodeId)) return false;
+
+        SquadVisual primary = null;
+        for (int i = squads.Count - 1; i >= 0; i--)
+        {
+            SquadVisual candidate = squads[i];
+            if (candidate == null || candidate.root == null || candidate.resultResolved) continue;
+            if (candidate.targetNodeId != payload.targetNodeId) continue;
+            if (payload.playerId != 0 && candidate.playerId != payload.playerId) continue;
+            primary = candidate;
+            break;
+        }
+
+        if (primary == null)
+        {
+            for (int i = squads.Count - 1; i >= 0; i--)
+            {
+                SquadVisual candidate = squads[i];
+                if (candidate == null || candidate.root == null || candidate.resultResolved) continue;
+                if (candidate.targetNodeId == payload.targetNodeId)
+                {
+                    primary = candidate;
+                    break;
+                }
+            }
+        }
+
+        bool handled = false;
+        if (primary != null)
+        {
+            if (payload.playerId == 0)
+                payload.playerId = primary.playerId;
+            ResolveSquadResult(payload, round, true);
+            handled = true;
+        }
+
+        for (int i = squads.Count - 1; i >= 0; i--)
+        {
+            SquadVisual squad = squads[i];
+            if (squad == null || squad.root == null || squad == primary) continue;
+            if (squad.resultResolved || squad.targetNodeId != payload.targetNodeId) continue;
+            SpawnEventPulse(squad.root.transform.position, TeamName(squad.playerId) + "小队撤回", TeamColor(squad.playerId));
+            Destroy(squad.root, 0.3f);
+            squads.RemoveAt(i);
+            handled = true;
+        }
+
+        return handled;
     }
 
     SquadVisual FindMatchingSquad(LycheeReplayPayload payload)
