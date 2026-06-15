@@ -78,6 +78,9 @@ public static class LycheeMapLayoutGenerator_20260613
     const int RiverBedCrossSegs = 8;       // 沙床横向细分段数（贴合平底 U，平滑不悬空）
     const float RiverBedTrimFrac = 0.1f;   // 沙床不铺到最末端（避开驿站），首尾各裁掉这么多比例
     const float WaterOverlayLift = 0.05f;  // 水面高光带高于水面
+    const float FormerRiverRestoreHalfWidth = 3.2f;    // 旧水路改陆路时，回填旧河沟的影响半宽
+    const float FormerRiverRestoreSampleOffset = 3.6f; // 采两侧岸高的偏移，略大于挖河半宽
+    const float FormerRiverRestoreSettle = 0.04f;      // 回填后略低于两侧岸面，保留一点自然起伏
 
     static string ProjectRoot => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
     static string ReportPath => Path.Combine(ProjectRoot, ReportFileName);
@@ -239,6 +242,8 @@ public static class LycheeMapLayoutGenerator_20260613
             };
             EnsureFolderRecursive(sceneCtx.meshDir);
             BuildTerrainSurface(sceneCtx);
+            if (RestoreFormerRiverbeds(edgeById, newEdgeInfo, sceneCtx, report) > 0)
+                BuildTerrainSurface(sceneCtx);
             report.Add($"地形采样器：三角形 {sceneCtx.terrainSurface.TriangleCount} 个 / 地形网格 {sceneCtx.terrainFilters.Count} 个（道路/彩带按真实地形面贴地）");
             BuildTypeTemplates(edgeById, newEdgeInfo, overlayRoot, sceneCtx, report);
 
@@ -360,6 +365,7 @@ public static class LycheeMapLayoutGenerator_20260613
 
             // 6b. 新河道凹陷：下挖地形成河谷 + 沉水面（每图地形是独立副本，安全）。
             CarveRivers(waterEdges, sceneCtx, report);
+            CleanupTransientRestoredTerrainAssets(sceneCtx, report);
 
             // 6c. 清障：清掉压在新路/新河上的植被、岩石（原装饰按旧路布的，会挡新路）。
             ClearDecorationAlongPaths(changedEdges, sceneCtx, report);
@@ -434,6 +440,7 @@ public static class LycheeMapLayoutGenerator_20260613
         public string mapKey;
         public SurfaceSampler terrainSurface;   // 现役地形网格三角形池（原始，挖河前），道路/彩带贴地的真实采样源
         public List<MeshFilter> terrainFilters = new();  // 地形网格（挖河时下挖其顶点）
+        public readonly List<string> transientRestoredTerrainAssets = new();
         // 路端"压到建筑底下"参数（每条路建前设；CreateRibbonMesh 在建筑足迹内把路面顶点降到驿站地面下）：
         public bool endRampOn;
         public Vector2 endA, endB;
@@ -701,7 +708,7 @@ public static class LycheeMapLayoutGenerator_20260613
     {
         if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(edgeId)) return false;
         if (name.StartsWith(edgeId + "_Line_", StringComparison.Ordinal)) return true;
-        return name == edgeId + "_L_BankTrim" || name == edgeId + "_R_BankTrim";
+        return name == edgeId + "_L_BankTrim" || name == edgeId + "_R_BankTrim" || name == edgeId + "_RiverBed";
     }
 
     /// <summary>建/重画一条彩带 overlay：贴在新路面上方（RibbonRefit 同款，采路面顶+OverlayLift，
@@ -919,6 +926,182 @@ public static class LycheeMapLayoutGenerator_20260613
         ctx.terrainSurface = s;
     }
 
+    // ============================================================ 旧河道回填（水路改陆路/删除水路）
+
+    /// <summary>母版里是水路、目标 config 中不再是水路时，把旧下挖河床抬回两侧岸面附近。
+    /// 这样 E13 WATER→BRANCH 这类变化不会留下空河沟；新 WATER 仍由 CarveRivers 重新下挖。</summary>
+    static int RestoreFormerRiverbeds(Dictionary<string, MapRouteEdge> edgeById,
+        Dictionary<string, LycheeEdgeInfo> newEdgeInfo, SceneContext ctx, List<string> report)
+    {
+        if (ctx.terrainSurface == null || ctx.terrainFilters == null || ctx.terrainFilters.Count == 0) return 0;
+
+        var formerWaters = new List<(MapRouteEdge edge, Vector3[] world)>();
+        foreach (MapRouteEdge edge in edgeById.Values)
+        {
+            if (edge == null || edge.routeType != MapRouteType.Water) continue;
+            bool targetIsWater = newEdgeInfo.TryGetValue(edge.edgeId, out LycheeEdgeInfo info) &&
+                                 ParseRouteType(info.routeType) == MapRouteType.Water;
+            if (targetIsWater) continue;
+
+            Vector3[] world = ExistingEdgeWorldPath(edge);
+            if (world.Length >= 2) formerWaters.Add((edge, world));
+        }
+
+        if (formerWaters.Count == 0) return 0;
+        report.Add("--- 旧河道回填 ---");
+
+        foreach (var (edge, world) in formerWaters)
+        {
+            DestroyOverlayLine(edge.edgeId, ctx);
+            RestoreFormerRiverTerrain(edge.edgeId, world, ctx, report);
+            RestoreFormerRiverElevation(edge.edgeId, world, ctx, report);
+        }
+
+        return formerWaters.Count;
+    }
+
+    static Vector3[] ExistingEdgeWorldPath(MapRouteEdge edge)
+    {
+        if (edge?.pathPoints != null && edge.pathPoints.Length >= 2)
+            return edge.pathPoints.Where(p => p != null).Select(p => p.position).ToArray();
+        return Array.Empty<Vector3>();
+    }
+
+    static void RestoreFormerRiverTerrain(string edgeId, Vector3[] world, SceneContext ctx, List<string> report)
+    {
+        foreach (MeshFilter mf in ctx.terrainFilters)
+        {
+            if (mf == null || mf.sharedMesh == null) continue;
+            Mesh src = mf.sharedMesh;
+            Mesh clone = UnityEngine.Object.Instantiate(src);
+            clone.name = GeneratedTerrainBaseName(src.name, ctx) + "_RiverRestored_" + edgeId + "_" + Sanitize(ctx.mapKey);
+            Vector3[] verts = clone.vertices;
+            Transform t = mf.transform;
+            int lifted = 0;
+
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 w = t.TransformPoint(verts[i]);
+                if (TryRestoreFormerRiverY(ctx, world, w.x, w.z, w.y, out float ny) && ny > w.y + 0.0001f)
+                {
+                    w.y = ny;
+                    verts[i] = t.InverseTransformPoint(w);
+                    lifted++;
+                }
+            }
+
+            if (lifted == 0)
+            {
+                UnityEngine.Object.DestroyImmediate(clone);
+                continue;
+            }
+
+            clone.vertices = verts;
+            clone.RecalculateNormals();
+            clone.RecalculateBounds();
+            Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
+            ctx.transientRestoredTerrainAssets.Add(AssetDatabase.GetAssetPath(saved));
+            mf.sharedMesh = saved;
+            MeshCollider mc = mf.GetComponent<MeshCollider>();
+            if (mc != null) mc.sharedMesh = saved;
+            EditorUtility.SetDirty(mf);
+            report.Add($"[回填] {edgeId}: 地形 '{mf.name}' 抬升顶点 {lifted}/{verts.Length}");
+        }
+    }
+
+    static void RestoreFormerRiverElevation(string edgeId, Vector3[] world, SceneContext ctx, List<string> report)
+    {
+        MapElevationData elev = ctx.elevation;
+        if (elev == null || elev.heightSamples == null) return;
+
+        int lifted = 0;
+        int W = elev.gridWidth, H = elev.gridHeight;
+        float[] hs = elev.heightSamples;
+        for (int z = 0; z <= H; z++)
+            for (int x = 0; x <= W; x++)
+            {
+                int idx = z * (W + 1) + x;
+                if (idx < 0 || idx >= hs.Length) continue;
+                float wx = elev.worldOrigin.x + x * elev.cellSize;
+                float wz = elev.worldOrigin.y + (H - z) * elev.cellSize;
+                if (TryRestoreFormerRiverY(ctx, world, wx, wz, hs[idx], out float nh) && nh > hs[idx] + 0.0001f)
+                {
+                    hs[idx] = nh;
+                    lifted++;
+                }
+            }
+
+        if (lifted <= 0) return;
+        elev.heightSamples = hs;
+        EditorUtility.SetDirty(elev);
+        report.Add($"[回填] {edgeId}: 高度场抬升采样 {lifted}/{hs.Length}");
+    }
+
+    static bool TryRestoreFormerRiverY(SceneContext ctx, Vector3[] world, float x, float z, float currentY, out float newY)
+    {
+        newY = currentY;
+        float dist = NearestOnPolylineXZWithDirection(x, z, world, out _, out Vector2 nearest, out Vector2 dir);
+        if (dist >= FormerRiverRestoreHalfWidth) return false;
+
+        Vector2 side = new Vector2(-dir.y, dir.x);
+        if (side.sqrMagnitude < 1e-8f) side = Vector2.right;
+        else side.Normalize();
+
+        bool hitA = ctx.terrainSurface.TrySampleTop(nearest.x + side.x * FormerRiverRestoreSampleOffset,
+            nearest.y + side.y * FormerRiverRestoreSampleOffset, out float ay);
+        bool hitB = ctx.terrainSurface.TrySampleTop(nearest.x - side.x * FormerRiverRestoreSampleOffset,
+            nearest.y - side.y * FormerRiverRestoreSampleOffset, out float by);
+        if (!hitA && !hitB) return false;
+
+        float bankY = hitA && hitB ? Mathf.Max(ay, by) : (hitA ? ay : by);
+        float targetY = bankY - FormerRiverRestoreSettle;
+        if (targetY <= currentY + 0.0001f) return false;
+
+        float flatHalf = WaterWidth * 0.5f + 0.2f;
+        float fade = dist <= flatHalf ? 1f :
+            1f - Mathf.SmoothStep(0f, 1f, (dist - flatHalf) / Mathf.Max(0.01f, FormerRiverRestoreHalfWidth - flatHalf));
+        newY = Mathf.Lerp(currentY, targetY, fade);
+        return newY > currentY + 0.0001f;
+    }
+
+    static void CleanupTransientRestoredTerrainAssets(SceneContext ctx, List<string> report)
+    {
+        if (ctx.transientRestoredTerrainAssets.Count == 0) return;
+
+        var inUse = new HashSet<string>();
+        foreach (MeshFilter mf in ctx.terrainFilters)
+        {
+            if (mf == null || mf.sharedMesh == null) continue;
+            string p = AssetDatabase.GetAssetPath(mf.sharedMesh);
+            if (!string.IsNullOrEmpty(p)) inUse.Add(p);
+        }
+
+        int deleted = 0;
+        foreach (string path in ctx.transientRestoredTerrainAssets.Distinct())
+        {
+            if (string.IsNullOrEmpty(path) || inUse.Contains(path)) continue;
+            if (AssetDatabase.LoadAssetAtPath<Mesh>(path) == null) continue;
+            if (AssetDatabase.DeleteAsset(path)) deleted++;
+        }
+        if (deleted > 0) report.Add($"[清理] 删除未被场景引用的旧河道回填中间网格 {deleted} 个");
+    }
+
+    static string GeneratedTerrainBaseName(string meshName, SceneContext ctx)
+    {
+        string name = string.IsNullOrEmpty(meshName) ? "Continuous_Terrain" : meshName;
+        string prefix = Sanitize(ctx.mapKey) + "_";
+        while (name.StartsWith(prefix, StringComparison.Ordinal))
+            name = name.Substring(prefix.Length);
+
+        int restored = name.IndexOf("_RiverRestored_", StringComparison.Ordinal);
+        if (restored >= 0) name = name.Substring(0, restored);
+
+        int carved = name.IndexOf("_Carved_", StringComparison.Ordinal);
+        if (carved >= 0) name = name.Substring(0, carved);
+
+        return string.IsNullOrEmpty(name) ? "Continuous_Terrain" : name;
+    }
+
     // ============================================================ 挖河凹陷（新水路 = 与现役同质量的下沉河道）
 
     /// <summary>为新增/重建的水路下挖河谷 + 沉水面：①克隆地形网格副本并按到水路中心线的距离下挖顶点；
@@ -935,7 +1118,7 @@ public static class LycheeMapLayoutGenerator_20260613
             if (mf == null || mf.sharedMesh == null) continue;
             Mesh src = mf.sharedMesh;
             Mesh clone = UnityEngine.Object.Instantiate(src);
-            clone.name = src.name + "_Carved_" + Sanitize(ctx.mapKey);
+            clone.name = GeneratedTerrainBaseName(src.name, ctx) + "_Carved_" + Sanitize(ctx.mapKey);
             Vector3[] verts = clone.vertices;
             Transform t = mf.transform;
             int carved = 0;
@@ -1290,6 +1473,46 @@ public static class LycheeMapLayoutGenerator_20260613
             Vector2 proj = a + ab * tt;
             float dist = Vector2.Distance(p, proj);
             if (dist < best) { best = dist; along = (cum + tt * seg) / total; nearest = proj; }
+            cum += seg;
+        }
+        return best;
+    }
+
+    static float NearestOnPolylineXZWithDirection(float x, float z, Vector3[] pts,
+        out float along, out Vector2 nearest, out Vector2 direction)
+    {
+        along = 0f; nearest = new Vector2(x, z); direction = Vector2.right;
+        if (pts == null || pts.Length == 0) return float.MaxValue;
+        var p = new Vector2(x, z);
+        if (pts.Length == 1)
+        {
+            nearest = new Vector2(pts[0].x, pts[0].z);
+            return Vector2.Distance(p, nearest);
+        }
+
+        float total = 0f;
+        for (int i = 0; i < pts.Length - 1; i++)
+            total += Vector2.Distance(new Vector2(pts[i].x, pts[i].z), new Vector2(pts[i + 1].x, pts[i + 1].z));
+        if (total < 1e-5f) total = 1f;
+
+        float best = float.MaxValue, cum = 0f;
+        for (int i = 0; i < pts.Length - 1; i++)
+        {
+            var a = new Vector2(pts[i].x, pts[i].z);
+            var b = new Vector2(pts[i + 1].x, pts[i + 1].z);
+            Vector2 ab = b - a;
+            float seg = ab.magnitude;
+            float len2 = ab.sqrMagnitude;
+            float tt = len2 < 1e-8f ? 0f : Mathf.Clamp01(Vector2.Dot(p - a, ab) / len2);
+            Vector2 proj = a + ab * tt;
+            float dist = Vector2.Distance(p, proj);
+            if (dist < best)
+            {
+                best = dist;
+                along = (cum + tt * seg) / total;
+                nearest = proj;
+                direction = seg < 1e-5f ? direction : ab / seg;
+            }
             cum += seg;
         }
         return best;
