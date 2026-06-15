@@ -30,6 +30,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
     const float FadeOutSeconds = 0.6f;
     const float SkipFadeSeconds = 0.2f;   // 点击关闭时的快速淡出
     const float VideoPrepareTimeout = 12f; // 视频准备超时则跳过视频（WebGL 首次解码缓冲慢，4s 太短会跳过开场视频）
+    const float WebGlVideoPrepareTimeout = 3.5f; // 黄区弱机/内网浏览器解码慢时快速降级到对阵图，不阻塞回放
 
     static readonly Color GoldColor = new Color(1f, 0.84f, 0.30f, 1f);
     static readonly Color RedTeamColor = new Color(0.96f, 0.30f, 0.20f, 1f);
@@ -216,8 +217,9 @@ public class LycheeOpeningShowcase : MonoBehaviour
             // 准备超时必须用真实时间累加：UiDelta() 每帧钳到 0.05s，会把 12s 超时压成 ~4s 真实时间，
             // 视频（首帧解码缓冲约 5s，WebGL 更久）来不及准备就被跳过——这正是"开场视频从没播出"的根因。
             float prepareWait = 0f;
+            float prepareLimit = VideoPrepareLimit();
             while (videoPlayer != null && !videoPlayer.isPrepared && !videoFailed &&
-                !skipRequested && !Disabled && prepareWait < VideoPrepareTimeout)
+                !skipRequested && !Disabled && prepareWait < prepareLimit)
             {
                 prepareWait += Time.unscaledDeltaTime;
                 EnforcePause();
@@ -229,11 +231,11 @@ public class LycheeOpeningShowcase : MonoBehaviour
                 videoImage.enabled = true; // 准备就绪、即将播放：显示视频画面
                 videoFinished = false;
                 videoPlayer.Play();
-                float guard = videoPlayer.length > 0.5 ? (float)videoPlayer.length + 2f : 20f;
+                float guard = VideoPlayGuard(videoPlayer.length);
                 float watched = 0f;
                 while (!videoFinished && !videoFailed && !skipRequested && !Disabled && watched < guard)
                 {
-                    watched += UiDelta();
+                    watched += Time.unscaledDeltaTime;
                     EnforcePause();
                     if (rootGroup != null)
                         rootGroup.alpha = Mathf.Min(1f, rootGroup.alpha + UiDelta() * 4f);
@@ -270,6 +272,19 @@ public class LycheeOpeningShowcase : MonoBehaviour
             }
         }
         CloseShowcase();
+    }
+
+    static float VideoPrepareLimit()
+    {
+        return Application.platform == RuntimePlatform.WebGLPlayer
+            ? WebGlVideoPrepareTimeout
+            : VideoPrepareTimeout;
+    }
+
+    static float VideoPlayGuard(double length)
+    {
+        float guard = length > 0.5 ? (float)length + 2f : 20f;
+        return Application.platform == RuntimePlatform.WebGLPlayer ? Mathf.Min(guard, 8f) : guard;
     }
 
     void CloseShowcase()

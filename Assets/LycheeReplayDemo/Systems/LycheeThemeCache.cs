@@ -45,6 +45,7 @@ public static class LycheeThemeCache
         using (var request = UnityEngine.Networking.UnityWebRequest.Get(
             baseUrl + "uitheme_manifest.txt?t=" + DateTime.UtcNow.Ticks))
         {
+            request.timeout = 6;
             yield return request.SendWebRequest();
             if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
                 names = request.downloadHandler.text.Split(
@@ -58,6 +59,7 @@ public static class LycheeThemeCache
                 if (trimmed.Length == 0 || webglBytes.ContainsKey(trimmed)) continue;
                 using (var request = UnityEngine.Networking.UnityWebRequest.Get(baseUrl + trimmed))
                 {
+                    request.timeout = 6;
                     yield return request.SendWebRequest();
                     if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success &&
                         request.downloadHandler.data != null &&

@@ -308,13 +308,19 @@ public class LycheeReplayPlayer : MonoBehaviour
         CreateConvoys();
         CreateObstacleVisuals();
         CreateRuntimeHud();
-        playing = playOnStart;
         if (frames.Count > 0)
         {
+            playing = playOnStart;
             ApplyFrame(0, true);
             InterpolateConvoys(0f);
             UpdateRuntimeHud();
             ShowOpeningRoster();
+            SnapReplayCameras();
+        }
+        else
+        {
+            playing = false;
+            Debug.LogError("Replay initialization stopped: no round frames were loaded from " + ReplaySource + ".", this);
         }
     }
 
@@ -346,23 +352,37 @@ public class LycheeReplayPlayer : MonoBehaviour
         // WebGL 上 StreamingAssets 是 URL，System.IO 不可用，必须走网络请求；
         // 加时间戳参数避免浏览器缓存旧的回放文件。文件名由 streamingReplayPath 决定（默认 reply.txt）。
         string relative = ReplayRelative;
-        string url = Application.streamingAssetsPath + "/" + relative + "?t=" + DateTime.UtcNow.Ticks;
         string text = null;
-        using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
+        yield return FetchStreamingText(relative, value => text = value);
+        if (string.IsNullOrEmpty(text) && !string.Equals(relative, "reply.txt", StringComparison.OrdinalIgnoreCase))
         {
-            yield return request.SendWebRequest();
-            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
-            {
-                text = request.downloadHandler.text;
-                ReplaySource = "StreamingAssets/" + relative;
-            }
-            else
-            {
-                Debug.LogWarning("Failed to fetch StreamingAssets/" + relative + ": " + request.error, this);
-            }
+            Debug.LogWarning("Replay fallback: StreamingAssets/" + relative + " unavailable, trying reply.txt.", this);
+            yield return FetchStreamingText("reply.txt", value => text = value);
         }
         ParseReplay(text);
         InitializeAfterLoad();
+    }
+
+    System.Collections.IEnumerator FetchStreamingText(string relative, Action<string> onLoaded)
+    {
+        string url = Application.streamingAssetsPath + "/" + relative + "?t=" + DateTime.UtcNow.Ticks;
+        using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
+        {
+            request.timeout = 12;
+            yield return request.SendWebRequest();
+            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                string text = request.downloadHandler.text;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    ReplaySource = "StreamingAssets/" + relative;
+                    onLoaded?.Invoke(text);
+                    yield break;
+                }
+            }
+            Debug.LogWarning("Failed to fetch StreamingAssets/" + relative + ": " + request.error, this);
+        }
+        onLoaded?.Invoke(null);
     }
 #endif
 
@@ -531,6 +551,18 @@ public class LycheeReplayPlayer : MonoBehaviour
         Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
             (OverFrame != null ? ", over frame parsed." : "."), this);
         ValidateScoreConsistency();
+    }
+
+    void SnapReplayCameras()
+    {
+        foreach (LycheeReplayCameraController controller in FindObjectsByType<LycheeReplayCameraController>(FindObjectsSortMode.None))
+        {
+            if (controller == null || !controller.isActiveAndEnabled) continue;
+            if (controller.replay == null || controller.replay == this)
+                controller.replay = this;
+            if (controller.replay == this)
+                controller.SnapToCurrentFocus();
+        }
     }
 
     void BackfillPlayerScoresFromFrameScores()

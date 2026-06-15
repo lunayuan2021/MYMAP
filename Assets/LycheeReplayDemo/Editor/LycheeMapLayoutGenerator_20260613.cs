@@ -240,7 +240,7 @@ public static class LycheeMapLayoutGenerator_20260613
             EnsureFolderRecursive(sceneCtx.meshDir);
             BuildTerrainSurface(sceneCtx);
             report.Add($"地形采样器：三角形 {sceneCtx.terrainSurface.TriangleCount} 个 / 地形网格 {sceneCtx.terrainFilters.Count} 个（道路/彩带按真实地形面贴地）");
-            BuildTypeTemplates(edgeById, overlayRoot, sceneCtx, report);
+            BuildTypeTemplates(edgeById, newEdgeInfo, overlayRoot, sceneCtx, report);
 
             // 校验：config 用到的每个路由类型都得有可克隆模板，否则新增该类型边会被静默跳过。
             foreach (var t in config.edges.Select(e => ParseRouteType(e.routeType)).Distinct())
@@ -446,10 +446,31 @@ public static class LycheeMapLayoutGenerator_20260613
     }
 
     /// <summary>为每个路由类型挑一个现役道路作克隆模板，并记录其路层父级与对应彩带模板。</summary>
-    static void BuildTypeTemplates(Dictionary<string, MapRouteEdge> edgeById, Transform overlayRoot,
-        SceneContext ctx, List<string> report)
+    static void BuildTypeTemplates(Dictionary<string, MapRouteEdge> edgeById,
+        Dictionary<string, LycheeEdgeInfo> newEdgeInfo, Transform overlayRoot, SceneContext ctx, List<string> report)
     {
-        foreach (var e in edgeById.Values)
+        IEnumerable<MapRouteEdge> StableFirst()
+        {
+            foreach (MapRouteEdge edge in edgeById.Values)
+            {
+                if (edge == null || string.IsNullOrEmpty(edge.edgeId)) continue;
+                if (newEdgeInfo != null &&
+                    newEdgeInfo.TryGetValue(edge.edgeId, out LycheeEdgeInfo info) &&
+                    ParseRouteType(info.routeType) == edge.routeType)
+                    yield return edge;
+            }
+            foreach (MapRouteEdge edge in edgeById.Values)
+            {
+                if (edge == null || string.IsNullOrEmpty(edge.edgeId)) continue;
+                if (newEdgeInfo != null &&
+                    newEdgeInfo.TryGetValue(edge.edgeId, out LycheeEdgeInfo info) &&
+                    ParseRouteType(info.routeType) == edge.routeType)
+                    continue;
+                yield return edge;
+            }
+        }
+
+        foreach (var e in StableFirst())
         {
             if (e == null) continue;
             if (!ctx.edgeTemplate.ContainsKey(e.routeType))
@@ -489,6 +510,10 @@ public static class LycheeMapLayoutGenerator_20260613
     {
         if (!ctx.edgeTemplate.TryGetValue(type, out var template) || template == null)
         { report.Add($"[失败] {info.edgeId}: 场景里没有 {type} 类型的模板道路可克隆，跳过"); return null; }
+
+        // 母版里可能残留同 edgeId 的旧彩带，但没有对应 MapRouteEdge。
+        // 新增/改类型克隆前先清掉，避免 E13_Line_WATER 这类孤立 overlay 与新路并存。
+        DestroyOverlayLine(info.edgeId, ctx);
 
         Transform parent = ctx.routeLayer.TryGetValue(type, out var layer) && layer != null
             ? layer : template.transform.parent;
@@ -635,20 +660,48 @@ public static class LycheeMapLayoutGenerator_20260613
     {
         if (overlayRoot == null) return null;
         foreach (Transform c in overlayRoot)
-            if (c.name != "Route_Arrows" && c.name.Split('_')[0] == edgeId) return c;
+            if (IsOverlayForEdge(c, edgeId)) return c;
         return null;
     }
 
     static void DestroyOverlayLine(string edgeId, SceneContext ctx)
     {
-        Transform line = FindOverlayLine(edgeId, ctx.overlayRoot);
-        if (line != null) UnityEngine.Object.DestroyImmediate(line.gameObject);
+        var matches = new List<GameObject>();
+        if (ctx.overlayRoot != null)
+            foreach (Transform c in ctx.overlayRoot)
+                if (IsOverlayForEdge(c, edgeId))
+                    matches.Add(c.gameObject);
+        foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+            if (t != null && t.gameObject.scene.IsValid() && IsLegacyEdgeVisualName(t.name, edgeId))
+                matches.Add(t.gameObject);
+
+        foreach (GameObject match in matches)
+            if (match != null)
+                UnityEngine.Object.DestroyImmediate(match);
     }
 
     static void SetOverlayLineActive(string edgeId, bool active, SceneContext ctx)
     {
-        Transform line = FindOverlayLine(edgeId, ctx.overlayRoot);
-        if (line != null) line.gameObject.SetActive(active);
+        if (ctx.overlayRoot != null)
+            foreach (Transform c in ctx.overlayRoot)
+                if (IsOverlayForEdge(c, edgeId))
+                    c.gameObject.SetActive(active);
+        if (!active)
+            foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+                if (t != null && t.gameObject.scene.IsValid() && IsLegacyEdgeVisualName(t.name, edgeId))
+                    t.gameObject.SetActive(false);
+    }
+
+    static bool IsOverlayForEdge(Transform line, string edgeId)
+    {
+        return line != null && line.name != "Route_Arrows" && line.name.Split('_')[0] == edgeId;
+    }
+
+    static bool IsLegacyEdgeVisualName(string name, string edgeId)
+    {
+        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(edgeId)) return false;
+        if (name.StartsWith(edgeId + "_Line_", StringComparison.Ordinal)) return true;
+        return name == edgeId + "_L_BankTrim" || name == edgeId + "_R_BankTrim";
     }
 
     /// <summary>建/重画一条彩带 overlay：贴在新路面上方（RibbonRefit 同款，采路面顶+OverlayLift，
