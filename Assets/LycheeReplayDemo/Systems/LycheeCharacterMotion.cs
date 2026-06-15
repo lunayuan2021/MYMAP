@@ -122,10 +122,12 @@ public class LycheeCharacterMotion : MonoBehaviour
         public bool horseGraphValid;
         public AnimationClipPlayable horsePlayable; // 留引用以便每帧按 rig.speed 调播放速率/手动回卷循环
 
-        // —— 组合马车（horse_new.glb 马+车一体）专用：模型自带骨骼但无动画 clip，
-        //    程序化驱动 4 条腿做行走摆动（车轮焊在蒙皮网格里无法转，故只动腿+车身轻晃）——
+        // —— 组合马车（horse_new.glb 马+车一体）专用：模型自带骨骼但无动画 clip。
+        //    真实腿骨程序化摆动 + 细腿影兜底；模型轮子无法拆节点旋转，另叠带辐条薄轮表达滚动。——
         public List<HorseLeg> horseLegs;     // 运行时按蹄子世界高度认出的 4 条腿；null=非组合模型或未识别到
         public float horseWalkPhase;         // 腿摆相位累加器，随 rig.speed 推进（同假车轮的 wheelSpin 思路）
+        public readonly List<HorseProxyLeg> horseProxyLegs = new List<HorseProxyLeg>(); // 低调可见的四腿步态兜底
+        public bool horseProxyHidden;
     }
 
     /// <summary>一条腿的程序化摆动数据：上段（髋/肩）+ 中段（膝）的绑定姿态与摆动轴，相位区分四蹄步态。</summary>
@@ -141,6 +143,22 @@ public class LycheeCharacterMotion : MonoBehaviour
         public Vector3 swingAxisMid;
         public Vector3 swingAxisLower;
         public float phase;                // 步态相位偏移（对角腿同相，0 或 0.5）
+    }
+
+    /// <summary>
+    /// 组合马车模型当前没有真正的 walk clip，且 GLB 权重对腿骨摆动不一定明显。
+    /// 这里在四个蹄位叠一根很细的可见腿影，随车速做前后摆和抬脚，保证近景能读出"马在走"。
+    /// </summary>
+    sealed class HorseProxyLeg
+    {
+        public Transform transform;
+        public Vector3 basePosition;
+        public Quaternion baseRotation;
+        public Vector3 strideAxis;
+        public Vector3 swingAxis;
+        public float phase;
+        public float strideDistance;
+        public float liftDistance;
     }
 
     sealed class CharacterRig
@@ -203,6 +221,8 @@ public class LycheeCharacterMotion : MonoBehaviour
     /// </summary>
     static readonly Quaternion WheelBaseRotation = Quaternion.Euler(0f, 0f, -90f);
     static Material wheelSharedMaterial; // 全部假车轮共用一份深灰材质，避免重复实例化
+    static Material wheelSpokeSharedMaterial;
+    static Material horseProxyLegSharedMaterial;
 
     LycheeReplayPlayer player;
     readonly List<CharacterRig> rigs = new List<CharacterRig>();
@@ -438,8 +458,8 @@ public class LycheeCharacterMotion : MonoBehaviour
                     baseRotation = child.localRotation,
                     seed = rig.idleSeed
                 };
-                // 组合马车（horse_new.glb：马+车一体绑骨，自带 SkinnedMeshRenderer）自含马匹与车轮，
-                // 程序化假车轮和独立挂马都要让位，否则双马+轮子穿模
+                // 组合马车（horse_new.glb：马+车一体绑骨，自带 SkinnedMeshRenderer）自含马匹；
+                // 独立挂马要让位，否则双马穿模。车轮仍补一套带辐条的薄轮，保证移动时有滚动读数。
                 bool combinedCarriage = child.GetComponentInChildren<SkinnedMeshRenderer>(true) != null;
                 if (!combinedCarriage)
                 {
@@ -463,8 +483,12 @@ public class LycheeCharacterMotion : MonoBehaviour
                     // AlignCombinedCarriage 会改 Carriage wrapper 的局部旋转；必须同步 baseRotation，
                     // 否则 UpdateWrappers 下一帧的车身颠簸会用旧基准把转正结果覆盖掉。
                     rig.carriage.baseRotation = child.localRotation;
+                    CreateCarriageWheels(rig.carriage, true, combinedRoot);
                     if (player == null || player.horseWalkClip == null)
+                    {
                         CaptureHorseLegs(rig.carriage, child);
+                        CreateHorseProxyLegs(rig.carriage, combinedRoot);
+                    }
                 }
             }
             else if (child.name == "Boat")
@@ -519,45 +543,91 @@ public class LycheeCharacterMotion : MonoBehaviour
     /// 给 Carriage wrapper 程序化补 4 个假车轮：压扁圆柱放在包围盒底部四角内收处，
     /// 滚动角由 UpdateWrappers 按 rig.speed / 轮半径 累加。
     /// </summary>
-    void CreateCarriageWheels(WrapperPose carriage)
+    void CreateCarriageWheels(WrapperPose carriage, bool combinedCarriage = false, Transform boundsSource = null)
     {
         if (carriage == null || carriage.transform == null) return;
         Transform wrapper = carriage.transform;
-        if (!TryGetLocalBounds(wrapper, wrapper, out Bounds local)) return;
+        Transform source = boundsSource != null ? boundsSource : wrapper;
+        if (!TryGetLocalBounds(wrapper, source, out Bounds local)) return;
 
-        float radius = local.size.y * 0.25f; // 轮半径按车身高度估：约车高的四分之一
+        float radius = combinedCarriage
+            ? Mathf.Clamp(local.size.y * 0.13f, 0.08f, 0.22f)
+            : local.size.y * 0.25f; // 轮半径按车身高度估：约车高的四分之一
         if (radius < 0.02f) return;          // 包围盒异常小（模型还没就绪）就放弃，避免生成肉眼不可见的碎轮
         carriage.wheelRadius = radius;
 
         // 底部四角内收：X 收到 78%（轮面贴住车帮不悬空），Z 收到 60%（前后轴距留出车辕）
-        float offsetX = Mathf.Max(0.01f, local.extents.x * 0.78f);
+        float offsetX = Mathf.Max(0.01f, local.extents.x * (combinedCarriage ? 0.92f : 0.78f));
         float offsetZ = Mathf.Max(0.01f, local.extents.z * 0.60f);
         float wheelY = local.min.y + radius; // 轮心抬高一个半径，轮底正好齐车底/地面
+        float frontZ = combinedCarriage ? local.center.z - local.extents.z * 0.10f : offsetZ;
+        float rearZ = combinedCarriage ? local.center.z - local.extents.z * 0.46f : -offsetZ;
+        float wheelThickness = combinedCarriage ? Mathf.Clamp(radius * 0.20f, 0.025f, 0.055f) : 0.05f;
         Material material = GetWheelMaterial();
+        Material spokeMaterial = GetWheelSpokeMaterial();
 
         for (int i = 0; i < 4; i++)
         {
-            GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            wheel.name = "FakeWheel_" + i;
-            // CreatePrimitive 自带 CapsuleCollider；模型其余 Collider 全被 CreateNormalizedModel 禁用，
-            // 这里必须销毁，否则车轮会成为场景里唯一可被射线/物理命中的部件
-            Collider collider = wheel.GetComponent<Collider>();
-            if (collider != null) Destroy(collider);
-            Transform wheelTransform = wheel.transform;
+            GameObject wheelRoot = new GameObject("FakeWheel_" + i);
+            Transform wheelTransform = wheelRoot.transform;
             wheelTransform.SetParent(wrapper, false);
             wheelTransform.localPosition = new Vector3(
                 (i & 1) == 0 ? -offsetX : offsetX,
                 wheelY,
-                (i & 2) == 0 ? offsetZ : -offsetZ);
+                (i & 2) == 0 ? frontZ : rearZ);
             wheelTransform.localRotation = WheelBaseRotation;
-            // 圆柱默认主轴为 Y：直径=2r、厚 0.1（scaleY 是半高），绕 Z 转 -90° 后轮面朝向车侧
-            wheelTransform.localScale = new Vector3(radius * 2f, 0.05f, radius * 2f);
+            wheelTransform.localScale = Vector3.one;
+
+            GameObject wheelMesh = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            wheelMesh.name = "FakeWheelMesh";
+            // CreatePrimitive 自带 Collider；模型其余 Collider 全被 CreateNormalizedModel 禁用，
+            // 这里必须销毁，否则车轮会成为场景里唯一可被射线/物理命中的部件
+            Collider collider = wheelMesh.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            Transform meshTransform = wheelMesh.transform;
+            meshTransform.SetParent(wheelTransform, false);
+            meshTransform.localPosition = Vector3.zero;
+            meshTransform.localRotation = Quaternion.identity;
+            // 圆柱默认主轴为 Y：直径=2r、厚 0.1（scaleY 是半高）；父节点已绕 Z 转 -90°，轮面朝向车侧
+            meshTransform.localScale = new Vector3(radius * 2f, wheelThickness, radius * 2f);
             if (material != null)
             {
-                Renderer wheelRenderer = wheel.GetComponent<Renderer>();
+                Renderer wheelRenderer = wheelMesh.GetComponent<Renderer>();
                 if (wheelRenderer != null) wheelRenderer.sharedMaterial = material;
             }
+            CreateWheelSpokes(wheelTransform, radius, wheelThickness, spokeMaterial);
             carriage.wheels.Add(wheelTransform);
+        }
+    }
+
+    static void CreateWheelSpokes(Transform wheel, float radius, float halfThickness, Material material)
+    {
+        if (wheel == null) return;
+        float faceY = Mathf.Max(halfThickness + 0.004f, 0.018f);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            CreateWheelSpoke(wheel, new Vector3(0f, side * faceY, 0f), Quaternion.identity,
+                new Vector3(radius * 1.45f, 0.012f, Mathf.Max(0.012f, radius * 0.08f)), material);
+            CreateWheelSpoke(wheel, new Vector3(0f, side * faceY, 0f), Quaternion.Euler(0f, 90f, 0f),
+                new Vector3(radius * 1.45f, 0.012f, Mathf.Max(0.012f, radius * 0.08f)), material);
+        }
+    }
+
+    static void CreateWheelSpoke(Transform wheel, Vector3 localPosition, Quaternion localRotation, Vector3 localScale, Material material)
+    {
+        GameObject spoke = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        spoke.name = "FakeWheelSpoke";
+        Collider collider = spoke.GetComponent<Collider>();
+        if (collider != null) Destroy(collider);
+        Transform spokeTransform = spoke.transform;
+        spokeTransform.SetParent(wheel, false);
+        spokeTransform.localPosition = localPosition;
+        spokeTransform.localRotation = localRotation;
+        spokeTransform.localScale = localScale;
+        if (material != null)
+        {
+            Renderer renderer = spoke.GetComponent<Renderer>();
+            if (renderer != null) renderer.sharedMaterial = material;
         }
     }
 
@@ -572,6 +642,30 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (wheelSharedMaterial.HasProperty("_Smoothness"))
             wheelSharedMaterial.SetFloat("_Smoothness", 0.25f);
         return wheelSharedMaterial;
+    }
+
+    static Material GetWheelSpokeMaterial()
+    {
+        if (wheelSpokeSharedMaterial != null) return wheelSpokeSharedMaterial;
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) return null;
+        wheelSpokeSharedMaterial = new Material(shader);
+        wheelSpokeSharedMaterial.color = new Color(0.55f, 0.38f, 0.18f, 1f);
+        if (wheelSpokeSharedMaterial.HasProperty("_Smoothness"))
+            wheelSpokeSharedMaterial.SetFloat("_Smoothness", 0.18f);
+        return wheelSpokeSharedMaterial;
+    }
+
+    static Material GetHorseProxyLegMaterial()
+    {
+        if (horseProxyLegSharedMaterial != null) return horseProxyLegSharedMaterial;
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) return null;
+        horseProxyLegSharedMaterial = new Material(shader);
+        horseProxyLegSharedMaterial.color = new Color(0.075f, 0.045f, 0.028f, 1f);
+        if (horseProxyLegSharedMaterial.HasProperty("_Smoothness"))
+            horseProxyLegSharedMaterial.SetFloat("_Smoothness", 0.22f);
+        return horseProxyLegSharedMaterial;
     }
 
     /// <summary>
@@ -732,51 +826,15 @@ public class LycheeCharacterMotion : MonoBehaviour
     static void CaptureHorseLegs(WrapperPose carriage, Transform combinedWrapper)
     {
         if (carriage == null || combinedWrapper == null) return;
-        var skinned = combinedWrapper.GetComponentInChildren<SkinnedMeshRenderer>(true);
-        if (skinned == null || skinned.bones == null || skinned.bones.Length < 6) return;
-        Transform[] bones = skinned.bones;
-
-        // 1. 找 4 个最低骨（世界 Y 最低）= 四蹄
-        var ordered = new List<Transform>(bones);
-        ordered.Sort((a, b) =>
+        if (!TryGetHorseBoneLayout(combinedWrapper, combinedWrapper, out List<Transform> hooves,
+            out Vector3 forwardLocal, out Vector3 lateralLocal, out Vector3 centroidLocal))
         {
-            if (a == null) return 1; if (b == null) return -1;
-            return a.position.y.CompareTo(b.position.y);
-        });
-        var hooves = new List<Transform>();
-        foreach (Transform t in ordered)
-        {
-            if (t == null || t.parent == null || t.parent.parent == null) continue;
-            hooves.Add(t);
-            if (hooves.Count == 4) break;
+            return;
         }
-        if (hooves.Count < 4) return;
 
-        // 2. 马身前向：优先用头颈端估计；失败再落回蹄子主轴。这样不会把尾巴当头，
-        // 四腿相位与摆动轴也会跟随已转正的组合马车。
-        Vector3 centroid = Vector3.zero;
-        foreach (Transform h in hooves) centroid += h.position;
-        centroid /= hooves.Count;
-        Vector3 forward;
-        if (TryEstimateHorseHeadDirection(bones, combinedWrapper, out Vector3 headLocal))
-            forward = combinedWrapper.TransformDirection(headLocal);
-        else
-        {
-            // 用蹄子在水平面的主轴当身体前向：取离质心最远两蹄连线方向
-            forward = Vector3.forward;
-            float maxd = 0f;
-            for (int i = 0; i < hooves.Count; i++)
-                for (int j = i + 1; j < hooves.Count; j++)
-                {
-                    Vector3 d = hooves[i].position - hooves[j].position;
-                    d.y = 0f;
-                    if (d.sqrMagnitude > maxd) { maxd = d.sqrMagnitude; forward = d.normalized; }
-                }
-        }
-        forward.y = 0f;
-        if (forward.sqrMagnitude < 1e-6f) forward = combinedWrapper.forward;
-        forward.Normalize();
-        Vector3 lateral = Vector3.Cross(Vector3.up, forward).normalized; // 横向（左右）轴=摆动轴
+        Vector3 centroid = combinedWrapper.TransformPoint(centroidLocal);
+        Vector3 forward = combinedWrapper.TransformDirection(forwardLocal).normalized;
+        Vector3 lateral = combinedWrapper.TransformDirection(lateralLocal).normalized; // 横向（左右）轴=摆动轴
 
         carriage.horseLegs = new List<HorseLeg>(4);
         foreach (Transform hoof in hooves)
@@ -806,15 +864,183 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (carriage.horseLegs.Count < 4) carriage.horseLegs = null; // 识别不全就放弃，回退静态
     }
 
+    static bool TryGetHorseBoneLayout(Transform boneRoot, Transform reference, out List<Transform> hooves,
+        out Vector3 forwardLocal, out Vector3 lateralLocal, out Vector3 centroidLocal)
+    {
+        hooves = null;
+        forwardLocal = Vector3.forward;
+        lateralLocal = Vector3.right;
+        centroidLocal = Vector3.zero;
+        if (boneRoot == null || reference == null) return false;
+
+        var skinned = boneRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (skinned == null || skinned.bones == null || skinned.bones.Length < 6) return false;
+        Transform[] bones = skinned.bones;
+
+        var ordered = new List<Transform>(bones);
+        ordered.Sort((a, b) =>
+        {
+            if (a == null) return 1;
+            if (b == null) return -1;
+            float ay = reference.InverseTransformPoint(a.position).y;
+            float by = reference.InverseTransformPoint(b.position).y;
+            return ay.CompareTo(by);
+        });
+
+        hooves = new List<Transform>(4);
+        foreach (Transform t in ordered)
+        {
+            if (t == null || t.parent == null || t.parent.parent == null) continue;
+            hooves.Add(t);
+            if (hooves.Count == 4) break;
+        }
+        if (hooves.Count < 4) return false;
+
+        centroidLocal = Vector3.zero;
+        foreach (Transform hoof in hooves)
+            centroidLocal += reference.InverseTransformPoint(hoof.position);
+        centroidLocal /= hooves.Count;
+
+        if (!TryEstimateHorseHeadDirection(bones, reference, out forwardLocal))
+        {
+            float maxd = 0f;
+            for (int i = 0; i < hooves.Count; i++)
+            {
+                for (int j = i + 1; j < hooves.Count; j++)
+                {
+                    Vector3 a = reference.InverseTransformPoint(hooves[i].position);
+                    Vector3 b = reference.InverseTransformPoint(hooves[j].position);
+                    Vector3 d = a - b;
+                    d.y = 0f;
+                    if (d.sqrMagnitude > maxd)
+                    {
+                        maxd = d.sqrMagnitude;
+                        forwardLocal = d.normalized;
+                    }
+                }
+            }
+        }
+        forwardLocal.y = 0f;
+        if (forwardLocal.sqrMagnitude < 1e-6f) forwardLocal = Vector3.forward;
+        forwardLocal.Normalize();
+        lateralLocal = Vector3.Cross(Vector3.up, forwardLocal);
+        if (lateralLocal.sqrMagnitude < 1e-6f) lateralLocal = Vector3.right;
+        lateralLocal.Normalize();
+        return true;
+    }
+
+    void CreateHorseProxyLegs(WrapperPose carriage, Transform combinedRoot)
+    {
+        if (carriage == null || carriage.transform == null || combinedRoot == null) return;
+        if (carriage.horseProxyLegs.Count > 0) return;
+
+        Transform wrapper = carriage.transform;
+        if (!TryGetLocalBounds(wrapper, combinedRoot, out Bounds local)) return;
+
+        bool hasHooves = TryGetHorseBoneLayout(combinedRoot, wrapper, out List<Transform> hooves,
+            out Vector3 forwardLocal, out Vector3 lateralLocal, out Vector3 centroidLocal);
+        if (!hasHooves)
+        {
+            hooves = null;
+            forwardLocal = Vector3.forward;
+            lateralLocal = Vector3.right;
+            centroidLocal = local.center;
+        }
+
+        float legThickness = Mathf.Clamp(Mathf.Min(local.size.x, local.size.z) * 0.035f, 0.022f, 0.055f);
+        float legTopY = local.min.y + Mathf.Clamp(local.size.y * 0.36f, 0.28f, 0.72f);
+        float strideDistance = Mathf.Clamp(ProjectBoundsExtent(local, forwardLocal) * 0.085f, 0.045f, 0.14f);
+        Material material = GetHorseProxyLegMaterial();
+
+        if (hasHooves)
+        {
+            for (int i = 0; i < hooves.Count; i++)
+            {
+                Vector3 hoofLocal = wrapper.InverseTransformPoint(hooves[i].position);
+                Vector3 rel = hoofLocal - centroidLocal;
+                bool front = Vector3.Dot(rel, forwardLocal) >= 0f;
+                bool left = Vector3.Dot(rel, lateralLocal) >= 0f;
+                float phase = (front == left) ? 0f : 0.5f;
+                AddHorseProxyLeg(carriage, hoofLocal, centroidLocal, forwardLocal, lateralLocal,
+                    legTopY, legThickness, strideDistance, phase, "HorseStrideLeg_" + i, material);
+            }
+        }
+        else
+        {
+            float forwardExtent = ProjectBoundsExtent(local, forwardLocal);
+            float lateralExtent = ProjectBoundsExtent(local, lateralLocal);
+            Vector3 baseCenter = local.center + forwardLocal * (forwardExtent * 0.14f);
+            float side = Mathf.Clamp(lateralExtent * 0.22f, 0.10f, 0.28f);
+            float rear = -forwardExtent * 0.05f;
+            float front = forwardExtent * 0.24f;
+            float hoofY = local.min.y + 0.025f;
+            AddHorseProxyLeg(carriage, baseCenter + lateralLocal * side + forwardLocal * front + Vector3.up * (hoofY - baseCenter.y),
+                baseCenter, forwardLocal, lateralLocal, legTopY, legThickness, strideDistance, 0f, "HorseStrideLeg_FL", material);
+            AddHorseProxyLeg(carriage, baseCenter - lateralLocal * side + forwardLocal * front + Vector3.up * (hoofY - baseCenter.y),
+                baseCenter, forwardLocal, lateralLocal, legTopY, legThickness, strideDistance, 0.5f, "HorseStrideLeg_FR", material);
+            AddHorseProxyLeg(carriage, baseCenter + lateralLocal * side + forwardLocal * rear + Vector3.up * (hoofY - baseCenter.y),
+                baseCenter, forwardLocal, lateralLocal, legTopY, legThickness, strideDistance, 0.5f, "HorseStrideLeg_RL", material);
+            AddHorseProxyLeg(carriage, baseCenter - lateralLocal * side + forwardLocal * rear + Vector3.up * (hoofY - baseCenter.y),
+                baseCenter, forwardLocal, lateralLocal, legTopY, legThickness, strideDistance, 0f, "HorseStrideLeg_RR", material);
+        }
+    }
+
+    static void AddHorseProxyLeg(WrapperPose carriage, Vector3 hoofLocal, Vector3 centroidLocal, Vector3 forwardLocal,
+        Vector3 lateralLocal, float legTopY, float thickness, float strideDistance, float phase, string name, Material material)
+    {
+        if (carriage == null || carriage.transform == null) return;
+        Vector3 rel = hoofLocal - centroidLocal;
+        float side = Vector3.Dot(rel, lateralLocal) >= 0f ? 1f : -1f;
+        float height = Mathf.Clamp(legTopY - hoofLocal.y, 0.26f, 0.72f);
+        Vector3 outward = lateralLocal * side * thickness * 1.45f;
+        Vector3 basePosition = hoofLocal + outward + Vector3.up * (height * 0.5f);
+
+        GameObject leg = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+        leg.name = name;
+        Collider collider = leg.GetComponent<Collider>();
+        if (collider != null) Destroy(collider);
+        Transform t = leg.transform;
+        t.SetParent(carriage.transform, false);
+        t.localPosition = basePosition;
+        t.localRotation = Quaternion.identity;
+        t.localScale = new Vector3(thickness, height * 0.5f, thickness);
+        if (material != null)
+        {
+            Renderer renderer = leg.GetComponent<Renderer>();
+            if (renderer != null) renderer.sharedMaterial = material;
+        }
+
+        carriage.horseProxyLegs.Add(new HorseProxyLeg
+        {
+            transform = t,
+            basePosition = basePosition,
+            baseRotation = t.localRotation,
+            strideAxis = forwardLocal.normalized,
+            swingAxis = lateralLocal.normalized,
+            phase = phase,
+            strideDistance = strideDistance,
+            liftDistance = Mathf.Clamp(height * 0.12f, 0.03f, 0.075f)
+        });
+    }
+
+    static float ProjectBoundsExtent(Bounds bounds, Vector3 axis)
+    {
+        if (axis.sqrMagnitude < 1e-6f) return 0f;
+        axis.Normalize();
+        return Mathf.Abs(axis.x) * bounds.extents.x +
+               Mathf.Abs(axis.y) * bounds.extents.y +
+               Mathf.Abs(axis.z) * bounds.extents.z;
+    }
+
     /// <summary>程序化驱动四腿行走：上段前后摆 ±幅度、中段在抬腿半程附加弯曲，整体幅度随车速。</summary>
     static void DriveHorseLegs(WrapperPose carriage, float speed)
     {
         if (carriage == null || carriage.horseLegs == null) return;
         // 速度→幅度：静止收敛到 0（站立），行进抬到满幅；步频也随速度（像真马越快步越急）
-        float gait = Mathf.Clamp01(speed / 2.2f);
-        float swingAmp = 28f * gait;           // 上段最大摆角（度）
-        float kneeAmp = 24f * gait;            // 中段抬腿弯曲（度）
-        float hoofAmp = 12f * gait;            // 末端蹄骨补一段反向摆，近景更看得出在迈步
+        float gait = Mathf.Clamp01(speed / 1.45f);
+        float swingAmp = 38f * gait;           // 上段最大摆角（度）
+        float kneeAmp = 34f * gait;            // 中段抬腿弯曲（度）
+        float hoofAmp = 18f * gait;            // 末端蹄骨补一段反向摆，近景更看得出在迈步
         foreach (HorseLeg leg in carriage.horseLegs)
         {
             if (leg.upper == null) continue;
@@ -835,6 +1061,24 @@ public class LycheeCharacterMotion : MonoBehaviour
         }
     }
 
+    static void DriveHorseProxyLegs(WrapperPose carriage, float speed, float waterBlend)
+    {
+        if (carriage == null || carriage.horseProxyLegs.Count == 0) return;
+        float gait = Mathf.Clamp01(speed / 1.35f) * (1f - waterBlend);
+        foreach (HorseProxyLeg leg in carriage.horseProxyLegs)
+        {
+            if (leg == null || leg.transform == null) continue;
+            float ph = carriage.horseWalkPhase + leg.phase * TwoPi;
+            float stride = Mathf.Sin(ph);
+            float lift = Mathf.Max(0f, Mathf.Cos(ph)) * leg.liftDistance * gait;
+            leg.transform.localPosition = leg.basePosition +
+                leg.strideAxis * (stride * leg.strideDistance * gait) +
+                Vector3.up * lift;
+            leg.transform.localRotation = leg.baseRotation *
+                Quaternion.AngleAxis(-stride * 26f * gait, leg.swingAxis);
+        }
+    }
+
     /// <summary>还原四腿到绑定姿态（水路隐藏/Disabled 时调，防止停在半摆姿势）。</summary>
     static void RestoreHorseLegs(WrapperPose carriage)
     {
@@ -844,6 +1088,30 @@ public class LycheeCharacterMotion : MonoBehaviour
             if (leg.upper != null) leg.upper.localRotation = leg.upperBind;
             if (leg.mid != null) leg.mid.localRotation = leg.midBind;
             if (leg.lower != null) leg.lower.localRotation = leg.lowerBind;
+        }
+    }
+
+    static void RestoreHorseProxyLegs(WrapperPose carriage)
+    {
+        if (carriage == null || carriage.horseProxyLegs.Count == 0) return;
+        foreach (HorseProxyLeg leg in carriage.horseProxyLegs)
+        {
+            if (leg == null || leg.transform == null) continue;
+            leg.transform.localPosition = leg.basePosition;
+            leg.transform.localRotation = leg.baseRotation;
+        }
+    }
+
+    static void SetHorseProxyLegsVisible(WrapperPose carriage, bool visible)
+    {
+        if (carriage == null || carriage.horseProxyLegs.Count == 0) return;
+        bool hidden = !visible;
+        if (carriage.horseProxyHidden == hidden) return;
+        carriage.horseProxyHidden = hidden;
+        foreach (HorseProxyLeg leg in carriage.horseProxyLegs)
+        {
+            if (leg != null && leg.transform != null)
+                leg.transform.gameObject.SetActive(visible);
         }
     }
 
@@ -1518,18 +1786,25 @@ public class LycheeCharacterMotion : MonoBehaviour
                 {
                     carriage.horseHidden = hideHorse;
                     carriage.horse.gameObject.SetActive(!hideHorse);
-                    if (hideHorse) RestoreHorseLegs(carriage); // 隐藏前归位四腿，防下次显形停在半摆姿势
+                    SetHorseProxyLegsVisible(carriage, !hideHorse);
+                    if (hideHorse)
+                    {
+                        RestoreHorseLegs(carriage); // 隐藏前归位四腿，防下次显形停在半摆姿势
+                        RestoreHorseProxyLegs(carriage);
+                    }
                 }
-                if (!hideHorse && carriage.horseLegs != null)
+                bool hasProceduralHorseLegs = carriage.horseLegs != null || carriage.horseProxyLegs.Count > 0;
+                if (!hideHorse && hasProceduralHorseLegs)
                 {
                     // 组合马车无动画 clip：程序化驱动四腿行走。步频随车速，静止收敛站立。
                     // 车体本身（含车轮，焊在蒙皮网格里转不了）只做很轻的随步起伏，重点是腿骨在动。
-                    carriage.horseWalkPhase += (1.2f + rig.speed * 1.6f) * deltaTime;
+                    carriage.horseWalkPhase += (1.55f + rig.speed * 2.05f) * deltaTime;
                     if (carriage.horseWalkPhase > TwoPi) carriage.horseWalkPhase -= TwoPi;
                     DriveHorseLegs(carriage, rig.speed);
-                    float horseGait = Mathf.Clamp01(rig.speed / 2.2f) * (1f - rig.waterBlend);
-                    float horseBob = Mathf.Abs(Mathf.Sin(carriage.horseWalkPhase * 2f)) * 0.026f * horseGait;
-                    float horsePitch = Mathf.Sin(carriage.horseWalkPhase) * 1.6f * horseGait;
+                    DriveHorseProxyLegs(carriage, rig.speed, rig.waterBlend);
+                    float horseGait = Mathf.Clamp01(rig.speed / 1.8f) * (1f - rig.waterBlend);
+                    float horseBob = Mathf.Abs(Mathf.Sin(carriage.horseWalkPhase * 2f)) * 0.03f * horseGait;
+                    float horsePitch = Mathf.Sin(carriage.horseWalkPhase) * 2.0f * horseGait;
                     carriage.horse.localPosition = carriage.horseBasePosition + new Vector3(0f, horseBob, 0f);
                     carriage.horse.localRotation = carriage.horseBaseRotation * Quaternion.Euler(horsePitch, 0f, 0f);
                 }
@@ -1633,6 +1908,8 @@ public class LycheeCharacterMotion : MonoBehaviour
             {
                 rig.carriage.horse.localPosition = rig.carriage.horseBasePosition; // 程序化 bob 动的是马局部位姿
                 rig.carriage.horse.localRotation = rig.carriage.horseBaseRotation;
+                RestoreHorseLegs(rig.carriage);
+                RestoreHorseProxyLegs(rig.carriage);
             }
         }
         if (rig.boat != null && rig.boat.transform != null)
