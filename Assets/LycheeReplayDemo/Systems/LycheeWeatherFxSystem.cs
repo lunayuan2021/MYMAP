@@ -351,20 +351,51 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     void AddStationFallback(List<RegionSpot> spots, string region)
     {
         if (player == null) return;
+        LycheeReplayFrame frame = player.CurrentFrame ?? player.StartFrameData;
         if (region == "WATER")
         {
-            AddStationSpot(spots, "S04", 9f);
-            AddStationSpot(spots, "S05", 9f);
+            AddFrameNodeSpots(spots, frame, node => IsWaterNodeType(node.nodeType), 9f);
+            if (spots.Count == 0)
+            {
+                AddStationSpot(spots, "S04", 9f);
+                AddStationSpot(spots, "S05", 9f);
+            }
         }
         else if (region == "MOUNTAIN")
         {
-            AddStationSpot(spots, "S06", 8f);
-            AddStationSpot(spots, "S08", 8f);
+            AddFrameNodeSpots(spots, frame, node => IsMountainNodeType(node.nodeType), 8f);
+            if (spots.Count == 0)
+            {
+                AddStationSpot(spots, "S06", 8f);
+                AddStationSpot(spots, "S08", 8f);
+            }
         }
         else
         {
-            for (int i = 1; i <= 15; i++)
-                AddStationSpot(spots, "S" + i.ToString("00"), 7f);
+            AddFrameNodeSpots(spots, frame, node => true, 7f);
+            if (spots.Count == 0)
+            {
+                MapStationAnchor[] stations = FindObjectsByType<MapStationAnchor>(FindObjectsSortMode.None);
+                if (stations != null)
+                {
+                    foreach (MapStationAnchor station in stations)
+                    {
+                        if (station == null || string.IsNullOrEmpty(station.stationId)) continue;
+                        AddStationSpot(spots, station.stationId, 7f);
+                    }
+                }
+            }
+        }
+    }
+
+    void AddFrameNodeSpots(List<RegionSpot> spots, LycheeReplayFrame frame,
+        Func<LycheeReplayNodeState, bool> predicate, float radius)
+    {
+        if (frame == null || frame.nodes == null || predicate == null) return;
+        foreach (LycheeReplayNodeState node in frame.nodes)
+        {
+            if (node == null || string.IsNullOrEmpty(node.nodeId) || !predicate(node)) continue;
+            AddStationSpot(spots, node.nodeId, radius);
         }
     }
 
@@ -373,6 +404,18 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         if (player == null) return;
         if (player.TryGetStationPosition(nodeId, out Vector3 position, out string _))
             spots.Add(new RegionSpot { position = position, radius = radius });
+    }
+
+    static bool IsWaterNodeType(string nodeType)
+    {
+        string value = NormalizeToken(nodeType);
+        return value.Contains("WATER") || value.Contains("DOCK") || value.Contains("PORT") || value.Contains("RIVER");
+    }
+
+    static bool IsMountainNodeType(string nodeType)
+    {
+        string value = NormalizeToken(nodeType);
+        return value.Contains("MOUNTAIN") || value.Contains("HILL") || value.Contains("RIDGE");
     }
 
     static bool AnchorMatchesWeather(string regionId, string type, string region)

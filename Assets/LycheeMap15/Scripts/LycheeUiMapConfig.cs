@@ -13,6 +13,7 @@ public class LycheeUiMapConfig
     public LycheeMapLayers layers;
     public List<LycheeNodeInfo> nodes;
     public List<LycheeEdgeInfo> edges;
+    public LycheeGameplayConfig gameplay;
     public List<LycheeRoutePath> routePaths;
 }
 
@@ -72,6 +73,44 @@ public class LycheeRoutePath
     public string pathId;
     public string edgeId;
     public List<LycheeGridPoint> points;
+}
+
+[Serializable]
+public class LycheeGameplayConfig
+{
+    public LycheeGameplayRoles roles;
+    public List<LycheeGameplayResource> resources;
+    public List<LycheeGameplayProcessNode> processNodes;
+    public List<string> obstacleCandidateNodeIds;
+}
+
+[Serializable]
+public class LycheeGameplayRoles
+{
+    public string startNodeId;
+    public List<string> terminalNodeIds;
+    public string gateNodeId;
+    public List<string> safeZoneNodeIds;
+    public string reverifyNodeId;
+    public List<string> rushExcludedNodeIds;
+}
+
+[Serializable]
+public class LycheeGameplayResource
+{
+    public string nodeId;
+    public string resourceType;
+    public int count;
+    public int claimRound;
+}
+
+[Serializable]
+public class LycheeGameplayProcessNode
+{
+    public string nodeId;
+    public string processType;
+    public int processRound;
+    public bool canWindow;
 }
 
 [Serializable]

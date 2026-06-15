@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "mapId": "litchi_map_unity_full_coverage_v2",
-  "mapName": "一骑红尘：荔枝争运战 Unity 全场景 Demo 地图",
-  "designVersion": "V4.1",
+  "mapName": "一骑红尘：荔枝争运战 中等难度竞技地图",
+  "designVersion": "V4.2-MEDIUM",
   "grid": {
     "width": 80,
     "height": 60,
@@ -222,7 +222,7 @@
       "fromNodeId": "S03",
       "toNodeId": "S07",
       "routeType": "ROAD",
-      "distance": 60,
+      "distance": 54,
       "bidirectional": true,
       "pathId": "P_E03"
     },
@@ -231,7 +231,7 @@
       "fromNodeId": "S07",
       "toNodeId": "S09",
       "routeType": "ROAD",
-      "distance": 50,
+      "distance": 46,
       "bidirectional": true,
       "pathId": "P_E04"
     },
@@ -240,7 +240,7 @@
       "fromNodeId": "S09",
       "toNodeId": "S10",
       "routeType": "ROAD",
-      "distance": 42,
+      "distance": 40,
       "bidirectional": true,
       "pathId": "P_E05"
     },
@@ -249,7 +249,7 @@
       "fromNodeId": "S10",
       "toNodeId": "S11",
       "routeType": "ROAD",
-      "distance": 38,
+      "distance": 36,
       "bidirectional": true,
       "pathId": "P_E06"
     },
@@ -303,7 +303,7 @@
       "fromNodeId": "S04",
       "toNodeId": "S05",
       "routeType": "WATER",
-      "distance": 58,
+      "distance": 44,
       "bidirectional": true,
       "pathId": "P_E12"
     },
@@ -311,8 +311,8 @@
       "edgeId": "E13",
       "fromNodeId": "S05",
       "toNodeId": "S07",
-      "routeType": "WATER",
-      "distance": 50,
+      "routeType": "BRANCH",
+      "distance": 46,
       "bidirectional": true,
       "pathId": "P_E13"
     },
@@ -320,8 +320,8 @@
       "edgeId": "E14",
       "fromNodeId": "S09",
       "toNodeId": "S11",
-      "routeType": "ROAD",
-      "distance": 38,
+      "routeType": "BRANCH",
+      "distance": 72,
       "bidirectional": true,
       "pathId": "P_E14"
     },
@@ -330,7 +330,7 @@
       "fromNodeId": "S01",
       "toNodeId": "S06",
       "routeType": "MOUNTAIN",
-      "distance": 48,
+      "distance": 44,
       "bidirectional": true,
       "pathId": "P_E15"
     },
@@ -339,7 +339,7 @@
       "fromNodeId": "S06",
       "toNodeId": "S08",
       "routeType": "MOUNTAIN",
-      "distance": 68,
+      "distance": 54,
       "bidirectional": true,
       "pathId": "P_E16"
     },
@@ -348,11 +348,91 @@
       "fromNodeId": "S08",
       "toNodeId": "S10",
       "routeType": "BRANCH",
-      "distance": 50,
+      "distance": 46,
       "bidirectional": true,
       "pathId": "P_E17"
+    },
+    {
+      "edgeId": "E18",
+      "fromNodeId": "S03",
+      "toNodeId": "S06",
+      "routeType": "BRANCH",
+      "distance": 38,
+      "bidirectional": true,
+      "pathId": "P_E18"
+    },
+    {
+      "edgeId": "E19",
+      "fromNodeId": "S05",
+      "toNodeId": "S09",
+      "routeType": "WATER",
+      "distance": 48,
+      "bidirectional": true,
+      "pathId": "P_E19"
+    },
+    {
+      "edgeId": "E20",
+      "fromNodeId": "S07",
+      "toNodeId": "S08",
+      "routeType": "MOUNTAIN",
+      "distance": 42,
+      "bidirectional": true,
+      "pathId": "P_E20"
+    },
+    {
+      "edgeId": "E21",
+      "fromNodeId": "S04",
+      "toNodeId": "S07",
+      "routeType": "BRANCH",
+      "distance": 54,
+      "bidirectional": true,
+      "pathId": "P_E21"
     }
   ],
+  "gameplay": {
+    "roles": {
+      "startNodeId": "S01",
+      "terminalNodeIds": ["S15"],
+      "gateNodeId": "S14",
+      "safeZoneNodeIds": ["S15"],
+      "reverifyNodeId": "S14",
+      "rushExcludedNodeIds": ["S11", "S12", "S13"]
+    },
+    "resources": [
+      {"nodeId": "S03", "resourceType": "ICE_BOX", "count": 1, "claimRound": 2},
+      {"nodeId": "S03", "resourceType": "PASS_TOKEN", "count": 1, "claimRound": 2},
+      {"nodeId": "S03", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S04", "resourceType": "SHORT_HORSE", "count": 1, "claimRound": 2},
+      {"nodeId": "S04", "resourceType": "BOAT_RIGHT", "count": 1, "claimRound": 2},
+      {"nodeId": "S04", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S07", "resourceType": "ICE_BOX", "count": 1, "claimRound": 2},
+      {"nodeId": "S07", "resourceType": "FAST_HORSE", "count": 1, "claimRound": 2},
+      {"nodeId": "S07", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S09", "resourceType": "FAST_HORSE", "count": 1, "claimRound": 2},
+      {"nodeId": "S09", "resourceType": "OFFICIAL_PERMIT", "count": 1, "claimRound": 2},
+      {"nodeId": "S09", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S13", "resourceType": "PASS_TOKEN", "count": 1, "claimRound": 2},
+      {"nodeId": "S13", "resourceType": "OFFICIAL_PERMIT", "count": 1, "claimRound": 2},
+      {"nodeId": "S13", "resourceType": "INTEL", "count": 1, "claimRound": 2}
+    ],
+    "processNodes": [
+      {"nodeId": "S02", "processType": "TRANSFER", "processRound": 4, "canWindow": true},
+      {"nodeId": "S04", "processType": "BOARD", "processRound": 7, "canWindow": true},
+      {"nodeId": "S05", "processType": "WATER_TRANSFER", "processRound": 6, "canWindow": true},
+      {"nodeId": "S11", "processType": "PASS_TRANSFER", "processRound": 5, "canWindow": true},
+      {"nodeId": "S13", "processType": "PALACE_TRANSFER", "processRound": 5, "canWindow": true},
+      {"nodeId": "S14", "processType": "VERIFY", "processRound": 6, "canWindow": true}
+    ],
+    "taskCandidates": {
+      "T01": ["S03", "S10", "S11"],
+      "T02": ["S02", "S07", "S09", "S13"],
+      "T04": ["S06", "S08"],
+      "T06": ["S04", "S07", "S09"],
+      "T08": ["S04", "S05"],
+      "T09": ["S14"]
+    },
+    "obstacleCandidateNodeIds": ["S06", "S08", "S11"]
+  },
   "routePaths": [
     {
       "pathId": "P_E01",
@@ -689,6 +769,90 @@
         {
           "x": 62,
           "y": 26
+        }
+      ]
+    },
+    {
+      "pathId": "P_E18",
+      "edgeId": "E18",
+      "points": [
+        {
+          "x": 22,
+          "y": 38
+        },
+        {
+          "x": 19,
+          "y": 36
+        },
+        {
+          "x": 16,
+          "y": 34
+        },
+        {
+          "x": 14,
+          "y": 32
+        }
+      ]
+    },
+    {
+      "pathId": "P_E19",
+      "edgeId": "E19",
+      "points": [
+        {
+          "x": 38,
+          "y": 48
+        },
+        {
+          "x": 44,
+          "y": 43
+        },
+        {
+          "x": 50,
+          "y": 37
+        },
+        {
+          "x": 55,
+          "y": 32
+        }
+      ]
+    },
+    {
+      "pathId": "P_E20",
+      "edgeId": "E20",
+      "points": [
+        {
+          "x": 40,
+          "y": 36
+        },
+        {
+          "x": 41,
+          "y": 31
+        },
+        {
+          "x": 42,
+          "y": 24
+        }
+      ]
+    },
+    {
+      "pathId": "P_E21",
+      "edgeId": "E21",
+      "points": [
+        {
+          "x": 22,
+          "y": 52
+        },
+        {
+          "x": 28,
+          "y": 47
+        },
+        {
+          "x": 34,
+          "y": 41
+        },
+        {
+          "x": 40,
+          "y": 36
         }
       ]
     }

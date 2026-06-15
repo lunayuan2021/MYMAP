@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -44,6 +45,8 @@ public static class LycheeMapLayoutGenerator_20260613
     const string OfficialMap1SceneName = "Map_medium";
     const string OutSceneFolder = "Assets/Scenes/GeneratedMaps";
     const string MeshRootFolder = "Assets/LycheeMap15/GeneratedMeshes";
+    const string RuntimeConfigFolder = "Assets/StreamingAssets/Tournament";
+    const string MapConfigArchiveFolder = "Assets/LycheeMap15/Configs/Maps";
     const string OverlayRootName = "Route_Line_Overlay_20260611V";
     // 母版当前所代表的基线 config（用于「变没变」的差异判定，最大化保留）。
     const string BaselineConfigPath = "Assets/LycheeMap15/Configs/Maps/ui_map_config_unity_full_coverage_v2.json";
@@ -171,7 +174,8 @@ public static class LycheeMapLayoutGenerator_20260613
             { Abort(report, "母版场景当前有未保存改动，请先保存或撤销后再生成（防误存母版）。"); return false; }
 
             // 1. 读新 config + 基线 config。
-            LycheeUiMapConfig config = ReadConfig(mapConfigJsonPath);
+            string configJson = File.ReadAllText(ToAbsolute(mapConfigJsonPath));
+            LycheeUiMapConfig config = ReadConfigText(configJson);
             if (config == null || config.grid == null || config.nodes == null ||
                 config.edges == null || config.routePaths == null)
             { Abort(report, "新 config 结构无效（grid/nodes/edges/routePaths 缺失）。"); return false; }
@@ -199,6 +203,8 @@ public static class LycheeMapLayoutGenerator_20260613
                                    .GroupBy(p => p.edgeId).ToDictionary(g => g.Key, g => g.First())
                                    ?? new Dictionary<string, LycheeRoutePath>();
             var baseNode = baseline?.nodes?.ToDictionary(n => n.nodeId, n => n) ?? new Dictionary<string, LycheeNodeInfo>();
+
+            ValidateFlexibleConfig(config, configJson, report);
 
             // 2. 克隆母版 → 打开副本（绝不在母版上改）。
             EnsureFolder(OutSceneFolder);
@@ -288,7 +294,7 @@ public static class LycheeMapLayoutGenerator_20260613
                     ParseRouteType(be.routeType) == type &&
                     baseRoutePath.TryGetValue(edge.edgeId, out var bp) && SamePath(bp, path);
 
-                if (baseSameTypeSamePath && existsInScene)
+                if (baseSameTypeSamePath && existsInScene && sceneEdge.routeType == type)
                 {
                     // 几何完全没变：原样保留（不重画，保住贴合成果）；仅同步端点/距离元数据，避免陈旧引用。
                     if (sceneEdge.fromStationId != edge.fromNodeId || sceneEdge.toStationId != edge.toNodeId ||
@@ -378,6 +384,7 @@ public static class LycheeMapLayoutGenerator_20260613
                 playersTagged++;
             }
             report.Add($"player.streamingReplayPath = {replayRelative}（{playersTagged} 个 player）");
+            ArchiveMapConfig(mapConfigJsonPath, mapKey, report);
 
             // 7b. 锦标赛切场景链：把全图场景名写进本场景的控制器。
             if (perMapSceneNames != null && perMapSceneNames.Length > 0)
@@ -1295,7 +1302,173 @@ public static class LycheeMapLayoutGenerator_20260613
     // ============================================================ 工具
 
     static LycheeUiMapConfig ReadConfig(string pathMaybeRelative) =>
-        JsonUtility.FromJson<LycheeUiMapConfig>(File.ReadAllText(ToAbsolute(pathMaybeRelative)));
+        ReadConfigText(File.ReadAllText(ToAbsolute(pathMaybeRelative)));
+
+    static LycheeUiMapConfig ReadConfigText(string json) =>
+        JsonUtility.FromJson<LycheeUiMapConfig>(json);
+
+    static void ValidateFlexibleConfig(LycheeUiMapConfig config, string rawJson, List<string> report)
+    {
+        var nodeIds = new HashSet<string>((config.nodes ?? new List<LycheeNodeInfo>())
+            .Where(n => n != null && !string.IsNullOrEmpty(n.nodeId))
+            .Select(n => n.nodeId));
+        var edgeIds = new HashSet<string>((config.edges ?? new List<LycheeEdgeInfo>())
+            .Where(e => e != null && !string.IsNullOrEmpty(e.edgeId))
+            .Select(e => e.edgeId));
+        var routePathEdgeIds = new HashSet<string>((config.routePaths ?? new List<LycheeRoutePath>())
+            .Where(p => p != null && !string.IsNullOrEmpty(p.edgeId))
+            .Select(p => p.edgeId));
+
+        foreach (LycheeEdgeInfo edge in config.edges ?? new List<LycheeEdgeInfo>())
+        {
+            if (edge == null) continue;
+            ValidateNodeRef("edge." + edge.edgeId + ".fromNodeId", edge.fromNodeId, nodeIds, report);
+            ValidateNodeRef("edge." + edge.edgeId + ".toNodeId", edge.toNodeId, nodeIds, report);
+            if (!routePathEdgeIds.Contains(edge.edgeId))
+                report.Add($"[警告] {edge.edgeId}: edges 中存在，但 routePaths 缺少对应折线。");
+        }
+        foreach (string pathEdgeId in routePathEdgeIds)
+            if (!edgeIds.Contains(pathEdgeId))
+                report.Add($"[警告] routePaths.{pathEdgeId}: 有折线但 edges 中没有对应边。");
+
+        LycheeGameplayConfig gameplay = config.gameplay;
+        int roleRefCount = 0;
+        int resources = gameplay?.resources?.Count ?? 0;
+        int processNodes = gameplay?.processNodes?.Count ?? 0;
+        int obstacleNodes = gameplay?.obstacleCandidateNodeIds?.Count ?? 0;
+        if (gameplay != null)
+        {
+            LycheeGameplayRoles roles = gameplay.roles;
+            if (roles != null)
+            {
+                roleRefCount += ValidateGameplayNode("gameplay.roles.startNodeId", roles.startNodeId, nodeIds, report);
+                roleRefCount += ValidateGameplayNodeList("gameplay.roles.terminalNodeIds", roles.terminalNodeIds, nodeIds, report);
+                roleRefCount += ValidateGameplayNode("gameplay.roles.gateNodeId", roles.gateNodeId, nodeIds, report);
+                roleRefCount += ValidateGameplayNodeList("gameplay.roles.safeZoneNodeIds", roles.safeZoneNodeIds, nodeIds, report);
+                roleRefCount += ValidateGameplayNode("gameplay.roles.reverifyNodeId", roles.reverifyNodeId, nodeIds, report);
+                roleRefCount += ValidateGameplayNodeList("gameplay.roles.rushExcludedNodeIds", roles.rushExcludedNodeIds, nodeIds, report);
+            }
+
+            foreach (LycheeGameplayResource resource in gameplay.resources ?? new List<LycheeGameplayResource>())
+                if (resource != null)
+                    ValidateNodeRef("gameplay.resources." + resource.resourceType, resource.nodeId, nodeIds, report);
+            foreach (LycheeGameplayProcessNode process in gameplay.processNodes ?? new List<LycheeGameplayProcessNode>())
+                if (process != null)
+                    ValidateNodeRef("gameplay.processNodes." + process.processType, process.nodeId, nodeIds, report);
+            ValidateGameplayNodeList("gameplay.obstacleCandidateNodeIds", gameplay.obstacleCandidateNodeIds, nodeIds, report);
+        }
+
+        int taskGroups = ValidateTaskCandidates(rawJson, nodeIds, report);
+        report.Add($"flex-config: gameplay.rolesRefs={roleRefCount} resources={resources} processNodes={processNodes} " +
+                   $"taskCandidateGroups={taskGroups} obstacleCandidates={obstacleNodes}");
+    }
+
+    static int ValidateGameplayNode(string label, string nodeId, HashSet<string> nodeIds, List<string> report)
+    {
+        if (string.IsNullOrEmpty(nodeId)) return 0;
+        ValidateNodeRef(label, nodeId, nodeIds, report);
+        return 1;
+    }
+
+    static int ValidateGameplayNodeList(string label, List<string> ids, HashSet<string> nodeIds, List<string> report)
+    {
+        if (ids == null) return 0;
+        foreach (string nodeId in ids) ValidateNodeRef(label, nodeId, nodeIds, report);
+        return ids.Count;
+    }
+
+    static void ValidateNodeRef(string label, string nodeId, HashSet<string> nodeIds, List<string> report)
+    {
+        if (string.IsNullOrEmpty(nodeId)) return;
+        if (!nodeIds.Contains(nodeId))
+            report.Add($"[警告] {label} 引用不存在的 nodeId: {nodeId}");
+    }
+
+    static int ValidateTaskCandidates(string rawJson, HashSet<string> nodeIds, List<string> report)
+    {
+        string taskObject = ExtractJsonObject(rawJson, "taskCandidates");
+        if (string.IsNullOrEmpty(taskObject)) return 0;
+
+        int groups = 0;
+        foreach (Match group in Regex.Matches(taskObject, "\"(?<task>[^\"]+)\"\\s*:\\s*\\[(?<items>[^\\]]*)\\]"))
+        {
+            groups++;
+            string taskId = group.Groups["task"].Value;
+            string items = group.Groups["items"].Value;
+            foreach (Match item in Regex.Matches(items, "\"(?<node>[^\"]+)\""))
+                ValidateNodeRef("gameplay.taskCandidates." + taskId, item.Groups["node"].Value, nodeIds, report);
+        }
+        return groups;
+    }
+
+    static string ExtractJsonObject(string json, string propertyName)
+    {
+        if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(propertyName)) return null;
+        int propertyIndex = json.IndexOf("\"" + propertyName + "\"", StringComparison.Ordinal);
+        if (propertyIndex < 0) return null;
+        int start = json.IndexOf('{', propertyIndex);
+        if (start < 0) return null;
+
+        bool inString = false;
+        bool escape = false;
+        int depth = 0;
+        for (int i = start; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (inString)
+            {
+                if (escape) escape = false;
+                else if (c == '\\') escape = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            if (c == '"') inString = true;
+            else if (c == '{') depth++;
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0) return json.Substring(start, i - start + 1);
+            }
+        }
+        return null;
+    }
+
+    static void ArchiveMapConfig(string sourceConfigPath, string mapKey, List<string> report)
+    {
+        if (string.IsNullOrEmpty(sourceConfigPath)) return;
+        string sourceAbsolute = ToAbsolute(sourceConfigPath);
+        if (!File.Exists(sourceAbsolute))
+        {
+            report.Add("[警告] 配置归档失败，源文件不存在: " + sourceConfigPath);
+            return;
+        }
+
+        string safeKey = Sanitize(string.IsNullOrEmpty(mapKey) ? "map" : mapKey);
+        CopyJsonAsset(sourceAbsolute, RuntimeConfigFolder + "/" + safeKey + "_config.json", report);
+        CopyJsonAsset(sourceAbsolute, MapConfigArchiveFolder + "/" + MapOrdinalName(safeKey) + ".json", report);
+    }
+
+    static void CopyJsonAsset(string sourceAbsolute, string targetProjectPath, List<string> report)
+    {
+        string targetAbsolute = ToAbsolute(targetProjectPath);
+        if (string.Equals(Path.GetFullPath(sourceAbsolute), Path.GetFullPath(targetAbsolute), StringComparison.OrdinalIgnoreCase))
+        {
+            report.Add("map_config 已在目标位置，无需重复归档: " + targetProjectPath);
+            return;
+        }
+
+        EnsureFolderRecursive(Path.GetDirectoryName(targetProjectPath).Replace('\\', '/'));
+        File.Copy(sourceAbsolute, targetAbsolute, true);
+        AssetDatabase.ImportAsset(targetProjectPath, ImportAssetOptions.ForceSynchronousImport);
+        report.Add("已归档 map_config: " + targetProjectPath);
+    }
+
+    static string MapOrdinalName(string mapKey)
+    {
+        Match match = Regex.Match(mapKey ?? string.Empty, "^map_?(\\d+)$", RegexOptions.IgnoreCase);
+        return match.Success ? "map_" + match.Groups[1].Value : mapKey;
+    }
 
     static Transform FindChild(Transform parent, string name)
     {
