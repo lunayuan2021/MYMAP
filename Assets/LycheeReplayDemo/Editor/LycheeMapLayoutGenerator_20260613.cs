@@ -72,18 +72,17 @@ public static class LycheeMapLayoutGenerator_20260613
     // - 旧 WATER 改成陆路时，旧河床要抬回并覆盖为陆地材质，不能让黄土河床残在路底。
     const float CarveHalfWidth = 3.0f;     // 河谷半宽：宽于水面，保证拉近看能看到凹进去的岸坡
     const float CarveDepth = 1.55f;        // 河谷中心相对原地表的下挖深度
-    const float CarveEndTaperFrac = 0.14f; // 沿河两端收口到 0（端点是驿站，不能挖坑）
+    const float CarveEndTaperFrac = 0.18f; // 沿河两端更长收口到 0（端点是驿站/码头，不能挖坑淹建筑）
     const float WaterDepthFrac = 0.45f;    // （旧平面水面用）水面坐落在平底之上
     const float WaterDrapeWidth = 1.75f;   // 水面比河谷窄，露出两侧下挖岸坡
     const float WaterDrapeLift = 0.105f;   // 水面贴河床上方的薄水膜高度
-    const float RiverBedWidth = 4.70f;     // 沙石河滩覆盖中心河槽和大部分下挖坡面，避免露出暗绿草坡/几何贴片
+    const float RiverBedWidth = 2.15f;     // 沙石河滩只作为水边窄砾石带；避免两岸出现大面积土带
     const int RiverBedCrossSegs = 10;      // 沙床横向细分段数（贴合 U 形河槽）
-    const float RiverBedTrimFrac = 0.08f;  // 沙床仅在端点广场内收一下；不能大段缺失导致水面像断流
     const float RiverEndpointClearFrac = 0.06f; // 只保护紧贴驿站/码头的起止点；其余交汇道路必须压到河床下
+    const float RiverBedEndpointClearDistance = 5.4f; // 河床沙石贴片避开水驿/码头/道路接头，仅水面自然入驿
+    const float RoadWaterEndpointClearDistance = 5.2f; // 水驿/码头附近道路接头不能被河道下压吃掉
     const float WaterSurfaceEndTaperFrac = 0.14f; // 水面端点做宽度渐变，不再硬裁首尾
-    const float WaterSurfaceEndMinWidthFrac = 0.42f; // 端点仍保留可见水面，避免码头旁出现断水
-    const float WaterJunctionPoolLift = 0.045f; // 水驿/码头汇合补片在河面层，低于码头/道路，避免蓝片盖楼盖路
-    const float WaterJunctionBedLift = 0.012f; // 港湾沙石底略高于河床、低于水面
+    const float WaterSurfaceEndMinWidthFrac = 0.32f; // 端点仍保留可见水面，但不再铺成淹没码头的宽蓝片
     const float WaterOverlayLift = 0.05f;  // 水面高光带高于水面
     const float FormerRiverRestoreHalfWidth = 3.2f;    // 旧水路改陆路时，回填旧河沟的影响半宽
     const float FormerRiverRestoreSampleOffset = 3.6f; // 采两侧岸高的偏移，略大于挖河半宽
@@ -412,7 +411,7 @@ public static class LycheeMapLayoutGenerator_20260613
             }
 
             // 6b. 新河道凹陷：下挖地形成河谷 + 沉水面（每图地形是独立副本，安全）。
-            CarveRivers(waterEdges, sceneCtx, report);
+            CarveRivers(waterEdges, sceneCtx, anchorById, report);
             BuildWaterJunctionPools(config, newRoutePath, anchorById, sceneCtx, report);
             CleanupTransientRestoredTerrainAssets(sceneCtx, report);
 
@@ -977,6 +976,7 @@ public static class LycheeMapLayoutGenerator_20260613
         {
             float d = NearestOnPolylineXZ(x, z, w, out float along, out _);
             if (along < RiverEndpointClearFrac || along > 1f - RiverEndpointClearFrac) continue;
+            if (NearPolylineEndpoint(x, z, w, RoadWaterEndpointClearDistance)) continue;
             if (d < nearD) nearD = d;
         }
         if (nearD > CarveHalfWidth + 0.15f) return float.MaxValue; // 不在河谷范围
@@ -993,11 +993,21 @@ public static class LycheeMapLayoutGenerator_20260613
             {
                 float d = NearestOnPolylineXZ(p.x, p.z, water, out float along, out _);
                 if (along < RiverEndpointClearFrac || along > 1f - RiverEndpointClearFrac) continue;
+                if (NearPolylineEndpoint(p.x, p.z, water, RoadWaterEndpointClearDistance)) continue;
                 if (d <= threshold)
                     return true;
             }
         }
         return false;
+    }
+
+    static bool NearPolylineEndpoint(float x, float z, Vector3[] pts, float clearDistance)
+    {
+        if (pts == null || pts.Length == 0 || clearDistance <= 0f) return false;
+        var p = new Vector2(x, z);
+        var a = new Vector2(pts[0].x, pts[0].z);
+        var b = new Vector2(pts[pts.Length - 1].x, pts[pts.Length - 1].z);
+        return Vector2.Distance(p, a) <= clearDistance || Vector2.Distance(p, b) <= clearDistance;
     }
 
     static Vector3 GridToWorld(float x, float y, float lift, SceneContext ctx)
@@ -1256,7 +1266,8 @@ public static class LycheeMapLayoutGenerator_20260613
     /// <summary>为新增/重建的水路下挖河谷 + 沉水面：①克隆地形网格副本并按到水路中心线的距离下挖顶点；
     /// ②同步下挖 MapElevationData.heightSamples；③把水面/高光/彩带/行船 pathPoints 沉到原地表下 WaterSurfaceDrop。
     /// 原地表高度取自挖河前建好的 ctx.terrainSurface（不受本次下挖影响），保证水面相对原岸的下沉量稳定。</summary>
-    static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx, List<string> report)
+    static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
+        Dictionary<string, MapStationAnchor> anchorById, List<string> report)
     {
         if (waters == null || waters.Count == 0) return;
         report.Add("--- 挖河凹陷 ---");
@@ -1313,7 +1324,7 @@ public static class LycheeMapLayoutGenerator_20260613
         {
             if (edge == null) continue;
             // 沙石河床（水下沙底 + 两侧河滩，U 形贴河床）。
-            BuildRiverBed(edge, world, ctx, waters, sandMat, report);
+            BuildRiverBed(edge, world, ctx, waters, sandMat, anchorById, report);
 
             // 水面：全线连续铺设，端点只渐窄/渐浅，不再整段裁掉，避免码头和水驿旁出现断水碎片。
             ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_Route", world, WaterDrapeWidth, WaterDrapeLift,
@@ -1376,11 +1387,12 @@ public static class LycheeMapLayoutGenerator_20260613
         return r;
     }
 
-    /// <summary>沿挖好的河谷铺一张宽沙石网格（河床/河滩），裁掉首尾避开端点驿站。子物体缺失则新建。</summary>
+    /// <summary>沿挖好的河谷铺一张窄沙石网格（河床/河滩），按端点建筑半径裁掉首尾避开码头/道路接头。子物体缺失则新建。</summary>
     static void BuildRiverBed(MapRouteEdge edge, Vector3[] world, SceneContext ctx,
-        List<(MapRouteEdge edge, Vector3[] world)> waters, Material sandMat, List<string> report)
+        List<(MapRouteEdge edge, Vector3[] world)> waters, Material sandMat,
+        Dictionary<string, MapStationAnchor> anchorById, List<string> report)
     {
-        Vector3[] mid = TrimEnds(world, RiverBedTrimFrac);
+        Vector3[] mid = TrimRiverBedToEndpointClearance(edge, world, anchorById);
         if (mid.Length < 2) { report.Add($"[河床] {edge.edgeId} 路径太短，跳过"); return; }
         string name = edge.edgeId + "_RiverBed";
         Transform bed = FindChild(edge.transform, name);
@@ -1402,7 +1414,8 @@ public static class LycheeMapLayoutGenerator_20260613
         report.Add($"[河床] {edge.edgeId} 沙石河滩 {mid.Length}x{RiverBedCrossSegs + 1} width={RiverBedWidth:F1} mat={(sandMat ? sandMat.name : "<无>")}");
     }
 
-    /// <summary>多条水路在水驿/码头汇合时补一张港湾水面，避免端点建筑把河面切成几段。</summary>
+    /// <summary>多条水路在水驿/码头汇合时，禁用历史透明补片，但不再生成圆形港湾水池。
+    /// 水路端点由各自水面延伸到码头；圆形补片会淹没建筑和道路接头。</summary>
     static void BuildWaterJunctionPools(LycheeUiMapConfig config,
         Dictionary<string, LycheeRoutePath> routePathByEdge,
         Dictionary<string, MapStationAnchor> anchorById,
@@ -1419,28 +1432,20 @@ public static class LycheeMapLayoutGenerator_20260613
             AddWaterEndpoint(byNode, e.toNodeId, e.edgeId, EndpointDirection(path, false, ctx));
         }
 
-        Material waterMat = FindWaterMaterial();
-        Material sandMat = FindSandMaterial(ctx);
         Transform root = null;
-        int built = 0;
+        int cleaned = 0;
         foreach (var kv in byNode)
         {
             if (kv.Value.Count < 2) continue;
             if (!anchorById.TryGetValue(kv.Key, out var anchor) || anchor == null) continue;
-            if (root == null)
-            {
-                var existing = FindAnyByName("MapLayout_WaterJunctionPools");
-                root = existing != null ? existing : new GameObject("MapLayout_WaterJunctionPools").transform;
-            }
+            if (root == null) root = FindAnyByName("MapLayout_WaterJunctionPools");
 
             string poolName = kv.Key + "_WaterJunctionPool";
             string bedName = kv.Key + "_WaterJunctionBed";
-            Transform oldPool = FindChild(root, poolName);
+            Transform oldPool = root != null ? FindChild(root, poolName) : null;
             if (oldPool != null) UnityEngine.Object.DestroyImmediate(oldPool.gameObject);
-            Transform oldBed = FindChild(root, bedName);
+            Transform oldBed = root != null ? FindChild(root, bedName) : null;
             if (oldBed != null) UnityEngine.Object.DestroyImmediate(oldBed.gameObject);
-
-            float radius = Mathf.Clamp(BuildingRadius(anchor) * 0.76f, 2.0f, 2.9f);
 
             Transform legacyPatch = FindAnyByName("Patch_" + kv.Key + "_Junction");
             if (legacyPatch != null)
@@ -1449,33 +1454,10 @@ public static class LycheeMapLayoutGenerator_20260613
                 EditorUtility.SetDirty(legacyPatch.gameObject);
                 report.Add($"[水面补片] {kv.Key}: 禁用旧 Patch_{kv.Key}_Junction，避免透明水面叠加成块状亮斑");
             }
-
-            var bedGo = new GameObject(bedName);
-            bedGo.transform.SetParent(root, false);
-            var bedMf = bedGo.AddComponent<MeshFilter>();
-            var bedMr = bedGo.AddComponent<MeshRenderer>();
-            if (sandMat != null) bedMr.sharedMaterial = sandMat;
-            Mesh bedMesh = CreateWaterJunctionPoolMesh(anchor.transform.position, kv.Value, radius * 1.02f,
-                bedName, bedGo.transform, ctx, false);
-            bedMf.sharedMesh = SaveMesh(bedMesh, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + bedName + ".asset");
-            EditorUtility.SetDirty(bedMf);
-            EditorUtility.SetDirty(bedMr);
-
-            var go = new GameObject(poolName);
-            go.transform.SetParent(root, false);
-            var mf = go.AddComponent<MeshFilter>();
-            var mr = go.AddComponent<MeshRenderer>();
-            if (waterMat != null) mr.sharedMaterial = waterMat;
-
-            Mesh mesh = CreateWaterJunctionPoolMesh(anchor.transform.position, kv.Value, radius,
-                poolName, go.transform, ctx, true);
-            mf.sharedMesh = SaveMesh(mesh, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + poolName + ".asset");
-            EditorUtility.SetDirty(mf);
-            EditorUtility.SetDirty(mr);
-            built++;
-            report.Add($"[水面补片] {kv.Key}: {kv.Value.Count} 条水路汇合，生成港湾沙底+水面 radius={radius:F1} mat={(waterMat ? waterMat.name : "<无水材质>")}/{(sandMat ? sandMat.name : "<无沙材质>")}");
+            cleaned++;
+            report.Add($"[水面补片] {kv.Key}: 保留水路端点自然入驿，不生成圆形港湾水池，避免淹没建筑/道路接头");
         }
-        if (built > 0) report.Add($"[水面补片] 共生成 {built} 个水驿/码头汇合水面");
+        if (cleaned > 0) report.Add($"[水面补片] 共清理 {cleaned} 个水驿/码头汇合补片");
     }
 
     static void AddWaterEndpoint(Dictionary<string, List<WaterEndpointDir>> byNode, string nodeId, string edgeId, Vector2 dir)
@@ -1499,83 +1481,71 @@ public static class LycheeMapLayoutGenerator_20260613
         return d.sqrMagnitude < 1e-5f ? Vector2.right : d.normalized;
     }
 
-    static Mesh CreateWaterJunctionPoolMesh(Vector3 center, List<WaterEndpointDir> dirs, float radius,
-        string name, Transform target, SceneContext ctx, bool waterSurface)
+    static Vector3[] TrimRiverBedToEndpointClearance(MapRouteEdge edge, Vector3[] pts,
+        Dictionary<string, MapStationAnchor> anchorById)
     {
-        const int segs = 48;
-        var vertices = new Vector3[segs + 1];
-        var uv = new Vector2[vertices.Length];
-        var tris = new List<int>(segs * 3);
+        if (pts == null || pts.Length < 2) return pts;
+        float startClear = EndpointRiverBedClear(edge != null ? edge.fromStationId : null, anchorById);
+        float endClear = EndpointRiverBedClear(edge != null ? edge.toStationId : null, anchorById);
+        return TrimPolylineByDistance(pts, startClear, endClear, 2.0f);
+    }
 
-        Vector3 c = center;
-        c.y = waterSurface ? JunctionWaterY(ctx, c.x, c.z) : JunctionBedY(ctx, c.x, c.z);
-        vertices[0] = target.InverseTransformPoint(c);
-        uv[0] = new Vector2(0.5f, 0.5f);
+    static float EndpointRiverBedClear(string stationId, Dictionary<string, MapStationAnchor> anchorById)
+    {
+        float clear = RiverBedEndpointClearDistance;
+        if (!string.IsNullOrEmpty(stationId) && anchorById != null &&
+            anchorById.TryGetValue(stationId, out var anchor) && anchor != null)
+            clear = Mathf.Max(clear, BuildingRadius(anchor) + 1.4f);
+        return clear;
+    }
 
-        for (int i = 0; i < segs; i++)
+    static Vector3[] TrimPolylineByDistance(Vector3[] pts, float startClear, float endClear, float minSpan)
+    {
+        if (pts == null || pts.Length < 2) return pts;
+        var dist = new float[pts.Length];
+        for (int i = 1; i < pts.Length; i++)
+            dist[i] = dist[i - 1] + SegmentLengthXZ(pts[i - 1], pts[i]);
+        float total = dist[dist.Length - 1];
+        if (total <= Mathf.Max(0.1f, minSpan)) return pts;
+
+        startClear = Mathf.Max(0f, startClear);
+        endClear = Mathf.Max(0f, endClear);
+        float maxTrim = Mathf.Max(0f, total - Mathf.Max(0.1f, minSpan));
+        float trimSum = startClear + endClear;
+        if (trimSum > maxTrim && trimSum > 0.001f)
         {
-            float angle = (i / (float)segs) * Mathf.PI * 2f;
-            var unit = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-            float lobe = 0f;
-            foreach (var d in dirs)
-                lobe = Mathf.Max(lobe, Mathf.Max(0f, Vector2.Dot(unit, d.dir)));
-            float noise = (Mathf.PerlinNoise(i * 0.19f + 4.7f, 12.3f) - 0.5f) * 0.08f;
-            float r = radius * (Mathf.Lerp(0.40f, 1.20f, Mathf.Pow(lobe, 1.25f)) + noise);
-            Vector3 p = new Vector3(center.x + unit.x * r, 0f, center.z + unit.y * r);
-            p.y = waterSurface ? JunctionWaterY(ctx, p.x, p.z) : JunctionBedY(ctx, p.x, p.z);
-            vertices[i + 1] = target.InverseTransformPoint(p);
-            uv[i + 1] = new Vector2(0.5f + unit.x * 0.5f, 0.5f + unit.y * 0.5f);
+            float scale = maxTrim / trimSum;
+            startClear *= scale;
+            endClear *= scale;
         }
 
-        for (int i = 0; i < segs; i++)
+        float startAt = Mathf.Clamp(startClear, 0f, total);
+        float endAt = Mathf.Clamp(total - endClear, startAt + 0.05f, total);
+        var r = new List<Vector3> { PointOnPolylineAtDistance(pts, dist, startAt) };
+        for (int i = 1; i < pts.Length - 1; i++)
+            if (dist[i] > startAt + 0.05f && dist[i] < endAt - 0.05f)
+                r.Add(pts[i]);
+        r.Add(PointOnPolylineAtDistance(pts, dist, endAt));
+        return r.Count >= 2 ? r.ToArray() : pts;
+    }
+
+    static Vector3 PointOnPolylineAtDistance(Vector3[] pts, float[] dist, float target)
+    {
+        if (pts == null || pts.Length == 0) return Vector3.zero;
+        if (pts.Length == 1 || target <= 0f) return pts[0];
+        for (int i = 1; i < pts.Length; i++)
         {
-            int a = 0, b = i + 1, cidx = (i + 1) % segs + 1;
-            // 正面朝上。旧顺序从俯视角是背面，URP 会剔除，导致港湾补水面“有对象但看不到”。
-            tris.Add(a); tris.Add(cidx); tris.Add(b);
+            if (target > dist[i]) continue;
+            float seg = Mathf.Max(0.0001f, dist[i] - dist[i - 1]);
+            float t = Mathf.Clamp01((target - dist[i - 1]) / seg);
+            return Vector3.Lerp(pts[i - 1], pts[i], t);
         }
-
-        var mesh = new Mesh { name = name };
-        mesh.vertices = vertices; mesh.uv = uv; mesh.SetTriangles(tris, 0);
-        mesh.normals = Enumerable.Repeat(Vector3.up, vertices.Length).ToArray();
-        mesh.RecalculateBounds();
-        return mesh;
+        return pts[pts.Length - 1];
     }
 
-    static float JunctionWaterY(SceneContext ctx, float x, float z)
+    static float SegmentLengthXZ(Vector3 a, Vector3 b)
     {
-        float y = CarvedY(ctx, x, z, ctx.waterTuples) + WaterDrapeLift + WaterJunctionPoolLift;
-        if (ctx.elevation != null)
-            y = Mathf.Max(y, ctx.elevation.SampleWorldHeight(x, z) + WaterLift + WaterJunctionPoolLift * 0.45f);
-        return y;
-    }
-
-    static float JunctionBedY(SceneContext ctx, float x, float z)
-    {
-        float y = CarvedY(ctx, x, z, ctx.waterTuples) + WaterJunctionBedLift;
-        if (ctx.elevation != null)
-            y = Mathf.Max(y, ctx.elevation.SampleWorldHeight(x, z) + WaterJunctionBedLift * 0.5f);
-        return y;
-    }
-
-    static Material FindWaterMaterial()
-    {
-        foreach (var edge in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
-        {
-            if (edge == null || edge.routeType != MapRouteType.Water) continue;
-            Transform route = FindChild(edge.transform, edge.edgeId + "_Route");
-            var mr = route != null ? route.GetComponent<MeshRenderer>() : null;
-            if (mr != null && mr.sharedMaterial != null) return mr.sharedMaterial;
-        }
-        return null;
-    }
-
-    static Vector3[] TrimEnds(Vector3[] pts, float frac)
-    {
-        if (pts.Length < 4) return pts;
-        int cut = Mathf.Clamp(Mathf.RoundToInt(pts.Length * frac), 1, pts.Length / 2 - 1);
-        var r = new List<Vector3>();
-        for (int i = cut; i <= pts.Length - 1 - cut; i++) r.Add(pts[i]);
-        return r.ToArray();
+        return Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
     }
 
     /// <summary>把路面折线裁到两端驿站建筑足迹之外：去掉落在 from/to 建筑半径内的点，路面止于建筑边缘、不盖楼/码头/船。
@@ -1662,12 +1632,24 @@ public static class LycheeMapLayoutGenerator_20260613
             AssetDatabase.CreateAsset(mat, path);
         }
 
-        Texture2D sandTex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/LycheeMap15/Materials/T_SandySoil.asset");
-        Color sand = new Color(0.94f, 0.80f, 0.58f, 1f);
+        Texture2D sandTex =
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Pure Poly/Free Low Poly Nature Pack/Terrain/Terrain_Textures/PP_Pebbles_Light_Brown.png") ??
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Pure Poly/Free Low Poly Nature Pack/Terrain/Terrain_Textures/PP_Ground_Light_Brown.png") ??
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/LycheeMap15/Materials/T_SandySoil.asset");
+        Texture2D normalTex =
+            AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Pure Poly/Free Low Poly Nature Pack/Terrain/Terrain_Textures/PP_Pebbles_Normal.png");
+        Color sand = new Color(1.02f, 0.94f, 0.78f, 1f);
         if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", sand);
         if (mat.HasProperty("_Color")) mat.SetColor("_Color", sand);
-        if (mat.HasProperty("_BaseMap")) { mat.SetTexture("_BaseMap", sandTex); mat.SetTextureScale("_BaseMap", new Vector2(2.6f, 2.6f)); }
-        if (mat.HasProperty("_MainTex")) { mat.SetTexture("_MainTex", sandTex); mat.SetTextureScale("_MainTex", new Vector2(2.6f, 2.6f)); }
+        if (mat.HasProperty("_BaseMap")) { mat.SetTexture("_BaseMap", sandTex); mat.SetTextureScale("_BaseMap", new Vector2(2.2f, 2.2f)); }
+        if (mat.HasProperty("_MainTex")) { mat.SetTexture("_MainTex", sandTex); mat.SetTextureScale("_MainTex", new Vector2(2.2f, 2.2f)); }
+        if (normalTex != null && mat.HasProperty("_BumpMap"))
+        {
+            mat.SetTexture("_BumpMap", normalTex);
+            mat.SetTextureScale("_BumpMap", new Vector2(2.2f, 2.2f));
+            mat.EnableKeyword("_NORMALMAP");
+        }
+        if (mat.HasProperty("_BumpScale")) mat.SetFloat("_BumpScale", 0.45f);
         if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.035f);
         if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0f);
         EditorUtility.SetDirty(mat);
@@ -1755,8 +1737,8 @@ public static class LycheeMapLayoutGenerator_20260613
 
             float endT = Mathf.Min(i / Mathf.Max(1f, (n - 1) * 0.20f), (n - 1 - i) / Mathf.Max(1f, (n - 1) * 0.20f));
             float taper = Mathf.Lerp(0.58f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(endT)));
-            float leftNoise = (Mathf.PerlinNoise(i * 0.21f + 17.3f, 6.2f) - 0.5f) * 0.34f;
-            float rightNoise = (Mathf.PerlinNoise(i * 0.19f + 31.1f, 2.8f) - 0.5f) * 0.34f;
+            float leftNoise = (Mathf.PerlinNoise(i * 0.21f + 17.3f, 6.2f) - 0.5f) * 0.14f;
+            float rightNoise = (Mathf.PerlinNoise(i * 0.19f + 31.1f, 2.8f) - 0.5f) * 0.14f;
             float leftHalf = width * 0.5f * taper + leftNoise;
             float rightHalf = width * 0.5f * taper + rightNoise;
 
