@@ -9,10 +9,10 @@ using UnityEngine.SceneManagement;
 /// 目标：5 张地图依次回放——map1 播完结算后切到 map2，直至 map5。
 ///
 /// 现状约束（决定本期只做框架 + 安全空转）：
-///  - LycheeReplayPlayer 在 Awake 一次性加载固定的 StreamingAssets/reply.txt（或内置 replayFile），
+///  - LycheeReplayPlayer 在 Awake 一次性加载固定的 StreamingAssets/replay.txt（或内置 replayFile），
 ///    整个生命周期只读一份，没有运行时「换 replay / 重载」入口。
 ///  - 因此「同场景换 replay」需要改运行时 player 代码；本期不改 player，只把控制器骨架立起来：
-///    读清单 + 监听 MatchOverRaised + 预留切换钩子；缺图/未配置时安全空转（只播 map1 / 现有 reply.txt）。
+///    读清单 + 监听 MatchOverRaised + 预留切换钩子；缺图/未配置时安全空转（只播 map1 / 现有 replay.txt）。
 ///
 /// 两种推进方式（二选一，由 Inspector 配置，均 WebGL 安全）：
 ///  A. 分场景（推荐，零 player 改动）：为每张图各做一个场景（见 LycheeMapLayoutGenerator 产出的 Map_*.unity），
@@ -52,7 +52,7 @@ public sealed class LycheeTournamentController : MonoBehaviour
 
     /// <summary>锦标赛进度：当前是第几张图（0 基）。供 HUD/调试读取。</summary>
     public int CurrentMapIndex { get; private set; }
-    /// <summary>清单解析出的 replay 文件名（相对 Tournament/）。空表示只有现有 reply.txt 在跑。</summary>
+    /// <summary>清单解析出的 replay 文件名（相对 Tournament/）。空表示只有现有 replay.txt 在跑。</summary>
     public IReadOnlyList<string> ReplayManifest => manifest;
     /// <summary>每张图的 replay 文本缓存（UWR 预载；分场景方案下未必用到，B 方案接 player 重载时用）。</summary>
     public string CurrentReplayText { get; private set; }
@@ -64,7 +64,7 @@ public sealed class LycheeTournamentController : MonoBehaviour
     // 实例字段 CurrentMapIndex 会被重置为 0——若不携带进度，新场景永远以为自己在 map1，
     // 切完 map2 又去切 perMapScenes[1]（还是 map2）→ 死循环，永远到不了 map3/4/5。
     // 运行期 static 不随场景加载丢失（同一 AppDomain，无 domain reload），用它把「下一张图序号」带过去。
-    // -1 表示尚未进入锦标赛流程（即第一张图，按现有 reply.txt 起播）。
+    // -1 表示尚未进入锦标赛流程（即第一张图，按现有 replay.txt 起播）。
     static int pendingStartIndex = -1;
 
     void OnEnable()
@@ -79,7 +79,7 @@ public sealed class LycheeTournamentController : MonoBehaviour
 
     void Start()
     {
-        // 启动即读清单（不阻塞回放；map1 由场景里 player 自己照常加载现有 reply.txt 起播）。
+        // 启动即读清单（不阻塞回放；map1 由场景里 player 自己照常加载现有 replay.txt 起播）。
         StartCoroutine(LoadManifest());
     }
 
@@ -168,7 +168,7 @@ public sealed class LycheeTournamentController : MonoBehaviour
             }
         }
 
-        // 没有清单条目（缺图）→ 安全空转：保持 map1/现有 reply.txt，不做任何切换。
+        // 没有清单条目（缺图）→ 安全空转：保持 map1/现有 replay.txt，不做任何切换。
         if (manifest.Count == 0)
         {
             Debug.Log("[Tournament] 未配置任何锦标赛地图，保持当前回放空转。");

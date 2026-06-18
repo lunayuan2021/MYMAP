@@ -14,9 +14,9 @@ public class LycheeCinematicDirector : MonoBehaviour
     public static bool Disabled;
 
     const float RushBlendSeconds = 2f;
-    const float CinematicLightIntensity = 1.25f;
-    const float RushIntensityMultiplier = 1.35f;
-    static readonly Color CinematicLightColor = new Color(1f, 0.93f, 0.82f);
+    const float CinematicLightIntensity = 1.55f;
+    const float RushIntensityMultiplier = 1.22f;
+    static readonly Color CinematicLightColor = new Color(1f, 0.95f, 0.86f);
     static readonly Color RushLightColor = new Color(1f, 0.86f, 0.7f);
 
     Camera mainCamera;
@@ -36,6 +36,7 @@ public class LycheeCinematicDirector : MonoBehaviour
     Color originalLightColor;
     float originalLightIntensity;
     LightShadows originalLightShadows;
+    float originalLightShadowStrength;
     bool lightModified;
 
     AmbientMode originalAmbientMode;
@@ -138,11 +139,13 @@ public class LycheeCinematicDirector : MonoBehaviour
         originalLightColor = directionalLight.color;
         originalLightIntensity = directionalLight.intensity;
         originalLightShadows = directionalLight.shadows;
+        originalLightShadowStrength = directionalLight.shadowStrength;
         lightModified = true;
         directionalLight.transform.rotation = Quaternion.Euler(52f, -32f, 0f);
         directionalLight.color = CinematicLightColor;
         directionalLight.intensity = CinematicLightIntensity;
         directionalLight.shadows = LightShadows.Soft;
+        directionalLight.shadowStrength = 0.38f;
     }
 
     void ConfigureAmbient()
@@ -154,9 +157,9 @@ public class LycheeCinematicDirector : MonoBehaviour
         originalAmbientLight = RenderSettings.ambientLight;
         ambientRecorded = true;
         RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(0.55f, 0.55f, 0.62f);
-        RenderSettings.ambientEquatorColor = new Color(0.42f, 0.40f, 0.38f);
-        RenderSettings.ambientGroundColor = new Color(0.22f, 0.20f, 0.18f);
+        RenderSettings.ambientSkyColor = new Color(0.68f, 0.68f, 0.72f);
+        RenderSettings.ambientEquatorColor = new Color(0.55f, 0.53f, 0.49f);
+        RenderSettings.ambientGroundColor = new Color(0.40f, 0.37f, 0.32f);
     }
 
     void ConfigureFog()
@@ -170,9 +173,9 @@ public class LycheeCinematicDirector : MonoBehaviour
         fogRecorded = true;
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.Linear;
-        RenderSettings.fogStartDistance = 35f;
-        RenderSettings.fogEndDistance = 140f;
-        RenderSettings.fogColor = new Color(0.75f, 0.72f, 0.66f);
+        RenderSettings.fogStartDistance = 48f;
+        RenderSettings.fogEndDistance = 170f;
+        RenderSettings.fogColor = new Color(0.78f, 0.75f, 0.69f);
     }
 
     static Light FindDirectionalLight()
@@ -245,14 +248,16 @@ public class LycheeCinematicDirector : MonoBehaviour
         controller.perspectiveMode = true;
         controller.perspectiveFieldOfView = 42f;
         controller.perspectivePitch = 45f;
-        controller.perspectiveDistanceSpanScale = 1.35f;
-        controller.perspectiveDistancePadding = 16f;
-        controller.perspectiveMinDistance = 21f;
-        controller.perspectiveMaxDistance = 108f;
+        controller.perspectiveDistanceSpanScale = 1.08f;
+        controller.perspectiveDistancePadding = 9f;
+        controller.perspectiveMinDistance = 17f;
+        // 最大相机距离封顶到 60（旧 108 太远 → 多事件时退到准全图、能看见地图边界）。
+        // 配合 LycheeReplayPlayer.TryGetStrategicFraming 的聚类取景(span≤30)，镜头永不全图。
+        controller.perspectiveMaxDistance = 60f;
         controller.perspectiveEventDistance = 15f;
         controller.perspectiveZoomMultiplier = 1f;
         controller.focusFollowEnabled = false;
-        controller.constrainFocusToPlayableBounds = true;
+        controller.constrainFocusToPlayableBounds = false;
         controller.playableMin = new Vector2(-34f, -21f);
         controller.playableMax = new Vector2(34f, 18f);
     }
@@ -343,6 +348,7 @@ public class LycheeCinematicDirector : MonoBehaviour
                 directionalLight.color = originalLightColor;
                 directionalLight.intensity = originalLightIntensity;
                 directionalLight.shadows = originalLightShadows;
+                directionalLight.shadowStrength = originalLightShadowStrength;
             }
             if (ambientRecorded)
             {

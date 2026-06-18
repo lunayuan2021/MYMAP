@@ -1,0 +1,15 @@
+{
+    "asset": "6ecb9384fd3354cf6b0f9e2ab005d4d4",
+    "fileName": "019ed601-52d0-76e3-83fe-f23fa150cc6a.wav",
+    "prompt": "A quick crisp playing card flip and reveal, soft paper snap with a light shimmer, very short, dry studio.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

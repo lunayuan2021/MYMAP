@@ -8,13 +8,13 @@ public class LycheeReplayPlayer : MonoBehaviour
 {
     [Header("Replay")]
     public TextAsset replayFile;
-    /// <summary>本场景要加载的 StreamingAssets 相对路径（默认 reply.txt = 现状）。
+    /// <summary>本场景要加载的 StreamingAssets 相对路径（默认 replay.txt）。
     /// 锦标赛分场景方案下，地图生成器给每张图的场景写各自的回放（如 "Tournament/map2.txt"），
     /// 这样切场景即换回放、零运行时耦合。向后兼容：旧场景在此字段加入前已序列化，反序列化时为 null/空，
-    /// ReplayRelative 会自动回退到 reply.txt，行为与旧版完全一致。</summary>
-    public string streamingReplayPath = "reply.txt";
-    // 0.22 秒/回合：0.10 时 600 回合一分钟跑完，事件演出根本来不及看；场景序列化值由编辑器脚本同步
-    [Range(0.03f, 1f)] public float secondsPerRound = 0.40f;
+    /// ReplayRelative 会自动回退到 replay.txt。</summary>
+    public string streamingReplayPath = "replay.txt";
+    // 1 秒/回合：600 回合约 10 分钟。不要再按“静止回合/处理回合”压缩，否则观赛节奏会失真。
+    [Range(0.03f, 2f)] public float secondsPerRound = 1.00f;
     public bool playOnStart = true;
     public bool loop;
 
@@ -51,12 +51,11 @@ public class LycheeReplayPlayer : MonoBehaviour
     public Sprite blueCaptainAvatar;
     public Sprite[] combatIllustrations;
 
-    const float IdleRoundMaxSeconds = 0.08f;
-    const float StationProcessRoundMaxSeconds = 0.10f;
     const float MinRoundSeconds = 0.01f;
 
     LycheeReplayFrame startFrame;
     readonly List<LycheeReplayFrame> frames = new List<LycheeReplayFrame>();
+    int declaredTotalRounds;
     readonly Dictionary<int, ConvoyVisual> convoys = new Dictionary<int, ConvoyVisual>();
     readonly Dictionary<int, int> teamRosterSizes = new Dictionary<int, int>();
     readonly Dictionary<string, MapStationAnchor> stations = new Dictionary<string, MapStationAnchor>();
@@ -89,12 +88,16 @@ public class LycheeReplayPlayer : MonoBehaviour
     float eventFocusUntil;
     /// <summary>当前事件聚焦的建议相机距离（米）；&lt;0 表示未指定、由相机自行决定。对抗类拉近（15）、普通事件保持远景（30）。</summary>
     float eventFocusDistance = -1f;
+    readonly List<EventFocusAnchor> recentEventFocuses = new List<EventFocusAnchor>(8);
     /// <summary>WINDOW_CONTEST_START 缓存的对抗节点位置：WINDOW_CARD_REVEAL 的 payload 没有 targetNodeId，靠它续期聚焦让整场对抗镜头不回退。</summary>
     Vector3 contestFocusPosition;
     bool hasContestFocus;
     GUIStyle hudStyle;
     GUIStyle titleStyle;
     GUIStyle buttonStyle;
+    GUIStyle startupErrorStyle;
+    string startupError;
+    string replayLoadDiagnostics;
     LycheeReplayRuntimeHud runtimeHud;
     Material rockMaterial;
     Material woodMaterial;
@@ -141,6 +144,14 @@ public class LycheeReplayPlayer : MonoBehaviour
         public LycheeSquadWaterState waterState;
     }
 
+    sealed class EventFocusAnchor
+    {
+        public Transform target;
+        public Vector3 position;
+        public float until;
+        public float focusDistance;
+    }
+
     // 河面三角形缓存（世界空间）：小队直线跨图时判断脚下是否为水面。
     // 来源是场景里的河面容器对象，启动后首个小队出发时懒构建一次。
     readonly List<Vector3> waterTriangleA = new List<Vector3>();
@@ -164,6 +175,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     public LycheeReplayFrame StartFrameData => startFrame;
     public LycheeReplayOverFrame OverFrame { get; private set; }
     public string ReplaySource { get; private set; }
+    // 时长 = 真实回合数（1 回合 = 1 秒）。不再 Max 上 declaredTotalRounds(=durationRound 上限，如 600)，
+    // 否则胜负已定、真实帧只到第 503 回合时，进度条/HUD 仍按 600 计，造成“为凑 10 分钟拉长”的错觉。
     public int TotalRounds => frames.Count == 0 ? 0 : frames[frames.Count - 1].round;
     public float FrameInterpolation => Mathf.Clamp01(frameTime / EffectiveSecondsForFrame(CurrentFrame));
 
@@ -222,19 +235,149 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         center = Vector3.zero;
         span = 0f;
-        if (convoys.Count == 0) return false;
 
         Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
         Vector3 max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
-        foreach (ConvoyVisual convoy in convoys.Values)
-        {
-            Vector3 position = convoy.root.transform.position;
-            min = Vector3.Min(min, position);
-            max = Vector3.Max(max, position);
-        }
+        bool any = false;
+        IncludeConvoysAndSquads(ref min, ref max, ref any);
+        if (!any) return false;
         center = (min + max) * 0.5f;
         span = Mathf.Max(max.x - min.x, max.z - min.z);
         return true;
+    }
+
+    // 取景缓冲（避免每帧分配）
+    readonly List<Vector3> framingConvoyPts = new List<Vector3>(8);
+    readonly List<Vector3> framingActionPts = new List<Vector3>(16);
+
+    // “刚好框住当前有状态的地方”：以当前动作（最近事件点 → 小队 → 车队中心）为主锚点，
+    // 只把锚点附近 ClusterRadius 内的有状态对象算进 bounds，丢弃散落全图的远处事件/小队，
+    // 再对跨度硬封顶。这样多事件/兵分两路时也绝不退到全地图，更不会把镜头拉到能看见地图边界。
+    const float FramingClusterRadius = 22f; // 锚点附近多大范围内的对象才纳入取景
+    const float FramingMaxSpan = 30f;       // 取景跨度上限（远低于地图 ~73 宽 → 永不全图/不露边界）
+    const float FramingMinSpan = 13f;       // 下限：单点也不至于贴脸
+
+    public bool TryGetStrategicFraming(out Vector3 center, out float span, out bool actionFocusActive)
+    {
+        center = Vector3.zero;
+        span = 0f;
+        actionFocusActive = false;
+
+        framingConvoyPts.Clear();
+        framingActionPts.Clear();
+        foreach (ConvoyVisual convoy in convoys.Values)
+            if (convoy != null && convoy.root != null)
+                framingConvoyPts.Add(convoy.root.transform.position);
+
+        bool hasSquad = false;
+        foreach (SquadVisual squad in squads)
+        {
+            if (squad == null || squad.root == null) continue;
+            hasSquad = true;
+            framingActionPts.Add(squad.root.transform.position);
+        }
+
+        bool hasEvent = false;
+        Vector3 latestEvent = Vector3.zero;
+        float now = Time.unscaledTime;
+        for (int i = recentEventFocuses.Count - 1; i >= 0; i--)
+        {
+            EventFocusAnchor focus = recentEventFocuses[i];
+            if (focus == null || now >= focus.until) { recentEventFocuses.RemoveAt(i); continue; }
+            if (focus.target != null) focus.position = focus.target.position;
+            framingActionPts.Add(focus.position);
+            if (!hasEvent) { latestEvent = focus.position; hasEvent = true; } // 列表尾部=最新
+        }
+
+        if (framingConvoyPts.Count == 0 && framingActionPts.Count == 0) return false;
+
+        // 主锚点：优先“当前事件点”，其次小队均值，再次车队中心。
+        Vector3 anchor;
+        if (hasEvent) anchor = latestEvent;
+        else if (framingActionPts.Count > 0) anchor = Centroid(framingActionPts);
+        else anchor = Centroid(framingConvoyPts);
+
+        // 只纳入锚点附近的有状态对象（远处散点丢弃）。
+        Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+        Vector3 max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+        bool any = false;
+        IncludeFramingPoint(anchor, ref min, ref max, ref any);
+        IncludePointsNear(anchor, FramingClusterRadius, framingConvoyPts, ref min, ref max, ref any);
+        IncludePointsNear(anchor, FramingClusterRadius, framingActionPts, ref min, ref max, ref any);
+
+        actionFocusActive = hasEvent || hasSquad;
+        center = (min + max) * 0.5f;
+        span = Mathf.Max(max.x - min.x, max.z - min.z);
+
+        // 跨度硬封顶：超出就以锚点为中心收紧，绝不为框住散点而退到全图。
+        if (span > FramingMaxSpan) { center = anchor; span = FramingMaxSpan; }
+        span = Mathf.Max(span, FramingMinSpan);
+        return true;
+    }
+
+    static Vector3 Centroid(List<Vector3> pts)
+    {
+        if (pts == null || pts.Count == 0) return Vector3.zero;
+        Vector3 sum = Vector3.zero;
+        for (int i = 0; i < pts.Count; i++) sum += pts[i];
+        return sum / pts.Count;
+    }
+
+    static void IncludePointsNear(Vector3 anchor, float radius, List<Vector3> pts,
+        ref Vector3 min, ref Vector3 max, ref bool any)
+    {
+        float r2 = radius * radius;
+        for (int i = 0; i < pts.Count; i++)
+        {
+            float dx = pts[i].x - anchor.x, dz = pts[i].z - anchor.z;
+            if (dx * dx + dz * dz > r2) continue; // 远处散点不纳入取景
+            IncludeFramingPoint(pts[i], ref min, ref max, ref any);
+        }
+    }
+
+    bool IncludeConvoysAndSquads(ref Vector3 min, ref Vector3 max, ref bool any)
+    {
+        bool hasSquad = false;
+        foreach (ConvoyVisual convoy in convoys.Values)
+        {
+            if (convoy == null || convoy.root == null) continue;
+            IncludeFramingPoint(convoy.root.transform.position, ref min, ref max, ref any);
+        }
+
+        foreach (SquadVisual squad in squads)
+        {
+            if (squad == null || squad.root == null) continue;
+            hasSquad = true;
+            IncludeFramingPoint(squad.root.transform.position, ref min, ref max, ref any);
+        }
+        return hasSquad;
+    }
+
+    static void IncludeFramingPoint(Vector3 position, ref Vector3 min, ref Vector3 max, ref bool any)
+    {
+        min = Vector3.Min(min, position);
+        max = Vector3.Max(max, position);
+        any = true;
+    }
+
+    bool IncludeEventFocuses(ref Vector3 min, ref Vector3 max, ref bool any)
+    {
+        bool included = false;
+        float now = Time.unscaledTime;
+        for (int i = recentEventFocuses.Count - 1; i >= 0; i--)
+        {
+            EventFocusAnchor focus = recentEventFocuses[i];
+            if (focus == null || now >= focus.until)
+            {
+                recentEventFocuses.RemoveAt(i);
+                continue;
+            }
+            if (focus.target != null)
+                focus.position = focus.target.position;
+            IncludeFramingPoint(focus.position, ref min, ref max, ref any);
+            included = true;
+        }
+        return included;
     }
 
     /// <summary>旧签名保留：相机控制器/卡牌特效/天气特效等既有调用方不关心距离时继续可用。</summary>
@@ -320,6 +463,13 @@ public class LycheeReplayPlayer : MonoBehaviour
         else
         {
             playing = false;
+            startupError =
+                "回放没有启动：未读取到任何 round 帧。\n" +
+                "来源：" + (string.IsNullOrEmpty(ReplaySource) ? ReplayRelative : ReplaySource) + "\n" +
+                "请确认构建包是通过 HTTP 服务打开，并且完整保留 StreamingAssets/Tournament/map1.txt。\n" +
+                "直接双击 index.html、只拷贝 Build 目录、或服务器拦截 txt/json 文件都会导致这里停住。";
+            if (!string.IsNullOrEmpty(replayLoadDiagnostics))
+                startupError += "\n\n加载记录：\n" + replayLoadDiagnostics.Trim();
             Debug.LogError("Replay initialization stopped: no round frames were loaded from " + ReplaySource + ".", this);
         }
     }
@@ -350,22 +500,27 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 保证 HUD/演出构建时缓存已就绪，不会静默回落到程序化兜底。
         yield return LycheeThemeCache.Preload();
         // WebGL 上 StreamingAssets 是 URL，System.IO 不可用，必须走网络请求；
-        // 加时间戳参数避免浏览器缓存旧的回放文件。文件名由 streamingReplayPath 决定（默认 reply.txt）。
+        // 加时间戳参数避免浏览器缓存旧的回放文件。文件名由 streamingReplayPath 决定（默认 replay.txt）。
         string relative = ReplayRelative;
         string text = null;
-        yield return FetchStreamingText(relative, value => text = value);
-        if (string.IsNullOrEmpty(text) && !string.Equals(relative, "reply.txt", StringComparison.OrdinalIgnoreCase))
-        {
-            Debug.LogWarning("Replay fallback: StreamingAssets/" + relative + " unavailable, trying reply.txt.", this);
-            yield return FetchStreamingText("reply.txt", value => text = value);
-        }
+        string externalReplayUrl = ReplayUrlFromQuery();
+        if (!string.IsNullOrEmpty(externalReplayUrl))
+            yield return FetchReplayUrl(externalReplayUrl, "path", value => text = value);
+        if (string.IsNullOrEmpty(text))
+            yield return FetchStreamingText(relative, value => text = value);
         ParseReplay(text);
         InitializeAfterLoad();
     }
 
     System.Collections.IEnumerator FetchStreamingText(string relative, Action<string> onLoaded)
     {
-        string url = Application.streamingAssetsPath + "/" + relative + "?t=" + DateTime.UtcNow.Ticks;
+        string url = Application.streamingAssetsPath + "/" + relative;
+        yield return FetchReplayUrl(url, "StreamingAssets/" + relative, onLoaded);
+    }
+
+    System.Collections.IEnumerator FetchReplayUrl(string url, string sourceLabel, Action<string> onLoaded)
+    {
+        url = AddCacheBust(url);
         using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
         {
             request.timeout = 12;
@@ -375,14 +530,58 @@ public class LycheeReplayPlayer : MonoBehaviour
                 string text = request.downloadHandler.text;
                 if (!string.IsNullOrEmpty(text))
                 {
-                    ReplaySource = "StreamingAssets/" + relative;
+                    ReplaySource = sourceLabel + ": " + url;
                     onLoaded?.Invoke(text);
                     yield break;
                 }
             }
-            Debug.LogWarning("Failed to fetch StreamingAssets/" + relative + ": " + request.error, this);
+            string detail = sourceLabel + " response=" + request.responseCode +
+                " error=" + (string.IsNullOrEmpty(request.error) ? "<none>" : request.error);
+            replayLoadDiagnostics += detail + "\n";
+            Debug.LogWarning("Failed to fetch " + detail, this);
         }
         onLoaded?.Invoke(null);
+    }
+
+    static string ReplayUrlFromQuery()
+    {
+        string path = QueryValue(Application.absoluteURL, "path");
+        if (string.IsNullOrEmpty(path)) return null;
+        if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return path;
+        Uri baseUri;
+        if (Uri.TryCreate(Application.absoluteURL, UriKind.Absolute, out baseUri))
+            return new Uri(baseUri, path).ToString();
+        return path;
+    }
+
+    static string AddCacheBust(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return url;
+        string separator = url.Contains("?") ? "&" : "?";
+        return url + separator + "t=" + DateTime.UtcNow.Ticks;
+    }
+
+    static string QueryValue(string url, string key)
+    {
+        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key)) return null;
+        int queryIndex = url.IndexOf('?');
+        if (queryIndex < 0 || queryIndex == url.Length - 1) return null;
+        string query = url.Substring(queryIndex + 1);
+        int hashIndex = query.IndexOf('#');
+        if (hashIndex >= 0) query = query.Substring(0, hashIndex);
+
+        string[] pairs = query.Split('&');
+        foreach (string pair in pairs)
+        {
+            int equalIndex = pair.IndexOf('=');
+            if (equalIndex <= 0) continue;
+            string pairKey = Uri.UnescapeDataString(pair.Substring(0, equalIndex));
+            if (!string.Equals(pairKey, key, StringComparison.OrdinalIgnoreCase)) continue;
+            return Uri.UnescapeDataString(pair.Substring(equalIndex + 1));
+        }
+        return null;
     }
 #endif
 
@@ -424,11 +623,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     float EffectiveSecondsForFrame(LycheeReplayFrame frame)
     {
-        float baseSeconds = Mathf.Max(MinRoundSeconds, secondsPerRound);
-        if (frame == null) return baseSeconds;
-        if (FrameHasMovingPlayer(frame) || FrameHasMajorEvent(frame)) return baseSeconds;
-        if (FrameHasStationProcess(frame)) return Mathf.Min(baseSeconds, StationProcessRoundMaxSeconds);
-        return Mathf.Min(baseSeconds, IdleRoundMaxSeconds);
+        return Mathf.Max(MinRoundSeconds, secondsPerRound);
     }
 
     static bool FrameHasMovingPlayer(LycheeReplayFrame frame)
@@ -491,8 +686,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         elevation = FindFirstObjectByType<MapElevationData>();
     }
 
-    /// <summary>本场景回放文件的 StreamingAssets 相对路径，空值回退 reply.txt（向后兼容）。</summary>
-    string ReplayRelative => string.IsNullOrEmpty(streamingReplayPath) ? "reply.txt" : streamingReplayPath;
+    /// <summary>本场景回放文件的 StreamingAssets 相对路径，空值回退 replay.txt。</summary>
+    string ReplayRelative => string.IsNullOrEmpty(streamingReplayPath) ? "replay.txt" : streamingReplayPath;
 
     void LoadReplay()
     {
@@ -535,6 +730,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (line.Contains("\"type\":\"start\""))
             {
                 startFrame = JsonUtility.FromJson<LycheeReplayFrame>(line);
+                declaredTotalRounds = startFrame == null ? 0 : Mathf.Max(0, startFrame.tick > 0 ? startFrame.tick : startFrame.round);
+                if (declaredTotalRounds <= 0 && line.Contains("\"durationRound\""))
+                    declaredTotalRounds = ExtractIntField(line, "durationRound");
                 continue;
             }
             if (line.Contains("\"type\":\"over\"") && !line.Contains("\"type\":\"round\""))
@@ -547,10 +745,55 @@ public class LycheeReplayPlayer : MonoBehaviour
             LycheeReplayFrame frame = JsonUtility.FromJson<LycheeReplayFrame>(line);
             if (frame != null && frame.type == "round") frames.Add(frame);
         }
+        PadReplayToDeclaredDuration();
         BackfillPlayerScoresFromFrameScores();
         Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
             (OverFrame != null ? ", over frame parsed." : "."), this);
         ValidateScoreConsistency();
+    }
+
+    void PadReplayToDeclaredDuration()
+    {
+        if (frames.Count == 0 || declaredTotalRounds <= 0) return;
+        // 比赛已分胜负（解析到 over 帧）→ 按真实回合数收尾，不再用静态帧补满到 durationRound。
+        // 需求：replay 有多少回合就播多少秒，提前结束就提前结束，绝不为凑 600 回合/10 分钟而空播。
+        // 仅当回放日志被截断且没有 over 帧时，才保留补帧兜底，避免末尾跳变。
+        if (OverFrame != null)
+        {
+            Debug.Log("Replay ends at real round " + frames[frames.Count - 1].round +
+                " (over frame present); skip padding to declared durationRound " + declaredTotalRounds + ".", this);
+            return;
+        }
+        LycheeReplayFrame last = frames[frames.Count - 1];
+        if (last == null || last.round >= declaredTotalRounds) return;
+        string snapshot = JsonUtility.ToJson(last);
+        for (int round = last.round + 1; round <= declaredTotalRounds; round++)
+        {
+            LycheeReplayFrame padded = JsonUtility.FromJson<LycheeReplayFrame>(snapshot);
+            if (padded == null) continue;
+            padded.round = round;
+            padded.tick = round;
+            padded.messages = new LycheeReplayMessage[0];
+            frames.Add(padded);
+        }
+        if (OverFrame != null && OverFrame.overRound < declaredTotalRounds)
+            OverFrame.overRound = declaredTotalRounds;
+        Debug.Log("Replay padded to declared durationRound: " + declaredTotalRounds + " rounds.", this);
+    }
+
+    static int ExtractIntField(string jsonLine, string field)
+    {
+        if (string.IsNullOrEmpty(jsonLine) || string.IsNullOrEmpty(field)) return 0;
+        string marker = "\"" + field + "\":";
+        int start = jsonLine.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) return 0;
+        start += marker.Length;
+        while (start < jsonLine.Length && char.IsWhiteSpace(jsonLine[start])) start++;
+        int end = start;
+        while (end < jsonLine.Length && char.IsDigit(jsonLine[end])) end++;
+        if (end <= start) return 0;
+        int value;
+        return int.TryParse(jsonLine.Substring(start, end - start), out value) ? value : 0;
     }
 
     void SnapReplayCameras()
@@ -679,7 +922,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                     TintModel(visual.captain, player.camp == 0 ? new Color(1f, 0.36f, 0.28f, 1f) : new Color(0.36f, 0.62f, 1f, 1f), 0.14f);
             }
             CreateTeamMembers(visual, Mathf.Max(0, teamSize - 1), player.camp);
-            visual.label = CreateLabel(root.transform, player.teamId, player.camp == 0
+            visual.label = CreateLabel(root.transform, TeamDisplayName(player), player.camp == 0
                 ? new Color(1f, 0.31f, 0.18f)
                 : new Color(0.24f, 0.62f, 1f));
             CreateTeamRing(root.transform, player.camp);
@@ -907,7 +1150,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (visual.boat != null) visual.boat.SetActive(water);
             if (visual.captain != null) visual.captain.SetActive(true);
             if (visual.label != null)
-                visual.label.text = player.teamId + "  " + player.state +
+                visual.label.text = TeamDisplayName(player) + "  " + player.state +
                     "\nFresh " + player.freshness.ToString("0") +
                     "  Fruit " + player.goodFruit +
                     "  Score " + player.score;
@@ -1137,7 +1380,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 contestFocusPosition = contestStation.transform.position;
                 hasContestFocus = true;
                 SetEventFocus(contestFocusPosition, 4.5f, 15f);
-                SpawnEventPulse(contestFocusPosition, "对抗开始", new Color(1f, 0.78f, 0.22f));
+                SpawnEventPulse(contestFocusPosition, "对抗开始", new Color(1f, 0.78f, 0.22f), ResolveEventIcon("WINDOW_CONTEST_START", payload));
             }
             return;
         }
@@ -1163,6 +1406,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
+            ClearEventFocus();
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
@@ -1174,12 +1418,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             SquadVisual dispatched = SpawnSquad(payload, round);
             if (dispatched != null && dispatched.root != null)
             {
-                SetEventFocus(dispatched.root.transform, SquadFocusSeconds(dispatched, round), 14f);
-                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发", TeamColor(payload.playerId));
+                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发", TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             }
             else if (!string.IsNullOrEmpty(payload.targetNodeId) &&
                 stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
-                SpawnEventPulse(squadTarget.transform.position, "小队出发", TeamColor(payload.playerId));
+                SpawnEventPulse(squadTarget.transform.position, "小队出发", TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             return;
         }
 
@@ -1233,8 +1476,30 @@ public class LycheeReplayPlayer : MonoBehaviour
             // 只有突发/结果类事件才拉近抢镜头；资源领取、站点处理只给图卡和地图特效，不打断常态远景。
             if (combatEvent)
                 SetEventFocus(station.transform.position, 3.8f, 15f);
-            SpawnEventPulse(station.transform.position, WorldEventLabel(message.type, payload), EventColor(message.type));
+            if (ShouldShowWorldPulse(message.type))
+                SpawnEventPulse(station.transform.position, WorldEventLabel(message.type, payload), EventColor(message.type), ResolveEventIcon(message.type, payload));
         }
+    }
+
+    static bool ShouldShowWorldPulse(string eventType)
+    {
+        if (string.IsNullOrEmpty(eventType)) return false;
+        if (eventType.Contains("GUARD") || eventType.Contains("WINDOW") || eventType.Contains("FORCED")) return true;
+        if (eventType.Contains("TASK") || eventType.Contains("BOUNTY")) return true;
+        if (eventType.Contains("DELIVER") || eventType.Contains("VERIFY")) return true;
+        if (eventType == "PROCESS_START" || eventType == "PROCESS_COMPLETE") return true;
+        if (eventType == "RESOURCE_CLAIM" || eventType == "RESOURCE_USE") return true;
+        if (eventType == "SQUAD_CLEAR" ||
+            eventType == "SQUAD_CLEAR_SUCCESS" ||
+            eventType == "SQUAD_FAILED" ||
+            eventType == "OBSTACLE_CLEAR" ||
+            eventType == "RUSH_START" ||
+            eventType == "RUSH_PHASE_START" ||
+            eventType == "RUSH_TACTIC_USE" ||
+            eventType == "ACTION_REJECTED" ||
+            eventType == "INVALID_ACTION")
+            return true;
+        return false;
     }
 
     void ShowKeyEventIllustration(LycheeReplayMessage message, LycheeReplayPayload payload, int round)
@@ -1243,7 +1508,6 @@ public class LycheeReplayPlayer : MonoBehaviour
         string type = message.type;
         if (string.IsNullOrEmpty(type) ||
             type == "MATCH_START" ||
-            type == "NODE_ENTER" ||
             type.StartsWith("WINDOW_", StringComparison.Ordinal))
             return;
 
@@ -1271,7 +1535,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         string team = TeamName(payload.playerId);
         bool priorityCard = IsPriorityEventCard(type);
 
-        if (type == "TASK_SPAWN" || type == "TASK_REFRESH")
+        if (type == "NODE_ENTER")
+        {
+            title = "到达节点";
+            subtitle = team + " 进入 " + target;
+            left = "节点";
+            right = "路线推进";
+            center = "到达";
+            imageIndex = 1;
+            seconds = 2.2f;
+        }
+        else if (type == "TASK_SPAWN" || type == "TASK_REFRESH")
         {
             title = "皇榜任务刷新";
             subtitle = target + "  " + ScoreText(payload.score);
@@ -1492,9 +1766,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (!string.IsNullOrEmpty(title))
         {
             if (priorityCard)
-                runtimeHud.ShowPriorityEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
+                runtimeHud.ShowPriorityEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type));
             else
-                runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds);
+                runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type));
         }
     }
 
@@ -1532,6 +1806,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         eventFocusUntil = Time.unscaledTime + seconds;
         // 按事件类型区分聚焦距离：对抗类传 15 拉近看战斗，普通事件传 30 只轻微居中、保住远景；-1 由相机自行决定
         eventFocusDistance = focusDistance;
+        AddRecentEventFocus(null, position, seconds, focusDistance);
     }
 
     void SetEventFocus(Transform target, float seconds = 2.8f, float focusDistance = -1f)
@@ -1541,6 +1816,41 @@ public class LycheeReplayPlayer : MonoBehaviour
         eventFocusPosition = target.position;
         eventFocusUntil = Time.unscaledTime + seconds;
         eventFocusDistance = focusDistance;
+        AddRecentEventFocus(target, target.position, seconds, focusDistance);
+    }
+
+    void ClearEventFocus()
+    {
+        eventFocusTarget = null;
+        eventFocusUntil = 0f;
+        eventFocusDistance = -1f;
+        recentEventFocuses.Clear();
+    }
+
+    void AddRecentEventFocus(Transform target, Vector3 position, float seconds, float focusDistance)
+    {
+        float until = Time.unscaledTime + Mathf.Max(1.2f, seconds);
+        if (target != null)
+        {
+            for (int i = 0; i < recentEventFocuses.Count; i++)
+            {
+                EventFocusAnchor existing = recentEventFocuses[i];
+                if (existing == null || existing.target != target) continue;
+                existing.position = position;
+                existing.until = Mathf.Max(existing.until, until);
+                existing.focusDistance = focusDistance;
+                return;
+            }
+        }
+        recentEventFocuses.Add(new EventFocusAnchor
+        {
+            target = target,
+            position = position,
+            until = until,
+            focusDistance = focusDistance
+        });
+        while (recentEventFocuses.Count > 8)
+            recentEventFocuses.RemoveAt(0);
     }
 
     SquadVisual SpawnSquad(LycheeReplayPayload payload, int round)
@@ -1677,7 +1987,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 {
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
-                    SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f));
+                    SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f), ResolveEventIcon("SQUAD_ARRIVE"));
                     SpawnClearActionFx(squad.end, TeamColor(squad.playerId), "清障中", true);
                     SetEventFocus(squad.root.transform, 2.8f, 13.5f);
                     if (!string.IsNullOrEmpty(squad.targetNodeId))
@@ -2093,11 +2403,11 @@ public class LycheeReplayPlayer : MonoBehaviour
         main.startSize = 0.22f;
         main.startColor = new Color(0.56f, 0.50f, 0.42f, 0.95f);
         main.gravityModifier = 1.65f;
-        main.maxParticles = 48;
+        main.maxParticles = 24;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
 
         ParticleSystem.EmissionModule emission = falling.emission;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 38) });
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 16) });
         ParticleSystem.ShapeModule shape = falling.shape;
         shape.shapeType = ParticleSystemShapeType.Sphere;
         shape.radius = 0.75f;
@@ -2117,7 +2427,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         root.transform.SetParent(eventRoot, false);
         root.transform.position = position + Vector3.up * 0.25f;
 
-        SpawnObstacleParticles(root.transform, new Color(0.55f, 0.34f, 0.16f, 0.92f), 34, 1.9f, 0.13f, 1.1f);
+        SpawnObstacleParticles(root.transform, new Color(0.55f, 0.34f, 0.16f, 0.92f), 18, 1.7f, 0.11f, 1.0f);
         int seed = StableHash(nodeId);
         for (int i = 0; i < 7; i++)
         {
@@ -2149,7 +2459,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         root.transform.SetParent(eventRoot, false);
         root.transform.position = position + Vector3.up * 0.2f;
 
-        SpawnObstacleParticles(root.transform, new Color(0.76f, 0.56f, 0.30f, 0.86f), 28, 1.25f, 0.16f, 0.55f);
+        SpawnObstacleParticles(root.transform, new Color(0.76f, 0.56f, 0.30f, 0.86f), 14, 1.1f, 0.13f, 0.45f);
         int seed = StableHash(nodeId);
         for (int i = 0; i < 5; i++)
         {
@@ -2194,7 +2504,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         main.startSize = size;
         main.startColor = color;
         main.gravityModifier = gravity;
-        main.maxParticles = Mathf.Max(32, count + 8);
+        main.maxParticles = Mathf.Max(16, count + 4);
         main.simulationSpace = ParticleSystemSimulationSpace.World;
 
         ParticleSystem.EmissionModule emission = particles.emission;
@@ -2258,10 +2568,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         main.startSize = success ? 0.22f : 0.18f;
         main.startColor = success ? new Color(color.r, color.g, color.b, 0.92f) : new Color(1f, 0.28f, 0.18f, 0.9f);
         main.gravityModifier = success ? 0.28f : 0.08f;
-        main.maxParticles = 70;
+        main.maxParticles = 28;
 
         ParticleSystem.EmissionModule emission = particles.emission;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)(success ? 52 : 34)) });
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)(success ? 18 : 12)) });
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType = ParticleSystemShapeType.Cone;
         shape.angle = success ? 38f : 24f;
@@ -2402,8 +2712,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         return material;
     }
 
-    void SpawnEventPulse(Vector3 position, string text, Color color)
+    void SpawnEventPulse(Vector3 position, string text, Color color, Sprite icon = null)
     {
+        PruneEventEffects();
         GameObject root = new GameObject("Event_" + text);
         root.transform.SetParent(eventRoot, false);
         root.transform.position = position + Vector3.up * 0.25f;
@@ -2414,21 +2725,35 @@ public class LycheeReplayPlayer : MonoBehaviour
         Material pulseMat = EventPulseMaterial();
         if (pulseRenderer != null && pulseMat != null) pulseRenderer.material = pulseMat;
         ParticleSystem.MainModule main = particles.main;
-        main.duration = 0.65f;
-        main.startLifetime = 0.65f;
-        main.startSpeed = 2.2f;
-        main.startSize = 0.18f;
+        main.duration = 0.45f;
+        main.startLifetime = 0.50f;
+        main.startSpeed = 1.65f;
+        main.startSize = 0.14f;
         main.startColor = color;
-        main.maxParticles = 28;
+        main.maxParticles = 10;
         ParticleSystem.EmissionModule emission = particles.emission;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 22) });
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 8) });
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType = ParticleSystemShapeType.Sphere;
         shape.radius = 0.45f;
         particles.Play();
         CreateLabel(root.transform, text, color).transform.localPosition = new Vector3(0f, 1.4f, 0f);
+        if (icon != null) CreateEventIconBillboard(root.transform, icon);
         eventEffects.Add(root);
         Destroy(root, 1.8f);
+    }
+
+    void PruneEventEffects()
+    {
+        for (int i = eventEffects.Count - 1; i >= 0; i--)
+            if (eventEffects[i] == null) eventEffects.RemoveAt(i);
+    }
+
+    void ClearEventEffects()
+    {
+        for (int i = eventEffects.Count - 1; i >= 0; i--)
+            if (eventEffects[i] != null) Destroy(eventEffects[i]);
+        eventEffects.Clear();
     }
 
     void SeekFrame(int index)
@@ -2440,6 +2765,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         foreach (SquadVisual squad in squads)
             if (squad.root != null) Destroy(squad.root);
         squads.Clear();
+        ClearEventEffects();
         foreach (ConvoyVisual convoy in convoys.Values)
         {
             convoy.initialized = false;
@@ -2451,6 +2777,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         hasContestFocus = false;
         eventFocusTarget = null;
         eventFocusUntil = 0f;
+        recentEventFocuses.Clear();
         processCardRoundByKey.Clear();
         ApplyFrame(frameIndex, true);
         InterpolateConvoys(0f);
@@ -2503,14 +2830,26 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (frames.Count > 0 && frames[frameIndex].players != null)
         {
             LycheeReplayPlayerState player = frames[frameIndex].players.FirstOrDefault(candidate => candidate.playerId == playerId);
-            if (player != null) return player.camp == 0 ? "红队" : "蓝队";
+            if (player != null) return TeamDisplayName(player);
         }
         if (startFrame != null && startFrame.players != null)
         {
             LycheeReplayPlayerState player = startFrame.players.FirstOrDefault(candidate => candidate.playerId == playerId);
-            if (player != null) return player.camp == 0 ? "红队" : "蓝队";
+            if (player != null) return TeamDisplayName(player);
         }
         return "队伍";
+    }
+
+    static string TeamDisplayName(LycheeReplayPlayerState player)
+    {
+        if (player == null) return "队伍";
+        string campName = player.camp == 0 ? "红队" : "蓝队";
+        // 地图车队 label 用数值 playerId（红 1002 / 蓝 2002，唯一）做队伍 ID，与底部 HUD 一致，重名也能区分。
+        string id = player.playerId > 0 ? "#" + player.playerId : (!string.IsNullOrEmpty(player.teamId) ? "#" + player.teamId : string.Empty);
+        string name = string.IsNullOrEmpty(player.name) ? string.Empty : player.name;
+        if (string.IsNullOrEmpty(id)) return string.IsNullOrEmpty(name) ? campName : campName + " " + name;
+        if (string.IsNullOrEmpty(name)) return campName + " " + id;
+        return campName + " " + id + " · " + name;
     }
 
     string DisplayNode(string nodeId)
@@ -2676,7 +3015,59 @@ public class LycheeReplayPlayer : MonoBehaviour
         model.transform.position -= new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
         foreach (Collider collider in model.GetComponentsInChildren<Collider>(true))
             collider.enabled = false;
+        ApplyCharacterBrightness(wrapper, objectName);
         return wrapper;
+    }
+
+    static bool IsCharacterVisual(string objectName)
+    {
+        return objectName == "Captain" ||
+            objectName.StartsWith("TeamMember_", StringComparison.Ordinal) ||
+            objectName.StartsWith("Member_", StringComparison.Ordinal);
+    }
+
+    static void ApplyCharacterBrightness(GameObject root, string objectName)
+    {
+        if (root == null || string.IsNullOrEmpty(objectName) || !IsCharacterVisual(objectName)) return;
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        foreach (Renderer renderer in renderers)
+        {
+            Material[] materials = renderer.materials;
+            for (int i = 0; i < materials.Length; i++)
+            {
+                Material material = materials[i];
+                if (material == null) continue;
+                Color baseColor = Color.white;
+                bool hasBase = false;
+                if (material.HasProperty("_BaseColor"))
+                {
+                    baseColor = material.GetColor("_BaseColor");
+                    hasBase = true;
+                }
+                else if (material.HasProperty("_Color"))
+                {
+                    baseColor = material.GetColor("_Color");
+                    hasBase = true;
+                }
+                if (!hasBase) continue;
+
+                Color boosted = new Color(
+                    Mathf.Clamp01(baseColor.r * 1.18f + 0.045f),
+                    Mathf.Clamp01(baseColor.g * 1.18f + 0.045f),
+                    Mathf.Clamp01(baseColor.b * 1.18f + 0.045f),
+                    baseColor.a);
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", boosted);
+                if (material.HasProperty("_Color")) material.SetColor("_Color", boosted);
+                if (material.HasProperty("_EmissionColor"))
+                {
+                    Color emission = new Color(boosted.r, boosted.g, boosted.b, 1f) * 0.075f;
+                    material.EnableKeyword("_EMISSION");
+                    material.SetColor("_EmissionColor", emission);
+                    material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                }
+            }
+            renderer.materials = materials;
+        }
     }
 
     TextMesh CreateLabel(Transform parent, string text, Color color)
@@ -2738,11 +3129,124 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (eventType.Contains("GUARD") || eventType.Contains("FORCED")) return new Color(1f, 0.28f, 0.14f);
         if (eventType.Contains("TASK") || eventType.Contains("BOUNTY")) return new Color(1f, 0.78f, 0.16f);
         if (eventType.Contains("DELIVER") || eventType.Contains("VERIFY")) return new Color(0.34f, 1f, 0.42f);
-        return new Color(0.86f, 0.48f, 1f);
+        if (eventType.Contains("RESOURCE")) return new Color(0.95f, 0.70f, 0.24f);
+        if (eventType.Contains("PROCESS")) return new Color(0.42f, 0.86f, 1f);
+        if (eventType.Contains("SQUAD")) return new Color(1f, 0.72f, 0.18f);
+        return new Color(1f, 0.72f, 0.18f);
+    }
+
+    // ===== 事件世界图标：把 EventIcons/*.png 作为事件脉冲上方朝向相机的贴片，
+    //       让“地图远端事件激活”在拉远镜头下也能按图标一眼识别类别 =====
+    static string EventIconPath(string t, LycheeReplayPayload payload = null)
+    {
+        if (string.IsNullOrEmpty(t)) return null;
+        if (t.Contains("WEATHER")) return WeatherIconPath(payload == null ? null : payload.weatherType);
+        string mapped = LycheeEventIconMap.ResolveFile(t, false);
+        if (!string.IsNullOrEmpty(mapped)) return mapped;
+        if (t == "MATCH_START" || t == "NODE_ENTER") return "icon_task.png";
+        if (t.StartsWith("WINDOW", StringComparison.Ordinal)) return "EventIcons/icon_event_contest_swords.png";
+        if (t == "OBSTACLE_CLEAR" || t == "SQUAD_CLEAR" || t == "SQUAD_CLEAR_SUCCESS") return "EventIcons/icon_event_clear_obstacle.png";
+        if (t == "GUARD_SET") return "EventIcons/icon_event_guard_set.png";
+        if (t == "GUARD_BREAK") return "EventIcons/icon_event_guard_break.png";
+        if (t.Contains("GUARD")) return "icon_guard.png";
+        if (t == "SQUAD_DISPATCH") return "EventIcons/icon_event_squad_dispatch.png";
+        if (t == "SQUAD_ARRIVE") return "EventIcons/icon_event_squad_arrive.png";
+        if (t == "SQUAD_FAILED") return "EventIcons/icon_event_squad_fail.png";
+        if (t.StartsWith("SQUAD_", StringComparison.Ordinal)) return "EventIcons/icon_event_squad_dispatch.png";
+        if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
+        if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "icon_task.png";
+        if (t.StartsWith("RUSH_", StringComparison.Ordinal)) return "EventIcons/icon_event_contest_swords.png";
+        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_forced_pass.png";
+        if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
+        if (t.StartsWith("COST_", StringComparison.Ordinal)) return "icon_resource_passtoken.png";
+        if (t == "MATCH_END") return "EventIcons/icon_event_delivery_success.png";
+        if (t.StartsWith("VERIFY", StringComparison.Ordinal)) return "EventIcons/icon_event_verify_gate.png";
+        if (t.StartsWith("FORCED", StringComparison.Ordinal)) return "EventIcons/icon_event_forced_pass.png";
+        if (t == "DELIVER_SUCCESS") return "EventIcons/icon_event_delivery_success.png";
+        if (t.Contains("TASK")) return "icon_task.png";
+        if (t.Contains("BOUNTY")) return "icon_bounty.png";
+        return null;
+    }
+
+    static string WeatherIconPath(string weatherType)
+    {
+        string type = string.IsNullOrEmpty(weatherType) ? string.Empty : weatherType.Trim().ToUpperInvariant();
+        if (type == "HOT") return "icon_weather_hot.png";
+        if (type == "MOUNTAIN_FOG") return "icon_weather_fog.png";
+        if (type == "HEAVY_RAIN") return "icon_weather_rain.png";
+        return "icon_weather_rain.png";
+    }
+
+    /// <summary>事件类型 → 事件卡分类边框类别（battle/resource/weather/squad/verification）；无专属类别返回 null 走通用边框。</summary>
+    static string EventBorderCategory(string t)
+    {
+        if (string.IsNullOrEmpty(t)) return null;
+        if (t == "MATCH_START" || t == "NODE_ENTER") return "resource";
+        if (t.Contains("WEATHER") || t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "weather";
+        if (t.StartsWith("SQUAD_", StringComparison.Ordinal)) return "squad";
+        if (t.Contains("RESOURCE") || t.Contains("TASK") || t.Contains("BOUNTY") ||
+            t.StartsWith("PROCESS_", StringComparison.Ordinal) || t.StartsWith("COST_", StringComparison.Ordinal)) return "resource";
+        if (t.Contains("VERIFY") || t.Contains("DELIVER") || t == "MATCH_END") return "verification";
+        if (t.Contains("WINDOW") || t.Contains("CONTEST") || t.Contains("CARD") ||
+            t.Contains("GUARD") || t.Contains("FORCED") || t.Contains("OBSTACLE") ||
+            t.StartsWith("RUSH_", StringComparison.Ordinal) ||
+            t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "battle";
+        return null;
+    }
+
+    readonly Dictionary<string, Sprite> eventIconSprites = new Dictionary<string, Sprite>();
+
+    Sprite ResolveEventIcon(string eventType, LycheeReplayPayload payload = null)
+    {
+        string path = EventIconPath(eventType, payload);
+        if (string.IsNullOrEmpty(path)) return null;
+        if (eventIconSprites.TryGetValue(path, out Sprite cached)) return cached;
+        Sprite sprite = null;
+        byte[] bytes = LycheeThemeCache.LoadBytes(path);
+        if (bytes != null)
+        {
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (texture.LoadImage(bytes))
+            {
+                texture.wrapMode = TextureWrapMode.Clamp;
+                sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f), 160f);
+            }
+            else
+            {
+                Destroy(texture);
+            }
+        }
+        // WebGL 下 UITheme 是异步预加载；预加载完成前不要把一次空读写死进缓存。
+        if (sprite != null || LycheeThemeCache.Preloaded) eventIconSprites[path] = sprite;
+        return sprite;
+    }
+
+    void CreateEventIconBillboard(Transform parent, Sprite icon)
+    {
+        GameObject iconObject = new GameObject("EventIcon");
+        iconObject.transform.SetParent(parent, false);
+        iconObject.transform.localPosition = new Vector3(0f, 3.05f, 0f);
+        iconObject.transform.localScale = Vector3.one * 1.25f;
+        SpriteRenderer iconRenderer = iconObject.AddComponent<SpriteRenderer>();
+        iconRenderer.sprite = icon;
+        iconRenderer.sortingOrder = 30000;
+        LycheeReplayBillboard billboard = iconObject.AddComponent<LycheeReplayBillboard>();
+        billboard.maxScale = 1.9f; // 远景拉远时图标也保持可辨识
     }
 
     void OnGUI()
     {
+        if (!string.IsNullOrEmpty(startupError))
+        {
+            EnsureGuiStyles();
+            float errorPanelWidth = Mathf.Min(760f, Screen.width - 48f);
+            float errorPanelHeight = Mathf.Min(260f, Screen.height - 48f);
+            Rect errorPanel = new Rect((Screen.width - errorPanelWidth) * 0.5f, (Screen.height - errorPanelHeight) * 0.5f, errorPanelWidth, errorPanelHeight);
+            GUI.Box(errorPanel, GUIContent.none);
+            GUI.Label(new Rect(errorPanel.x + 24f, errorPanel.y + 22f, errorPanel.width - 48f, errorPanel.height - 44f), startupError, startupErrorStyle);
+            return;
+        }
         if (!showLegacyTopHud) return;
         if (frames.Count == 0) return;
         EnsureGuiStyles();
@@ -2762,7 +3266,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (GUI.Button(new Rect(112f, 82f, 58f, 30f), "Reset", buttonStyle))
             SeekFrame(0);
 
-        float speed = 0.10f / secondsPerRound;
+        float speed = 1.00f / secondsPerRound;
         GUI.Label(new Rect(181f, 84f, 78f, 24f), speed.ToString("0.0") + "x", hudStyle);
         float sliderValue = GUI.HorizontalSlider(
             new Rect(250f, 91f, width - 275f, 18f),
@@ -2788,5 +3292,13 @@ public class LycheeReplayPlayer : MonoBehaviour
             normal = { textColor = new Color(1f, 0.76f, 0.24f) }
         };
         buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 14 };
+        startupErrorStyle = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 20,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.UpperLeft,
+            wordWrap = true,
+            normal = { textColor = new Color(1f, 0.88f, 0.62f) }
+        };
     }
 }

@@ -11,10 +11,10 @@ using UnityEngine.InputSystem.UI;
 /// <summary>
 /// 中段视频插播：回放进行到关键事件时，插播一段短视频，播放期间暂停回放、播完恢复，让整体更有观赏性。
 /// 触发事件→视频文件名约定（放 StreamingAssets/Video/ 下，缺失则该事件不插播、零打扰）：
-///   WINDOW_CONTEST_START → contest.mp4（对抗大战）
-///   RUSH_PHASE_START     → rush.mp4（冲刺阶段）
-///   DELIVER_SUCCESS      → deliver.mp4（交付成功）
-/// 用户按约定丢视频进去即自动接入；没丢的事件正常播放不中断。
+///   WINDOW_CONTEST_START → contest.mp4   RUSH_START → rush.mp4   DELIVER_SUCCESS → deliver.mp4
+///   OBSTACLE_CLEAR → clear_obstacle.mp4  GUARD_BREAK → break_guard.mp4  SQUAD_DISPATCH → squad_dispatch.mp4
+///   RESOURCE_CLAIM → resource_contest.mp4  VERIFY_GATE_START → gate_verification.mp4  WEATHER_START → weather_start.mp4
+/// 用户按约定丢视频进去即自动接入；没丢的事件正常播放不中断。两次插播间有 20s 冷却，不会连环打断。
 ///
 /// 关键设计：先静默 Prepare 视频（回放继续跑），确认能播了才暂停+淡黑+播放——缺失/失败的视频
 /// 经 errorReceived/超时被标记 knownMissing，永不再试、也绝不中断回放。点击可跳过；两次插播间有冷却。
@@ -30,11 +30,18 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     // 事件→插播视频。事件名按实际回放数据对齐：冲刺是 RUSH_START（非 RUSH_PHASE_START）。
     static readonly Dictionary<string, string> EventVideo = new Dictionary<string, string>
     {
-        // 对抗大战。注意：当前 reply.txt 不含任何对抗事件（contests 恒为空，无 WINDOW_CONTEST_START），
+        // 对抗大战。注意：当前 replay.txt 不含任何对抗事件（contests 恒为空，无 WINDOW_CONTEST_START），
         // 因此 contest.mp4 在这份回放里不会触发；需换用含对抗的回放，或把键改成本回放实际存在的事件名。
         { "WINDOW_CONTEST_START", "contest.mp4" },
         { "RUSH_START", "rush.mp4" },              // 冲刺阶段开始（本回放第 ~450 回合触发）
         { "DELIVER_SUCCESS", "deliver.mp4" },      // 荔枝交付成功（本回放第 ~490 / 503 回合触发）
+        // 关键事件短片（StreamingAssets/Video/，20s 冷却 + knownMissing 兜底；缺文件则该事件零打扰）
+        { "OBSTACLE_CLEAR", "clear_obstacle.mp4" },       // 清障
+        { "GUARD_BREAK", "break_guard.mp4" },             // 破卡
+        { "SQUAD_DISPATCH", "squad_dispatch.mp4" },       // 小分队派出
+        { "RESOURCE_CLAIM", "resource_contest.mp4" },     // 资源争夺
+        { "VERIFY_GATE_START", "gate_verification.mp4" }, // 宫门验核
+        { "WEATHER_START", "weather_start.mp4" },         // 天气开始
     };
 
     LycheeReplayPlayer player;

@@ -1,0 +1,15 @@
+{
+    "asset": "6ac8f8aa7a2824a20bfeaff6647d64fe",
+    "fileName": "019ed600-4fee-728f-8bee-fc600f780037.mp3",
+    "prompt": "Urgent traditional Chinese battle-rush music. Fast driving war drums, energetic erhu and bamboo flute, blaring suona horn accents, rising tension for a final palace-banquet sprint. Intense, propulsive, fully instrumental, no vocals.",
+    "negativePrompt": "",
+    "model": "google-lyria-3-clip",
+    "modelName": "Google Lyria 3 Clip",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

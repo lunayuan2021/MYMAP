@@ -118,7 +118,7 @@ static class LycheePresentationRetune_20260612B
             // 3. 回放节奏 + 小队员模型：SquadMember.glb 是无骨骼的静态单节点，
             //    换成骨骼名与 Captain 一致的 Member.glb 才能被 LycheeCharacterMotion 驱动。
             report.Add(SetFloat("LycheeReplayPlayer.secondsPerRound",
-                player.secondsPerRound, 0.22f, v => player.secondsPerRound = v));
+                player.secondsPerRound, 1.00f, v => player.secondsPerRound = v));
             string oldModel = player.squadMemberModel == null
                 ? "(null)" : AssetDatabase.GetAssetPath(player.squadMemberModel);
             if (string.IsNullOrEmpty(oldModel)) oldModel = player.squadMemberModel.name;

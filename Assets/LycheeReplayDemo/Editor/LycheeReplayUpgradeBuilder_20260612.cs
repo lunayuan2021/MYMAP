@@ -9,7 +9,7 @@ namespace LycheeReplayDemoTools
     /// <summary>
     /// 回放升级收口（2026-06-12）：
     /// 1) 建好 StreamingAssets 素材目录骨架（Audio/BGM、Audio/SFX、UITheme、Video）；
-    /// 2) 缺 reply.txt 时复制演示回放（正式比赛由用户替换同名文件）；
+    /// 2) 缺 replay.txt 时复制演示回放（正式比赛由用户替换同名文件）；
     /// 3) 写 README_素材放置说明.txt（约定文件名与各运行时系统实现一致）；
     /// 4) 反射检测本轮 8 个子系统的全部新组件类型并出报告到工程根。
     /// 自动执行一次（项目根 .lychee_replay_upgrade_20260612.done 防重复），也可经菜单手动强制重跑。
@@ -79,8 +79,8 @@ namespace LycheeReplayDemoTools
                 }
                 report.AppendLine();
 
-                // ---------- b) reply.txt（演示回放兜底） ----------
-                string replyPath = Path.Combine(streamingRoot, "reply.txt");
+                // ---------- b) replay.txt（演示回放兜底） ----------
+                string replyPath = Path.Combine(streamingRoot, "replay.txt");
                 string demoSourcePath = Path.Combine(root, DemoReplayRelativePath);
                 string replySource;
                 if (File.Exists(replyPath))
@@ -97,14 +97,14 @@ namespace LycheeReplayDemoTools
                     replySource = "缺失！演示数据源 " + DemoReplayRelativePath +
                                   " 不存在，运行时将回退到 LycheeReplayPlayer.replayFile 内置样例";
                 }
-                report.AppendLine("[reply.txt]");
+                report.AppendLine("[replay.txt]");
                 report.AppendLine("  来源=" + replySource);
                 if (File.Exists(replyPath))
                 {
                     FileInfo info = new FileInfo(replyPath);
                     report.AppendLine("  大小=" + info.Length + " 字节");
                 }
-                report.AppendLine("  说明=正式比赛把服务端产出的 reply.txt 放入 Assets/StreamingAssets/ 替换同名文件即可，无需改动工程。");
+                report.AppendLine("  说明=正式比赛把服务端产出的 replay.txt 放入 Assets/StreamingAssets/ 替换同名文件即可，无需改动工程。");
                 report.AppendLine();
 
                 // ---------- c) README 素材放置说明 ----------
@@ -144,7 +144,7 @@ namespace LycheeReplayDemoTools
                 }
                 report.AppendLine("[就绪状态]");
                 report.AppendLine("  StreamingAssets 目录=" + (dirsReady ? "就绪" : "不完整"));
-                report.AppendLine("  reply.txt=" + (File.Exists(replyPath) ? "就绪" : "缺失（将走内置样例）"));
+                report.AppendLine("  replay.txt=" + (File.Exists(replyPath) ? "就绪" : "缺失（将走内置样例）"));
                 report.AppendLine("  README=" + (File.Exists(readmePath) ? "就绪" : "缺失"));
                 report.AppendLine("  组件=" + (found == NewComponentTypes.Length ? "全部就绪" : "存在缺失，见上"));
 
@@ -191,10 +191,10 @@ namespace LycheeReplayDemoTools
             sb.AppendLine("本目录 (Assets/StreamingAssets/) 下的素材在回放运行时按需加载，全部为可选项：");
             sb.AppendLine("文件缺失时各系统自动使用程序化兜底效果，不会报错、不影响回放本身。");
             sb.AppendLine();
-            sb.AppendLine("【回放数据 reply.txt】");
+            sb.AppendLine("【回放数据 replay.txt】");
             sb.AppendLine("  逐行 JSON：1 行 start + 600 行 round + 1 行 over。");
             sb.AppendLine("  当前文件为演示回放（复制自 Assets/LycheeReplayDemo/Data/reply_full_coverage_unity_v2.txt）。");
-            sb.AppendLine("  正式比赛把服务端产出的 reply.txt 放本目录替换同名文件即可，无需改动工程。");
+            sb.AppendLine("  正式比赛把服务端产出的 replay.txt 放本目录替换同名文件即可，无需改动工程。");
             sb.AppendLine();
             sb.AppendLine("【Audio/BGM/】背景音乐（LycheeAudioDirector；同名文件依次尝试 .ogg / .wav / .mp3）");
             sb.AppendLine("  bgm_normal       常规阶段背景乐");

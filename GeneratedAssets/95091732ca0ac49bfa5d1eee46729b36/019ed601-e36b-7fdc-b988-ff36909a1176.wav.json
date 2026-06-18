@@ -1,0 +1,15 @@
+{
+    "asset": "95091732ca0ac49bfa5d1eee46729b36",
+    "fileName": "019ed601-e36b-7fdc-b988-ff36909a1176.wav",
+    "prompt": "Triumphant short victory sting, ancient Chinese gong and bright brass flourish, decisive win, about 1.5 seconds.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

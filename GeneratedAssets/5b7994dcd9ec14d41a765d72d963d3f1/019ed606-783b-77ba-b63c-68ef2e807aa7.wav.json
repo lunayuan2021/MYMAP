@@ -1,0 +1,15 @@
+{
+    "asset": "5b7994dcd9ec14d41a765d72d963d3f1",
+    "fileName": "019ed606-783b-77ba-b63c-68ef2e807aa7.wav",
+    "prompt": "Continuous steady wind blowing through a mountain pass, airy whoosh ambience, several seconds, seamless loop bed.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

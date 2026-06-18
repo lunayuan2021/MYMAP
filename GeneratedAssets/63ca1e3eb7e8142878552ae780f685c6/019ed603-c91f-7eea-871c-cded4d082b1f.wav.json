@@ -1,0 +1,15 @@
+{
+    "asset": "63ca1e3eb7e8142878552ae780f685c6",
+    "fileName": "019ed603-c91f-7eea-871c-cded4d082b1f.wav",
+    "prompt": "Wooden fence and barricade smashing and splintering apart, crash of breaking timber, short.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

@@ -146,8 +146,8 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.78, g: 0.84, b: 0.68, a: 1}
-    - _Color: {r: 0.38, g: 0.5, b: 0.25, a: 1}
+    - _BaseColor: {r: 0.68, g: 0.73, b: 0.60, a: 1}
+    - _Color: {r: 0.44, g: 0.50, b: 0.36, a: 1}
     - _DeepGrassTint: {r: 0.36, g: 0.54, b: 0.22, a: 1}
     - _DirtTint: {r: 0.88, g: 0.82, b: 0.7, a: 1}
     - _DryGrassTint: {r: 0.69, g: 0.57, b: 0.31, a: 1}

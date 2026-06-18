@@ -1,0 +1,15 @@
+{
+    "asset": "1e2b7a0368c9a445887f782050f21423",
+    "fileName": "019ed607-88c6-7571-85f2-9ed8c24a2d73.wav",
+    "prompt": "Continuous rhythmic wooden oars rowing through water, gentle repeating splashes of a boat moving, several seconds, seamless loop bed.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

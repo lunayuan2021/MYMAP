@@ -3,17 +3,17 @@
 本目录 (Assets/StreamingAssets/) 下的素材在回放运行时按需加载，全部为可选项：
 文件缺失时各系统自动使用程序化兜底效果，不会报错、不影响回放本身。
 
-【回放数据 reply.txt】
+【回放数据 replay.txt】
   逐行 JSON：1 行 start + 600 行 round + 1 行 over。
   当前文件为演示回放（复制自 Assets/LycheeReplayDemo/Data/reply_full_coverage_unity_v2.txt）。
-  正式比赛把服务端产出的 reply.txt 放本目录替换同名文件即可，无需改动工程。
+  正式比赛把服务端产出的 replay.txt 放本目录替换同名文件即可，无需改动工程。
 
-【Audio/BGM/】背景音乐（LycheeAudioDirector；同名文件依次尝试 .ogg / .wav / .mp3）
+【Audio/BGM/】背景音乐（LycheeAudioDirector；WebGL 同名文件依次尝试 .wav / .ogg / .mp3）
   bgm_normal       常规阶段背景乐
   bgm_rush         抢运阶段背景乐（RUSH_PHASE_START 后切入）
   bgm_settlement   终局结算背景乐
 
-【Audio/SFX/】音效（LycheeAudioDirector；同名文件依次尝试 .ogg / .wav / .mp3）
+【Audio/SFX/】音效（LycheeAudioDirector；WebGL 同名文件依次尝试 .wav / .ogg / .mp3）
   sfx_card_reveal      窗口翻牌 (WINDOW_CARD_REVEAL)
   sfx_contest_win      争夺结算 (WINDOW_CONTEST_END)
   sfx_guard_set        设卡 (GUARD_SET)
@@ -53,7 +53,17 @@
   icon_resource_intel.png      情报资源图标 INTEL (LycheeWorldMarkerSystem)
   icon_resource_boatright.png  舟船权资源图标 BOAT_RIGHT (LycheeWorldMarkerSystem)
 
-【Video/】预留目录
-  当前版本运行时系统暂不读取视频素材，目录为后续版本预留。
+【Video/】关键事件短视频（LycheeVideoInterlude；缺失或解码失败会静默跳过，不阻塞回放）
+  opening.mp4              开场展示（LycheeOpeningShowcase）
+  contest.mp4              对抗开始 WINDOW_CONTEST_START
+  rush.mp4                 冲刺开始 RUSH_START
+  deliver.mp4              交付成功 DELIVER_SUCCESS
+  clear_obstacle.mp4       清障 OBSTACLE_CLEAR
+  break_guard.mp4          破卡 GUARD_BREAK
+  squad_dispatch.mp4       小分队派出 SQUAD_DISPATCH
+  resource_contest.mp4     资源争夺 RESOURCE_CLAIM
+  gate_verification.mp4    宫门验核 VERIFY_GATE_START
+  weather_start.mp4        天气开始 WEATHER_START
+  victory.mp4              结算/胜利预留
 
 生成于 2026-06-12 11:08:48（Tools/Lychee/Replay Upgrade 20260612/Setup，可重复执行刷新本说明）

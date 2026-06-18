@@ -36,8 +36,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     static readonly Color BlueTeamColor = new Color(0.20f, 0.48f, 1f, 1f);
     static readonly Color SoftText = new Color(0.929f, 0.878f, 0.765f, 0.95f);    // 绢黄正文（事件流条目）
 
-    static readonly float[] SpeedSeconds = { 0.20f, 0.10f, 0.05f, 0.025f };
-    static readonly string[] SpeedLabels = { "0.5×", "1×", "2×", "4×" };
+    // 1× = 1 回合 / 秒：replay 有多少回合就播多少秒（不固定假设 600 回合，胜负已定即收尾）。
+    // 其余档位为快进倍率；0.125s/回合(8×) 仍高于 LycheeAudioDirector 的一次性音效静音阈值(0.026)。
+    static readonly float[] SpeedSeconds = { 1.00f, 0.50f, 0.25f, 0.125f };
+    static readonly string[] SpeedLabels = { "1×", "2×", "4×", "8×" };
 
     static Font sharedFont;
     static bool sharedFontResolved;
@@ -62,6 +64,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         public string label;
         public Color color;
+        public string eventType;
+        public string iconPath;
     }
 
     /// <summary>数值变化飘字（"+N"/"-N"）的池化条目：复用 GameObject，禁每帧 new。</summary>
@@ -121,6 +125,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     Sprite weatherHotSprite;
     Sprite weatherRainSprite;
     Sprite weatherFogSprite;
+    bool weatherSpritesResolved;
 
     // ---- 回放控制条 ----
     CanvasGroup controlGroup;
@@ -135,7 +140,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     bool playStateCaptured;
     bool wasPlayingBeforeDrag;
     float lastUserSliderChange;
-    int speedIndex = 1;
+    int speedIndex = 0; // 默认 1×（SpeedSeconds[0]=1.00s/回合=1 回合/秒）；Awake 再按场景值吸附校正
 
     // ---- RUSH 转场 ----
     RectTransform rushRoot;
@@ -240,6 +245,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         UpdateWeatherBanner(now);
         UpdateControls();
         UpdateFloaters(now);
+        UpgradeWeatherSprites();
         UpgradePendingSkins();
     }
 
@@ -574,19 +580,20 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type == "FRESHNESS_DROP" && !ShouldSurfaceFreshnessDrop(message.payload, round, lastFeedFreshRoundByPlayer, 24, 0.22f))
             return;
         string node = ResolveNodeName(message.payload);
-        string label = "R" + round + " " + CategoryIcon(type) + " " +
+        // 类别符号不再拼进文本：交给 CreateFeedEntry 用专属 PNG 图标呈现（缺图才回退文字符号）。
+        string label = "R" + round + "  " +
             (string.IsNullOrEmpty(node) ? "" : node + " ") + EventNameCn(type);
         Color color = FeedColor(type);
         if (feedPaused)
         {
-            pendingFeed.Add(new PendingFeed { label = label, color = color });
+            pendingFeed.Add(new PendingFeed { label = label, color = color, eventType = type, iconPath = FeedIconPath(type, message.payload) });
             while (pendingFeed.Count > 8) pendingFeed.RemoveAt(0);
             return;
         }
-        CreateFeedEntry(label, color);
+        CreateFeedEntry(label, color, type, FeedIconPath(type, message.payload));
     }
 
-    void CreateFeedEntry(string label, Color barColor)
+    void CreateFeedEntry(string label, Color barColor, string eventType, string iconPath)
     {
         if (feedRoot == null) return;
         GameObject go = new GameObject("FeedEntry", typeof(RectTransform));
@@ -609,13 +616,33 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         bar.color = barColor;
         bar.raycastTarget = false;
 
+        // 事件类别图标：有专属 PNG（EventIcons/ 或顶层 icon_*）就贴图，缺图回退文字符号，
+        // 文本相应右移腾出图标位。这样事件流与地图脉冲、对抗演出统一了类别识别语言。
+        Sprite feedIcon = FeedIconSprite(iconPath);
+        float textLeft;
+        if (feedIcon != null)
+        {
+            RectTransform iconRt = MakeRect("FeedIcon", rt);
+            SetRect(iconRt, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(9f, 0f), new Vector2(24f, 24f));
+            Image iconImage = iconRt.gameObject.AddComponent<Image>();
+            iconImage.sprite = feedIcon;
+            iconImage.preserveAspect = true;
+            iconImage.raycastTarget = false;
+            textLeft = 38f;
+        }
+        else
+        {
+            label = CategoryIcon(eventType) + " " + label;
+            textLeft = 8f;
+        }
+
         Text text = MakeText("Label", rt, 15, FontStyle.Bold, SoftText, TextAnchor.MiddleLeft);
-        SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(1f, 0f), new Vector2(-22f, 0f));
+        SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+            new Vector2((textLeft - 12f) * 0.5f, 0f), new Vector2(-(textLeft + 12f), 0f));
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
         text.verticalOverflow = VerticalWrapMode.Truncate;
-        // 超长条目按可用宽度（条目宽 332 - 色条加左留白 12 - 右留白 10）截断并追加省略号，
-        // 保证单行展示、不会伸出条目背景/面板。
-        text.text = TruncateWithEllipsis(text, label, FeedWidth - 22f);
+        // 按可用宽度（条目宽 - 图标位 - 右留白）截断并追加省略号，保证单行不溢出。
+        text.text = TruncateWithEllipsis(text, label, FeedWidth - textLeft - 12f);
 
         FeedEntry entry = new FeedEntry
         {
@@ -700,7 +727,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (pendingFeed.Count == 0) return;
         for (int i = 0; i < pendingFeed.Count; i++)
-            CreateFeedEntry(pendingFeed[i].label, pendingFeed[i].color);
+            CreateFeedEntry(pendingFeed[i].label, pendingFeed[i].color, pendingFeed[i].eventType, pendingFeed[i].iconPath);
         pendingFeed.Clear();
     }
 
@@ -942,10 +969,22 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             {
                 LycheeReplayPlayerState state = states[i];
                 if (state != null && state.playerId == playerId)
-                    return string.IsNullOrEmpty(state.teamId) ? state.name : state.teamId;
+                    return FormatTeamDisplayName(state);
             }
         }
-        return "P" + playerId;
+        return "队伍 " + playerId;
+    }
+
+    static string FormatTeamDisplayName(LycheeReplayPlayerState state)
+    {
+        if (state == null) return "队伍";
+        string campName = state.camp == 0 ? "红队" : "蓝队";
+        // 用数值 playerId（红 1002 / 蓝 2002，唯一）作为队伍 ID，与底部 HUD 一致，重名也能区分。
+        string id = state.playerId > 0 ? "#" + state.playerId : (!string.IsNullOrEmpty(state.teamId) ? "#" + state.teamId : string.Empty);
+        string name = string.IsNullOrEmpty(state.name) ? string.Empty : state.name;
+        if (string.IsNullOrEmpty(id)) return string.IsNullOrEmpty(name) ? campName : campName + " " + name;
+        if (string.IsNullOrEmpty(name)) return campName + " " + id;
+        return campName + " " + id + " · " + name;
     }
 
     string RewardHint(LycheeReplayPayload payload)
@@ -1069,6 +1108,17 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         weatherHotSprite = LycheeLoadThemeSprite("icon_weather_hot.png");
         weatherRainSprite = LycheeLoadThemeSprite("icon_weather_rain.png");
         weatherFogSprite = LycheeLoadThemeSprite("icon_weather_fog.png");
+        weatherSpritesResolved =
+            (weatherHotSprite != null && weatherRainSprite != null && weatherFogSprite != null) ||
+            LycheeThemeCache.Preloaded;
+    }
+
+    void UpgradeWeatherSprites()
+    {
+        if (weatherSpritesResolved) return;
+        LoadWeatherSprites();
+        if (weatherSpritesResolved && player != null)
+            RefreshWeatherBanner(player.CurrentFrame);
     }
 
     void RefreshWeatherBanner(LycheeReplayFrame frame)
@@ -1616,6 +1666,59 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type.Contains("TASK") || type.Contains("BOUNTY")) return "★";
         if (type.Contains("DELIVER") || type.Contains("VERIFY")) return "✓";
         return "◆";
+    }
+
+    static readonly Dictionary<string, Sprite> feedIconCache = new Dictionary<string, Sprite>();
+
+    /// <summary>事件类型 → 事件流图标文件（相对 UITheme）；无专属图标返回 null（走文字符号兜底）。</summary>
+    static string FeedIconPath(string t, LycheeReplayPayload payload = null)
+    {
+        if (string.IsNullOrEmpty(t)) return null;
+        if (t.Contains("WEATHER")) return WeatherIconFile(payload == null ? null : payload.weatherType);
+        string mapped = LycheeEventIconMap.ResolveFile(t, false);
+        if (!string.IsNullOrEmpty(mapped)) return mapped;
+        if (t == "MATCH_START" || t == "NODE_ENTER") return "icon_task.png";
+        if (t.Contains("WINDOW") || t.Contains("CONTEST") || t.Contains("CARD")) return "EventIcons/icon_event_contest_swords.png";
+        if (t == "OBSTACLE_CLEAR" || t == "SQUAD_CLEAR" || t == "SQUAD_CLEAR_SUCCESS") return "EventIcons/icon_event_clear_obstacle.png";
+        if (t == "GUARD_SET") return "EventIcons/icon_event_guard_set.png";
+        if (t == "GUARD_BREAK") return "EventIcons/icon_event_guard_break.png";
+        if (t == "SQUAD_DISPATCH") return "EventIcons/icon_event_squad_dispatch.png";
+        if (t == "SQUAD_ARRIVE") return "EventIcons/icon_event_squad_arrive.png";
+        if (t == "SQUAD_FAILED") return "EventIcons/icon_event_squad_fail.png";
+        if (t.StartsWith("SQUAD_")) return "EventIcons/icon_event_squad_dispatch.png";
+        if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
+        if (t.StartsWith("PROCESS_")) return "icon_task.png";
+        if (t.StartsWith("RUSH_")) return "EventIcons/icon_event_contest_swords.png";
+        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_forced_pass.png";
+        if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
+        if (t.StartsWith("COST_")) return "icon_resource_passtoken.png";
+        if (t == "MATCH_END") return "EventIcons/icon_event_delivery_success.png";
+        if (t.Contains("VERIFY")) return "EventIcons/icon_event_verify_gate.png";
+        if (t.Contains("FORCED")) return "EventIcons/icon_event_forced_pass.png";
+        if (t.Contains("DELIVER")) return "EventIcons/icon_event_delivery_success.png";
+        if (t.Contains("BOUNTY")) return "icon_bounty.png";
+        if (t.Contains("TASK")) return "icon_task.png";
+        if (t.Contains("GUARD")) return "icon_guard.png";
+        return null;
+    }
+
+    static string WeatherIconFile(string weatherType)
+    {
+        string type = string.IsNullOrEmpty(weatherType) ? string.Empty : weatherType.Trim().ToUpperInvariant();
+        if (type == "HOT") return "icon_weather_hot.png";
+        if (type == "MOUNTAIN_FOG") return "icon_weather_fog.png";
+        if (type == "HEAVY_RAIN") return "icon_weather_rain.png";
+        return "icon_weather_rain.png";
+    }
+
+    static Sprite FeedIconSprite(string iconPath)
+    {
+        if (string.IsNullOrEmpty(iconPath)) return null;
+        if (feedIconCache.TryGetValue(iconPath, out Sprite cached)) return cached;
+        Sprite sprite = LycheeLoadThemeSprite(iconPath);
+        // WebGL 下 UITheme 是异步预加载；预加载完成前不要把一次空读写死进缓存。
+        if (sprite != null || LycheeThemeCache.Preloaded) feedIconCache[iconPath] = sprite;
+        return sprite;
     }
 
     static string EventNameCn(string type)

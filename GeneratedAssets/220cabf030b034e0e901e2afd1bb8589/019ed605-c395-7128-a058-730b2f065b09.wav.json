@@ -1,0 +1,15 @@
+{
+    "asset": "220cabf030b034e0e901e2afd1bb8589",
+    "fileName": "019ed605-c395-7128-a058-730b2f065b09.wav",
+    "prompt": "A soft clean UI button click, a single muted wood-block tap, very short, dry.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

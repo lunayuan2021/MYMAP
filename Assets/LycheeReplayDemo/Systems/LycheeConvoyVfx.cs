@@ -17,14 +17,14 @@ public class LycheeConvoyVfx : MonoBehaviour
     public static bool Disabled;
 
     // 红队尘土取"一骑红尘"的朱红基调，蓝队压成灰褐偏冷——红尘是红队主题，但双队跑路都该带土
-    static readonly Color DustRedCamp = new Color(0.722f, 0.361f, 0.243f, 0.45f);  // #B85C3E
-    static readonly Color DustBlueCamp = new Color(0.478f, 0.416f, 0.333f, 0.45f); // #7A6A55
+    static readonly Color DustRedCamp = new Color(0.722f, 0.361f, 0.243f, 0.20f);  // #B85C3E，轻量尘土，不遮挡单位
+    static readonly Color DustBlueCamp = new Color(0.478f, 0.416f, 0.333f, 0.20f); // #7A6A55
     static readonly Color RushGoldColor = new Color(1f, 0.85f, 0.3f, 0.95f);
     static readonly Color FreshGreen = new Color(0.2f, 0.95f, 0.4f);
     static readonly Color FreshAmber = new Color(1f, 0.72f, 0.1f);
     static readonly Color FreshRed = new Color(1f, 0.2f, 0.1f);
 
-    const float DustRatePerMeter = 7f;       // 每米扬尘粒子数：静止天然不冒烟，跑起来才扬尘
+    const float DustRatePerMeter = 3.2f;     // 每米扬尘粒子数：只作运动提示，不压住车队/小人
     const float WaterFadeSeconds = 0.45f;    // 水陆切换时扬尘渐隐时长（船不扬尘）
     const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护，与 LycheeCharacterMotion 同阈值
     const float RingHeight = 0.07f;          // 与 TeamRing(y=0.04) 错开
@@ -256,7 +256,7 @@ public class LycheeConvoyVfx : MonoBehaviour
         {
             rig.rushApplied = rushPhase;
             ParticleSystem.EmissionModule rushEmission = rig.rushGlow.emission;
-            rushEmission.rateOverTime = rushPhase ? 12f : 0f;
+            rushEmission.rateOverTime = rushPhase ? 5f : 0f;
         }
 
         // 2. 鲜度光环：颜色平滑过渡 + 1.2Hz 呼吸
@@ -314,12 +314,12 @@ public class LycheeConvoyVfx : MonoBehaviour
         ParticleSystem.MainModule main = particles.main;
         // World 空间是拖尾成立的关键：粒子留在出生地，车队跑过去自然拉出一条"红尘"
         main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(1.6f, 2.4f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.3f, 0.8f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.85f, 1.35f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.22f, 0.55f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.22f, 0.55f);
         main.startColor = camp == 0 ? DustRedCamp : DustBlueCamp;
         main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-        main.maxParticles = 120;
+        main.maxParticles = 44;
 
         ParticleSystem.EmissionModule emission = particles.emission;
         emission.rateOverTime = 0f;
@@ -341,7 +341,7 @@ public class LycheeConvoyVfx : MonoBehaviour
         ParticleSystem.ColorOverLifetimeModule colorOverLifetime = particles.colorOverLifetime;
         colorOverLifetime.enabled = true;
         Gradient gradient = new Gradient();
-        // alpha 曲线与 startColor 的 0.45 相乘：开头 6% 快速淡入避免硬蹦，随后整段 0.45→0 渐隐
+        // alpha 曲线与 startColor 的 0.20 相乘：只保留轻尘提示，避免激活效果盖住单位
         gradient.SetKeys(
             new[]
             {
@@ -356,12 +356,12 @@ public class LycheeConvoyVfx : MonoBehaviour
             });
         colorOverLifetime.color = gradient;
 
-        // 尘团边扩散边变淡：1 → 2.2（multiplier 取 2.2，曲线归一到 0~1 区间）
+        // 尘团轻微扩散边变淡：1 → 1.6，控制屏幕占比
         ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
         sizeOverLifetime.enabled = true;
         sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
-            2.2f,
-            new AnimationCurve(new Keyframe(0f, 1f / 2.2f), new Keyframe(1f, 1f)));
+            1.6f,
+            new AnimationCurve(new Keyframe(0f, 1f / 1.6f), new Keyframe(1f, 1f)));
 
         ApplyParticleMaterial(particles);
         particles.Play();
@@ -383,10 +383,10 @@ public class LycheeConvoyVfx : MonoBehaviour
         main.simulationSpace = ParticleSystemSimulationSpace.Local;
         main.startLifetime = 1.1f;
         main.startSpeed = 0f;
-        main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.035f, 0.08f);
         main.startColor = RushGoldColor;
         main.gravityModifier = 0f;
-        main.maxParticles = 48;
+        main.maxParticles = 20;
 
         ParticleSystem.EmissionModule emission = particles.emission;
         emission.rateOverTime = 0f; // 进入 RUSH 后设为 12

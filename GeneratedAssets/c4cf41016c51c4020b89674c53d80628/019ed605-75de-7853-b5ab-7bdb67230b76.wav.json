@@ -1,0 +1,15 @@
+{
+    "asset": "c4cf41016c51c4020b89674c53d80628",
+    "fileName": "019ed605-75de-7853-b5ab-7bdb67230b76.wav",
+    "prompt": "A soft urgent warning ding, two quick high bell taps, alert, very short.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

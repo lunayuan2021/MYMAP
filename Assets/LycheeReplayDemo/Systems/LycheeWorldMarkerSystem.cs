@@ -930,19 +930,19 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         ParticleSystem particles = root.AddComponent<ParticleSystem>();
         particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         ParticleSystem.MainModule main = particles.main;
-        main.duration = 0.6f;
-        main.startLifetime = 0.7f;
-        main.startSpeed = 2.4f;
-        main.startSize = 0.2f;
+        main.duration = 0.38f;
+        main.startLifetime = 0.42f;
+        main.startSpeed = 1.45f;
+        main.startSize = 0.13f;
         main.startColor = color;
-        main.maxParticles = 32;
+        main.maxParticles = 12;
         ParticleSystem.EmissionModule emission = particles.emission;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 24) });
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 8) });
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType = ParticleSystemShapeType.Sphere;
         shape.radius = 0.5f;
         particles.Play();
-        Destroy(root, 1.6f);
+        Destroy(root, 0.9f);
     }
 
     static void CreateBarCube(

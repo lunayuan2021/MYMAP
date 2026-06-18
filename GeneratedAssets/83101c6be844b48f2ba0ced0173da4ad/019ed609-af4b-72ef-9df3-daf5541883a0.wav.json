@@ -1,0 +1,15 @@
+{
+    "asset": "83101c6be844b48f2ba0ced0173da4ad",
+    "fileName": "019ed609-af4b-72ef-9df3-daf5541883a0.wav",
+    "prompt": "Ceremonial ancient Chinese bronze bells chime with a short bright crowd cheer, triumphant delivery success stinger, about 1.5 seconds.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

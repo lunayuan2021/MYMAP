@@ -49,8 +49,8 @@ public sealed class LycheeMapSelectController : MonoBehaviour
 
         GUI.DrawTexture(panel, panelTexture, ScaleMode.StretchToFill);
         GUILayout.BeginArea(new Rect(panel.x + 28f, panel.y + 24f, panel.width - 56f, panel.height - 48f));
-        GUILayout.Label("Lychee Replay Maps", titleStyle);
-        GUILayout.Label("Choose a map", subtitleStyle);
+        GUILayout.Label("荔枝争霸赛回放", titleStyle);
+        GUILayout.Label("请选择地图；也可在地址后加 ?map=map_1&path=... 直接进入", subtitleStyle);
         GUILayout.Space(18f);
 
         foreach (MapEntry entry in available)

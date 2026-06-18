@@ -20,10 +20,10 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
 
     const float BlendInSeconds = 1.2f;   // 天气进场插值时长
     const float BlendOutSeconds = 2f;    // 天气退场/恢复插值时长（设计验收：2 秒）
-    const int RainParticleBudget = 2400; // 雨幕总粒子预算（>2000）
+    const int RainParticleBudget = 900;  // WebGL 预算：天气用于识别环境，不做遮屏级雨幕
     const float RainEmitterHeight = 13f; // 雨幕发射盒高度
     const float RainFallSpeed = 14f;     // 雨滴下落速度 m/s
-    const int MaxEmitterSpots = 6;       // 单种天气最多发射器数量，超出则合并为包围盒
+    const int MaxEmitterSpots = 4;       // 单种天气最多发射器数量，超出则合并为包围盒
 
     sealed class RegionSpot
     {
@@ -463,7 +463,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     {
         if (rainMaterial == null || spots == null || spots.Count == 0) return;
         EnsureFxRoot();
-        int budgetPerEmitter = Mathf.Max(350, RainParticleBudget / spots.Count);
+        int budgetPerEmitter = Mathf.Max(180, RainParticleBudget / spots.Count);
         float lifetime = RainEmitterHeight / RainFallSpeed + 0.25f;
 
         for (int i = 0; i < spots.Count; i++)
@@ -486,8 +486,8 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             main.startLifetime = lifetime;
             main.startSpeed = RainFallSpeed;
             main.startSize = new ParticleSystem.MinMaxCurve(0.035f, 0.075f);
-            main.startColor = new Color(0.74f, 0.81f, 0.93f, 0.5f);
-            main.maxParticles = budgetPerEmitter + 64;
+            main.startColor = new Color(0.74f, 0.81f, 0.93f, 0.34f);
+            main.maxParticles = budgetPerEmitter + 24;
             main.gravityModifier = 0f;
 
             ParticleSystem.EmissionModule emission = system.emission;
@@ -534,16 +534,16 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             main.loop = true;
             main.prewarm = true;
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(7f, 11f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.1f, 0.4f);
-            main.startSize = new ParticleSystem.MinMaxCurve(3.5f, 8f);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(5f, 8f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.08f, 0.28f);
+            main.startSize = new ParticleSystem.MinMaxCurve(2.4f, 5.4f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new Color(0.84f, 0.86f, 0.88f, 0.3f);
-            main.maxParticles = 64;
+            main.startColor = new Color(0.84f, 0.86f, 0.88f, 0.22f);
+            main.maxParticles = 32;
             main.gravityModifier = 0f;
 
             ParticleSystem.EmissionModule emission = system.emission;
-            emission.rateOverTime = 5.5f;
+            emission.rateOverTime = 3.0f;
 
             ParticleSystem.ShapeModule shape = system.shape;
             shape.shapeType = ParticleSystemShapeType.Box;
@@ -588,15 +588,15 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         main.loop = true;
         main.prewarm = true;
         main.simulationSpace = ParticleSystemSimulationSpace.World; // 发射器跟随事件焦点移动
-        main.startLifetime = new ParticleSystem.MinMaxCurve(1.8f, 2.6f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.45f, 0.9f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.9f, 1.7f);
-        main.startColor = new Color(1f, 0.9f, 0.78f, 0.16f);
-        main.maxParticles = 60;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(1.25f, 1.9f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.28f, 0.55f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.55f, 1.05f);
+        main.startColor = new Color(1f, 0.9f, 0.78f, 0.10f);
+        main.maxParticles = 24;
         main.gravityModifier = 0f;
 
         ParticleSystem.EmissionModule emission = system.emission;
-        emission.rateOverTime = 18f;
+        emission.rateOverTime = 7f;
 
         ParticleSystem.ShapeModule shape = system.shape;
         shape.shapeType = ParticleSystemShapeType.Box;

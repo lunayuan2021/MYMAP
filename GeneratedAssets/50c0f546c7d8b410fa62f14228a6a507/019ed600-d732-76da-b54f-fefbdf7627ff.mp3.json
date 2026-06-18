@@ -1,0 +1,15 @@
+{
+    "asset": "50c0f546c7d8b410fa62f14228a6a507",
+    "fileName": "019ed600-d732-76da-b54f-fefbdf7627ff.mp3",
+    "prompt": "Grand triumphant traditional Chinese ceremonial finale. Majestic bianzhong bronze bells, large ceremonial drums, sweeping strings, a dignified resolving cadence for a victory settlement screen. Regal, warm, fully instrumental, no vocals.",
+    "negativePrompt": "",
+    "model": "google-lyria-3-clip",
+    "modelName": "Google Lyria 3 Clip",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

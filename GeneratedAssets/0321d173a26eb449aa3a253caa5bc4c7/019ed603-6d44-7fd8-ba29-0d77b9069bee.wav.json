@@ -1,0 +1,15 @@
+{
+    "asset": "0321d173a26eb449aa3a253caa5bc4c7",
+    "fileName": "019ed603-6d44-7fd8-ba29-0d77b9069bee.wav",
+    "prompt": "Heavy wooden stake pounded into the ground, deep thud and timber creak, building a barricade, short.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

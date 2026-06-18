@@ -5,7 +5,7 @@ public class LycheeReplayCameraController : MonoBehaviour
 {
     public LycheeReplayPlayer replay;
     public float minimumSize = 7.8f;
-    public float maximumSize = 18f;
+    public float maximumSize = 26f;
     public float eventSize = 6.8f;
     public float framingPadding = 6f;
     public float positionSmoothTime = 0.65f;
@@ -17,18 +17,18 @@ public class LycheeReplayCameraController : MonoBehaviour
 
     [Header("Perspective Mode")]
     public bool perspectiveMode = true;
-    // 默认取景刻意拉远拉低：平时呈现 3D 地图远景全貌，战斗/事件时才拉近聚焦。
+    // 默认取景框住当前行动对象；不能为了远端目标点把镜头推到整张地图。
     public float perspectiveFieldOfView = 42f;
     public float perspectivePitch = 41f;
-    public float perspectiveDistanceSpanScale = 1.35f;
-    public float perspectiveDistancePadding = 16f;
-    public float perspectiveMinDistance = 21f;
-    public float perspectiveMaxDistance = 108f; // 两队兵分两路时也要能拉远装下双方（地图约 80x60，跨度可达 70m+）
+    public float perspectiveDistanceSpanScale = 1.08f;
+    public float perspectiveDistancePadding = 9f;
+    public float perspectiveMinDistance = 17f;
+    public float perspectiveMaxDistance = 108f;
     public float perspectiveEventDistance = 15f;
     public float rotationSmoothTime = 0.4f;
 
     [Header("Playable Bounds Guard")]
-    public bool constrainFocusToPlayableBounds = true;
+    public bool constrainFocusToPlayableBounds = false;
     public Vector2 playableMin = new Vector2(-34f, -21f);
     public Vector2 playableMax = new Vector2(34f, 18f);
 
@@ -214,15 +214,14 @@ public class LycheeReplayCameraController : MonoBehaviour
     {
         focus = transform.position + transform.forward * Mathf.Max(1f, smoothedDistance);
         distance = Mathf.Max(1f, smoothedDistance);
-        if (replay == null || !replay.TryGetConvoyFraming(out Vector3 center, out float span))
+        if (replay == null || !replay.TryGetStrategicFraming(out Vector3 center, out float span, out bool actionFocusActive))
             return false;
 
         focus = center;
-        bool eventFocusActive = replay.TryGetEventFocus(out Vector3 eventPosition, out float eventFocusDistance);
-        if (constrainFocusToPlayableBounds && !eventFocusActive)
+        if (constrainFocusToPlayableBounds && !actionFocusActive)
             focus = ClampFocusToPlayableBounds(focus);
 
-        if (focusFollowEnabled && span > focusSpanThreshold)
+        if (!actionFocusActive && focusFollowEnabled && span > focusSpanThreshold)
         {
             // 两队相距过远时框住双方会拉到最远，角色动画/血条全看不清；
             // 改为按周期轮流跟拍其中一队的近景。
@@ -239,16 +238,17 @@ public class LycheeReplayCameraController : MonoBehaviour
                 }
             }
         }
+        // 自适应包围框：距离由 span（相关对象真实跨度）驱动，“刚好框住”。
+        // 事件/小队出现时只给少量额外余量（看清事件点+相关队伍即可），不再 ×1.32 放大、+24 余量、强制 65 远距——
+        // 那套旧逻辑会让任意事件一触发就把镜头拉到准全图，队伍/小人/事件图标全变小看不清。
+        span = Mathf.Min(span, 34f); // 二级护栏：player 端已聚类封顶 30，这里再夹一刀防极端
+        float actionScale = perspectiveDistanceSpanScale;
+        float actionPadding = actionFocusActive ? perspectiveDistancePadding + 2f : perspectiveDistancePadding;
+        float actionMinDistance = actionFocusActive ? Mathf.Max(perspectiveMinDistance, 22f) : perspectiveMinDistance;
         distance = Mathf.Clamp(
-            span * perspectiveDistanceSpanScale + perspectiveDistancePadding,
-            perspectiveMinDistance,
+            span * actionScale + actionPadding,
+            actionMinDistance,
             perspectiveMaxDistance);
-        if (eventFocusActive)
-        {
-            focus = eventPosition;
-            // 事件可携带自定义聚焦距离（按事件类型区分拉近程度）；<=0 表示未指定，回退默认值。
-            distance = eventFocusDistance > 0f ? eventFocusDistance : perspectiveEventDistance;
-        }
         // 画面放大 = 镜头拉近，代替 Game 视图 Scale 裁切（后者会把 HUD 裁出画面）；倍率 1 时为恒等运算。
         distance = Mathf.Max(10f, distance / Mathf.Max(0.5f, perspectiveZoomMultiplier));
         return true;
@@ -265,15 +265,12 @@ public class LycheeReplayCameraController : MonoBehaviour
     {
         desiredPosition = transform.position;
         desiredSize = targetCamera == null ? minimumSize : targetCamera.orthographicSize;
-        if (targetCamera == null || replay == null || !replay.TryGetConvoyFraming(out Vector3 focus, out float span))
+        if (targetCamera == null || replay == null || !replay.TryGetStrategicFraming(out Vector3 focus, out float span, out bool actionFocusActive))
             return false;
 
-        desiredSize = Mathf.Clamp((span * 0.52f + framingPadding) / Mathf.Max(0.2f, replayZoomMultiplier), minimumSize, maximumSize);
-        if (replay.TryGetEventFocus(out Vector3 eventPosition))
-        {
-            focus = eventPosition;
-            desiredSize = eventSize;
-        }
+        float sizeScale = actionFocusActive ? 0.64f : 0.52f;
+        float sizePadding = actionFocusActive ? framingPadding + 3f : framingPadding;
+        desiredSize = Mathf.Clamp((span * sizeScale + sizePadding) / Mathf.Max(0.2f, replayZoomMultiplier), minimumSize, maximumSize);
         desiredPosition = focus - transform.forward * cameraDistance;
         return true;
     }

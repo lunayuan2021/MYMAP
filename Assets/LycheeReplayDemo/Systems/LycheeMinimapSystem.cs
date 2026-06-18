@@ -114,6 +114,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     RectTransform nodeIconLayer;
     RectTransform convoyLayer;
     RawImage mapImage;
+    Image themeFrameImage;
     readonly List<Image> borderImages = new List<Image>(4);
     readonly Dictionary<int, ConvoyMarker> convoyMarkers = new Dictionary<int, ConvoyMarker>();
     IconPool nodePool;
@@ -129,6 +130,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     LycheeReplayFrame currentFrame;
     bool rushActive;
     bool borderNeedsReset;
+    bool themeFrameResolved;
+    float nextThemeFrameRetry;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap()
@@ -182,6 +185,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         if (canvas != null && canvas.gameObject.activeSelf == Disabled)
             canvas.gameObject.SetActive(!Disabled);
         if (Disabled) return;
+        UpgradeThemeFrame();
         UpdateBorderBreath();
         UpdateConvoyMarkers();
     }
@@ -406,26 +410,24 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             new Vector2(MapSize, MapSize),
             new Vector2(0.5f, 0.5f));
 
-        AddBorder("BorderTop", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(PanelSize, 1f));
-        AddBorder("BorderBottom", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(PanelSize, 1f));
-        AddBorder("BorderLeft", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(1f, PanelSize));
-        AddBorder("BorderRight", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, PanelSize));
+        AddBorder("BorderTop", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(PanelSize, 3f));
+        AddBorder("BorderBottom", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(PanelSize, 3f));
+        AddBorder("BorderLeft", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(3f, PanelSize));
+        AddBorder("BorderRight", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(3f, PanelSize));
 
-        Sprite frameSprite = LycheeLoadThemeSprite("minimap_frame.png");
-        if (frameSprite != null)
-        {
-            RectTransform frameRect = CreateRect(
-                "ThemeFrame",
-                panel,
-                new Vector2(0.5f, 0.5f),
-                Vector2.zero,
-                new Vector2(PanelSize, PanelSize),
-                new Vector2(0.5f, 0.5f));
-            Image frameImage = frameRect.gameObject.AddComponent<Image>();
-            frameImage.sprite = frameSprite;
-            frameImage.color = Color.white;
-            frameImage.raycastTarget = false;
-        }
+        RectTransform frameRect = CreateRect(
+            "ThemeFrame",
+            panel,
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(PanelSize, PanelSize),
+            new Vector2(0.5f, 0.5f));
+        themeFrameImage = frameRect.gameObject.AddComponent<Image>();
+        themeFrameImage.color = Color.white;
+        themeFrameImage.preserveAspect = true;
+        themeFrameImage.raycastTarget = false;
+        themeFrameImage.enabled = false;
+        UpgradeThemeFrame();
     }
 
     void AddBorder(string borderName, Vector2 anchor, Vector2 pivot, Vector2 size)
@@ -674,6 +676,22 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         borderNeedsReset = false;
         for (int i = 0; i < borderImages.Count; i++)
             if (borderImages[i] != null) borderImages[i].color = GoldBorder;
+    }
+
+    void UpgradeThemeFrame()
+    {
+        if (themeFrameResolved || themeFrameImage == null) return;
+        if (Time.unscaledTime < nextThemeFrameRetry) return;
+        nextThemeFrameRetry = Time.unscaledTime + 0.35f;
+        Sprite frameSprite = LycheeLoadThemeSprite("minimap_frame.png");
+        if (frameSprite != null)
+        {
+            themeFrameImage.sprite = frameSprite;
+            themeFrameImage.enabled = true;
+            themeFrameImage.transform.SetAsLastSibling();
+            themeFrameResolved = true;
+            return;
+        }
     }
 
     // ------------------------------------------------------------------

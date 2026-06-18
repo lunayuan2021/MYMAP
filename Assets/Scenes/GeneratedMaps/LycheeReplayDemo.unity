@@ -89254,14 +89254,14 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 623780541}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 524c6b56b1ff04b2aa451dd9c7ba46d4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayCameraController
   replay: {fileID: 1319633532}
   minimumSize: 7.8
-  maximumSize: 18
+  maximumSize: 26
   eventSize: 6.8
   framingPadding: 6
   positionSmoothTime: 0.65
@@ -89272,13 +89272,16 @@ MonoBehaviour:
   obliqueEuler: {x: 52, y: -29, z: 0}
   perspectiveMode: 1
   perspectiveFieldOfView: 42
-  perspectivePitch: 41
-  perspectiveDistanceSpanScale: 1.25
-  perspectiveDistancePadding: 12
+  perspectivePitch: 45
+  perspectiveDistanceSpanScale: 1.08
+  perspectiveDistancePadding: 9
   perspectiveMinDistance: 17
-  perspectiveMaxDistance: 115
+  perspectiveMaxDistance: 108
   perspectiveEventDistance: 15
   rotationSmoothTime: 0.4
+  constrainFocusToPlayableBounds: 0
+  playableMin: {x: -34, y: -21}
+  playableMax: {x: 34, y: 18}
   perspectiveZoomMultiplier: 1
   focusFollowEnabled: 0
   focusSpanThreshold: 26
@@ -186512,8 +186515,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayPlayer
   replayFile: {fileID: 4900000, guid: cf7c973212b3a43cc915481427ede047, type: 3}
-  streamingReplayPath: reply.txt
-  secondsPerRound: 0.5
+  streamingReplayPath: replay.txt
+  secondsPerRound: 1
   playOnStart: 1
   loop: 0
   carriageModel: {fileID: 489627813733477026, guid: 896972fba4a8f484f8693c7ce5c99927, type: 3}
@@ -252559,8 +252562,56 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 2535954103604261519, guid: 838c0bef810bfe94d8e33947c3cba7c6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1782818881}
   m_SourcePrefab: {fileID: 100100000, guid: 838c0bef810bfe94d8e33947c3cba7c6, type: 3}
+--- !u!1 &1782818880 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 2535954103604261519, guid: 838c0bef810bfe94d8e33947c3cba7c6, type: 3}
+  m_PrefabInstance: {fileID: 1782818879}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1782818881
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1782818880}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 524c6b56b1ff04b2aa451dd9c7ba46d4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayCameraController
+  replay: {fileID: 1319633532}
+  minimumSize: 7.8
+  maximumSize: 26
+  eventSize: 6.8
+  framingPadding: 6
+  positionSmoothTime: 0.65
+  zoomSmoothTime: 0.45
+  cameraDistance: 58
+  replayZoomMultiplier: 1.2
+  lockObliqueAngle: 1
+  obliqueEuler: {x: 52, y: -29, z: 0}
+  perspectiveMode: 1
+  perspectiveFieldOfView: 42
+  perspectivePitch: 45
+  perspectiveDistanceSpanScale: 1.08
+  perspectiveDistancePadding: 9
+  perspectiveMinDistance: 17
+  perspectiveMaxDistance: 108
+  perspectiveEventDistance: 15
+  rotationSmoothTime: 0.4
+  constrainFocusToPlayableBounds: 0
+  playableMin: {x: -34, y: -21}
+  playableMax: {x: 34, y: 18}
+  perspectiveZoomMultiplier: 1
+  focusFollowEnabled: 0
+  focusSpanThreshold: 26
+  focusSwapSeconds: 14
+  focusedSpan: 24
 --- !u!1001 &1783218618
 PrefabInstance:
   m_ObjectHideFlags: 0

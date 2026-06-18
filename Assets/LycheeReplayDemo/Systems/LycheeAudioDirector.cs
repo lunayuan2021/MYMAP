@@ -8,7 +8,7 @@ using UnityEngine.Networking;
 /// <summary>
 /// 音频导演：统一管理回放的 BGM（双源交叉淡入淡出）、事件音效与环境循环音。
 /// 所有素材运行时从 StreamingAssets/Audio/ 加载（BGM/ 与 SFX/ 子目录），
-/// 同名文件依次尝试 .ogg/.wav/.mp3；文件缺失一律静默跳过，绝不影响回放本身。
+/// 同名文件依次尝试 .wav/.ogg/.mp3；文件缺失一律静默跳过，绝不影响回放本身。
 /// 通过 RuntimeInitializeOnLoadMethod 自举挂到 LycheeReplayPlayer 所在 GameObject。
 /// </summary>
 [DisallowMultipleComponent]
@@ -396,7 +396,7 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             if (string.IsNullOrEmpty(baseName) || clips.ContainsKey(baseName)) continue;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-            // WebGL 无法 File.Exists 探测扩展名，按 .ogg/.wav/.mp3 顺序逐个请求，命中即停
+            // WebGL 无法 File.Exists 探测扩展名，按 .wav/.ogg/.mp3 顺序逐个请求，命中即停
             string directoryUrl = Application.streamingAssetsPath + "/Audio/" + subFolder + "/";
             for (int c = 0; c < WebGLAudioCandidates.Length; c++)
             {
@@ -421,8 +421,8 @@ public sealed class LycheeAudioDirector : MonoBehaviour
 
     static readonly WebGLAudioCandidate[] WebGLAudioCandidates =
     {
-        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS },
         new WebGLAudioCandidate { extension = ".wav", audioType = AudioType.WAV },
+        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS },
         new WebGLAudioCandidate { extension = ".mp3", audioType = AudioType.MPEG }
     };
 #endif
@@ -461,24 +461,24 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         }
     }
 
-    /// <summary>按 .ogg/.wav/.mp3 顺序解析 StreamingAssets/Audio/&lt;子目录&gt;/&lt;文件名&gt; 的实际路径，全部缺失返回 null。</summary>
+    /// <summary>按 .wav/.ogg/.mp3 顺序解析 StreamingAssets/Audio/&lt;子目录&gt;/&lt;文件名&gt; 的实际路径，全部缺失返回 null。</summary>
     static string LycheeResolveAudioPath(string subFolder, string baseName, out AudioType audioType)
     {
-        audioType = AudioType.OGGVORBIS;
+        audioType = AudioType.WAV;
         try
         {
             string directory = Path.Combine(Application.streamingAssetsPath, "Audio", subFolder);
-            string oggPath = Path.Combine(directory, baseName + ".ogg");
-            if (File.Exists(oggPath))
-            {
-                audioType = AudioType.OGGVORBIS;
-                return oggPath;
-            }
             string wavPath = Path.Combine(directory, baseName + ".wav");
             if (File.Exists(wavPath))
             {
                 audioType = AudioType.WAV;
                 return wavPath;
+            }
+            string oggPath = Path.Combine(directory, baseName + ".ogg");
+            if (File.Exists(oggPath))
+            {
+                audioType = AudioType.OGGVORBIS;
+                return oggPath;
             }
             string mp3Path = Path.Combine(directory, baseName + ".mp3");
             if (File.Exists(mp3Path))

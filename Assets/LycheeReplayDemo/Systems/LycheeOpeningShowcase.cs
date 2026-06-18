@@ -30,7 +30,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
     const float FadeOutSeconds = 0.6f;
     const float SkipFadeSeconds = 0.2f;   // 点击关闭时的快速淡出
     const float VideoPrepareTimeout = 12f; // 视频准备超时则跳过视频（WebGL 首次解码缓冲慢，4s 太短会跳过开场视频）
-    const float WebGlVideoPrepareTimeout = 3.5f; // 黄区弱机/内网浏览器解码慢时快速降级到对阵图，不阻塞回放
+    const int OpeningRoundGrace = 24; // WebGL 入口场景切换后补挂脚本时，回放可能已推进数回合。
 
     static readonly Color GoldColor = new Color(1f, 0.84f, 0.30f, 1f);
     static readonly Color RedTeamColor = new Color(0.96f, 0.30f, 0.20f, 1f);
@@ -109,13 +109,13 @@ public class LycheeOpeningShowcase : MonoBehaviour
         // 编辑器进 Play 的前几帧 deltaTime 会被钳到 Maximum Allowed Timestep(0.33s)，
         // playOnStart + secondsPerRound=0.1 的回放在本协程恢复前就可能被推进超过第 5 回合，
         // 旧实现把 CurrentRound <= 5 延后到 yield 之后判定，竞速失败时演出被静默跳过。
-        bool openingRound = player.CurrentFrame != null && player.CurrentRound <= 5;
+        bool openingRound = player.CurrentFrame != null && player.CurrentRound <= OpeningRoundGrace;
         // 延迟一帧，确保 LycheeReplayPlayer.Awake 完成回放加载（CurrentFrame 为空时的兜底路径）
         yield return null;
         for (int i = 0; i < 120 && player != null && player.CurrentFrame == null; i++)
             yield return null;
         if (Disabled || player == null || player.CurrentFrame == null) yield break;
-        if (!openingRound) openingRound = player.CurrentRound <= 5;
+        if (!openingRound) openingRound = player.CurrentRound <= OpeningRoundGrace;
         if (openingRound) BeginShowcase();
     }
 
@@ -276,15 +276,12 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
     static float VideoPrepareLimit()
     {
-        return Application.platform == RuntimePlatform.WebGLPlayer
-            ? WebGlVideoPrepareTimeout
-            : VideoPrepareTimeout;
+        return VideoPrepareTimeout;
     }
 
     static float VideoPlayGuard(double length)
     {
-        float guard = length > 0.5 ? (float)length + 2f : 20f;
-        return Application.platform == RuntimePlatform.WebGLPlayer ? Mathf.Min(guard, 8f) : guard;
+        return length > 0.5 ? (float)length + 2f : 20f;
     }
 
     void CloseShowcase()
@@ -455,7 +452,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
     {
         try
         {
-            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "reply.txt");
+            string path = System.IO.Path.Combine(Application.streamingAssetsPath, "replay.txt");
             if (System.IO.File.Exists(path))
             {
                 using (System.IO.StreamReader reader = new System.IO.StreamReader(path))

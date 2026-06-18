@@ -6,14 +6,14 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 一次性回放节奏调整：secondsPerRound → 0.40（约 220 秒全程），场景序列化值会覆盖脚本默认值，
+/// 一次性回放节奏调整：secondsPerRound → 1.00（600 回合约 10 分钟），场景序列化值会覆盖脚本默认值，
 /// 故必须直接改场景组件并保存。update 轮询 + done 标记，照搬工程一次性脚本模式。
 /// </summary>
 [InitializeOnLoad]
 static class LycheePaceRetune_20260613
 {
     const string ScenePath = "Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity";
-    const float TargetSecondsPerRound = 0.40f;
+    const float TargetSecondsPerRound = 1.00f;
     const string DoneFileName = ".lychee_pace_retune_20260613.done";
     const string ReportFileName = "LycheePaceRetune_20260613_report.txt";
 
