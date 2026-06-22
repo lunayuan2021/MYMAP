@@ -10,6 +10,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     sealed class PendingCombat
     {
         public int imageIndex;
+        public Sprite illustration;
         public string title;
         public string subtitle;
         public string redCard;
@@ -280,7 +281,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // 时长从 4.6/4.9/5.2 压到 2.8/2.8/3.0，避免叙事链拖到下一场对抗还没放完。
     public void ShowCombatStart(int round, string nodeId, int totalRounds)
     {
-        ShowCombat(0, "对抗开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true, "battle");
+        ShowCombat(0, null, "对抗开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true, "battle");
         // 对抗暗角聚焦：压暗四周把视线收到战场与弹窗上，CONTEST_END 时淡出
         SetVignette(true);
     }
@@ -288,7 +289,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
     {
         string winnerText = WinnerText(winner);
-        ShowCombat(1, "对抗第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true, "battle");
+        ShowCombat(1, null, "对抗第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true, "battle");
         // 亮牌瞬间双方卡片同时翻面：先露牌背、过中点换正面贴图（传原始牌名做映射）
         StartCardFlip(redCardFx, redCard);
         StartCardFlip(blueCardFx, blueCard);
@@ -299,7 +300,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
     {
-        ShowCombat(2, "对抗结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
+        ShowCombat(2, null, "对抗结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
         // 胜者演出：判出胜负的这一拍给胜方卡片两次金色脉冲，并配一记短促震屏强化打击感
         if (winner == "RED") StartWinnerGlow(redCardFx, 0f);
         else if (winner == "BLUE") StartWinnerGlow(blueCardFx, 0f);
@@ -308,16 +309,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SetVignette(false);
     }
 
-    public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category)
+    public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
     {
         // 普通事件走排队路径：面板被占用或未到间隔时先入队，避免连弹覆盖
-        ShowCombat(imageIndex, title, subtitle, leftDetail, rightDetail, centerText, seconds, false, category);
+        ShowCombat(imageIndex, illustration, title, subtitle, leftDetail, rightDetail, centerText, seconds, false, category);
     }
 
-    public void ShowPriorityEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category)
+    public void ShowPriorityEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
     {
         // 小分队出发/清障结果这类镜头事件必须立刻解释画面，不排队等旧弹窗播完。
-        ShowCombat(imageIndex, title, subtitle, leftDetail, rightDetail, centerText, seconds, true, category);
+        ShowCombat(imageIndex, illustration, title, subtitle, leftDetail, rightDetail, centerText, seconds, true, category);
     }
 
     public void ShowDispatch(string text)
@@ -420,7 +421,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         {
             PendingCombat next = pendingCombats[0];
             pendingCombats.RemoveAt(0);
-            DisplayCombat(next.imageIndex, next.title, next.subtitle, next.redCard, next.blueCard, next.score, next.seconds, next.category);
+            DisplayCombat(next.imageIndex, next.illustration, next.title, next.subtitle, next.redCard, next.blueCard, next.score, next.seconds, next.category);
         }
 
         // 对抗弹窗用 0.25 秒淡入淡出取代原 alpha 硬切；面板纯展示无交互，
@@ -454,7 +455,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             vignetteImage.color = new Color(1f, 1f, 1f, Mathf.MoveTowards(vignetteImage.color.a, vignetteTarget, Time.unscaledDeltaTime / Mathf.Max(0.01f, vignetteFade)));
     }
 
-    void ShowCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds, bool priority, string category)
+    void ShowCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, bool priority, string category)
     {
         EnsureBuilt();
         // 时长一刀切上限：上游各处传入 3.8~5.5 秒，密集事件下会让面板长期霸屏
@@ -465,13 +466,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 对抗三连击（priority=true）是连续叙事，必须实时覆盖，绕过队列直接显示。
         if (!priority && (now < combatUntil || now < combatNextAllowed))
         {
-            EnqueueCombat(imageIndex, title, subtitle, redCard, blueCard, score, seconds, category);
+            EnqueueCombat(imageIndex, illustration, title, subtitle, redCard, blueCard, score, seconds, category);
             return;
         }
-        DisplayCombat(imageIndex, title, subtitle, redCard, blueCard, score, seconds, category);
+        DisplayCombat(imageIndex, illustration, title, subtitle, redCard, blueCard, score, seconds, category);
     }
 
-    void EnqueueCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
+    void EnqueueCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
     {
         // 连续同标题去重：密集回合里同类事件被反复触发，重复排队没有信息量
         string lastTitle = pendingCombats.Count > 0 ? pendingCombats[pendingCombats.Count - 1].title : combatTitle.text;
@@ -483,6 +484,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         pendingCombats.Add(new PendingCombat
         {
             imageIndex = imageIndex,
+            illustration = illustration,
             title = title,
             subtitle = subtitle,
             redCard = redCard,
@@ -493,13 +495,18 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         });
     }
 
-    void DisplayCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
+    void DisplayCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
     {
         ApplyCombatCategoryBorder(category);
-        // imageIndex < 0：该事件没有匹配插画（非对抗事件），隐藏图片区，卡片只留标题/文字，避免图文不符。
+        // 取图优先级：事件专属插画 illustration > 对抗插画 combatSprites[imageIndex] > 隐藏（imageIndex<0 的非对抗事件且无专属图）。
         if (combatImage != null)
         {
-            if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
+            if (illustration != null)
+            {
+                combatImage.enabled = true;
+                combatImage.sprite = illustration;
+            }
+            else if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
             {
                 combatImage.enabled = false;
             }

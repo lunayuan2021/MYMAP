@@ -1766,17 +1766,21 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = "状态更新";
         }
 
-        // 非对抗事件不再硬套"对抗插画"：whitelist 之外的事件把 imageIndex 置 -1，HUD 据此隐藏图片，
-        // 卡片仍保留标题/副标题/明细。等各事件的专属插画就位后，这里改为返回对应插画即可。
+        // 非对抗事件用各自的专属插画（Illustrations/card_*.png）；解析不到就把 imageIndex 置 -1 让 HUD 隐藏图片，
+        // 避免硬套对抗插画。对抗/清障/破卡/失败仍走 combatSprites。
+        Sprite eventIllustration = null;
         if (!EventUsesCombatIllustration(type))
+        {
             imageIndex = -1;
+            eventIllustration = ResolveEventIllustration(type, payload);
+        }
 
         if (!string.IsNullOrEmpty(title))
         {
             if (priorityCard)
-                runtimeHud.ShowPriorityEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type));
+                runtimeHud.ShowPriorityEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type), eventIllustration);
             else
-                runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type));
+                runtimeHud.ShowEventIllustration(imageIndex, title, subtitle, left, right, center, seconds, EventBorderCategory(type), eventIllustration);
         }
     }
 
@@ -3257,6 +3261,58 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         // WebGL 下 UITheme 是异步预加载；预加载完成前不要把一次空读写死进缓存。
         if (sprite != null || LycheeThemeCache.Preloaded) eventIconSprites[path] = sprite;
+        return sprite;
+    }
+
+    readonly Dictionary<string, Sprite> eventIllustrationSprites = new Dictionary<string, Sprite>();
+
+    /// <summary>非对抗事件 → 专属卡片插画路径（StreamingAssets/UITheme/Illustrations/card_*.png）；无专属图返回 null（HUD 隐藏图片区）。</summary>
+    static string EventIllustrationPath(string t, LycheeReplayPayload payload)
+    {
+        if (string.IsNullOrEmpty(t)) return null;
+        if (t == "NODE_ENTER") return "Illustrations/card_arrive.png";
+        if (t == "TASK_SPAWN" || t == "TASK_REFRESH") return "Illustrations/card_task_post.png";
+        if (t == "TASK_COMPLETE") return "Illustrations/card_task_done.png";
+        if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "Illustrations/card_resource.png";
+        if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "Illustrations/card_process.png";
+        if (t == "SQUAD_DISPATCH") return "Illustrations/card_dispatch.png";
+        if (t == "SQUAD_ARRIVE") return "Illustrations/card_squad_arrive.png";
+        if (t == "GUARD_SET") return "Illustrations/card_guard.png";
+        if (t == "MATCH_END") return "Illustrations/card_finish.png";
+        if (t.Contains("WEATHER"))
+        {
+            string w = string.IsNullOrEmpty(payload == null ? null : payload.weatherType)
+                ? string.Empty : payload.weatherType.Trim().ToUpperInvariant();
+            if (w == "MOUNTAIN_FOG") return "Illustrations/card_weather_fog.png";
+            if (w == "HOT") return "Illustrations/card_weather_hot.png";
+            return "Illustrations/card_weather_rain.png";
+        }
+        return null;
+    }
+
+    /// <summary>加载非对抗事件的专属卡片插画（机制同 ResolveEventIcon：主题缓存读字节→Sprite，按路径缓存）。</summary>
+    Sprite ResolveEventIllustration(string eventType, LycheeReplayPayload payload)
+    {
+        string path = EventIllustrationPath(eventType, payload);
+        if (string.IsNullOrEmpty(path)) return null;
+        if (eventIllustrationSprites.TryGetValue(path, out Sprite cached)) return cached;
+        Sprite sprite = null;
+        byte[] bytes = LycheeThemeCache.LoadBytes(path);
+        if (bytes != null)
+        {
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (texture.LoadImage(bytes))
+            {
+                texture.wrapMode = TextureWrapMode.Clamp;
+                sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f), 100f);
+            }
+            else
+            {
+                Destroy(texture);
+            }
+        }
+        if (sprite != null || LycheeThemeCache.Preloaded) eventIllustrationSprites[path] = sprite;
         return sprite;
     }
 
