@@ -22,12 +22,12 @@ public class LycheeOpeningShowcase : MonoBehaviour
     /// <summary>全局禁用开关：true 时不自举，也不再触发展示。</summary>
     public static bool Disabled;
 
-    const float ShowcaseSeconds = 4.5f;   // 对阵图阶段总时长（含淡出）
+    const float ShowcaseSeconds = 2.0f;   // 对阵图阶段总时长（含淡出）。回放在此期间被暂停，结束即恢复，缩短只是让游戏更早 2.5s 开始
     const float SlideSeconds = 0.5f;      // 左右两侧滑入
     const float VsPopStart = 0.5f;        // VS 弹入起始时刻
     const float VsPopSeconds = 0.35f;     // VS 缩放 1.8 -> 1.0
     const float FadeInSeconds = 0.2f;
-    const float FadeOutSeconds = 0.6f;
+    const float FadeOutSeconds = 0.4f;    // 配合 2s 总时长收窄淡出，避免淡出吃掉整段后 30%、VS 几乎没停留
     const float SkipFadeSeconds = 0.2f;   // 点击关闭时的快速淡出
     const float VideoPrepareTimeout = 12f; // 视频准备超时则跳过视频（WebGL 首次解码缓冲慢，4s 太短会跳过开场视频）
     const int OpeningRoundGrace = 24; // WebGL 入口场景切换后补挂脚本时，回放可能已推进数回合。
@@ -58,6 +58,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
     Text blueNameText;
     Text blueSubText;
     Text infoText;
+    Text loadingText;   // 标题下方"正在加载游戏资源…"提示，随 rootGroup 一起淡入
     Image redAvatarImage;
     Image blueAvatarImage;
     Text redAvatarFallback;
@@ -361,6 +362,14 @@ public class LycheeOpeningShowcase : MonoBehaviour
         {
             float flashScale = Mathf.Lerp(0.55f, 1.65f, flash);
             vsFlashRect.localScale = new Vector3(flashScale, flashScale, 1f);
+        }
+
+        // "正在加载游戏资源…" 呼吸闪烁，读起来像在加载（整体淡入由 rootGroup 负责）
+        if (loadingText != null)
+        {
+            Color lc = loadingText.color;
+            lc.a = 0.55f + 0.4f * (0.5f + 0.5f * Mathf.Sin(elapsed * 3.2f));
+            loadingText.color = lc;
         }
     }
 
@@ -671,6 +680,18 @@ public class LycheeOpeningShowcase : MonoBehaviour
             Shadow titleShadow = title.gameObject.AddComponent<Shadow>();
             titleShadow.effectColor = new Color(0f, 0f, 0f, 0.75f);
             titleShadow.effectDistance = new Vector2(2f, -3f);
+        }
+
+        // 标题下方：明确告知"正在加载游戏资源"（VS 页即开场加载过渡屏）。ApplyTimeline 里做呼吸闪烁。
+        loadingText = MakeText(
+            layer, "OpeningLoadingHint", "正在加载游戏资源…",
+            24, new Color(0.97f, 0.92f, 0.76f, 0.95f), FontStyle.Bold,
+            new Vector2(0f, 188f), new Vector2(760f, 38f));
+        if (loadingText != null)
+        {
+            Shadow loadShadow = loadingText.gameObject.AddComponent<Shadow>();
+            loadShadow.effectColor = new Color(0f, 0f, 0f, 0.7f);
+            loadShadow.effectDistance = new Vector2(1.5f, -2f);
         }
 
         // 金色闪光（VS 背后）
