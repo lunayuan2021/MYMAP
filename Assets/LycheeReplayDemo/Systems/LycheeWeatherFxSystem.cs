@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UI;
 
 /// <summary>
 /// 回放天气特效系统：订阅 LycheeReplayPlayer.RoundApplied，按 frame.weather.active
@@ -39,6 +40,21 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         public float fogEnd;
         public float sunMultiplier = 1f;
         public bool useVolume;
+
+        // 全屏氛围叠加层（三张 ScreenSpaceOverlay Image）的目标值，全部 ×envBlend 后生效：
+        public Color overlayTint = Color.white;   // tint 染色图的 RGB
+        public float overlayAlpha;                 // tint 满淡入时的目标 alpha
+        public Color vignetteColor = Color.black;  // 暗角染色（HOT 用暖橙边缘）
+        public float vignetteAlpha;                // 暗角满淡入时的目标 alpha
+        public bool useRainOverlay;                // 是否启用滚动雨丝层（仅 HEAVY_RAIN）
+        public float rainScroll;                   // 雨丝 UV.y 每秒推进格数（向下滚）
+
+        // 运行时调色 Volume（ColorAdjustments）的目标参数，weight = useGrade ? envBlend : 0：
+        public float saturation;                   // 饱和度 [-100,100]
+        public float contrast;                     // 对比度 [-100,100]
+        public Color gradeFilter = Color.white;    // colorFilter 染色
+        public float gradeExposure;                // postExposure 曝光补偿
+        public bool useGrade;                      // 是否启用调色 Volume
     }
 
     LycheeReplayPlayer player;
@@ -69,6 +85,18 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     GameObject volumeObject;
     Volume hotVolume;
     VolumeProfile volumeProfileInstance;
+    ColorAdjustments gradeAdjustments;
+
+    // 全屏天气氛围叠加层（镜像 HUD 的 ScreenSpaceOverlay Canvas 写法，sortingOrder=125 压在 HUD 130 之下）
+    Canvas weatherCanvas;
+    Image overlayTintImg;
+    Image overlayVignetteImg;
+    RawImage overlayRainImg;
+    Texture2D whiteTex;
+    Texture2D vignetteTex;
+    Texture2D rainScrollTex;       // 滚动雨丝层专用：Repeat 包裹（既有 rainTexture 为 Clamp，不可复用作平铺）
+    bool rainScrollTexOwned;
+    Rect rainUv = new Rect(0f, 0f, 6f, 5f); // UV 平铺次数（横 6 纵 5，更密=雨丝更细），y 偏移随时间推进模拟下落
 
     ParticleSystem heatShimmer;
     Vector3 heatDefaultPosition;
@@ -132,6 +160,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     {
         if (envDirty) RestoreOriginalEnvironment();
         if (fxRoot != null) Destroy(fxRoot.gameObject);
+        if (weatherCanvas != null) Destroy(weatherCanvas.gameObject);
         if (volumeObject != null) Destroy(volumeObject);
         if (volumeProfileInstance != null) Destroy(volumeProfileInstance);
         if (rainMaterial != null) Destroy(rainMaterial);
@@ -139,6 +168,9 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         if (heatMaterial != null) Destroy(heatMaterial);
         if (rainTexture != null && rainTextureOwned) Destroy(rainTexture);
         if (puffTexture != null && puffTextureOwned) Destroy(puffTexture);
+        if (whiteTex != null) Destroy(whiteTex);
+        if (vignetteTex != null) Destroy(vignetteTex);
+        if (rainScrollTex != null && rainScrollTexOwned) Destroy(rainScrollTex);
     }
 
     void Update()
@@ -168,6 +200,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
 
         EnvironmentActive = envBlend > 0.0001f;
         ApplyEnvironmentBlend();
+        ApplyOverlayBlend();
         UpdateHeatShimmer();
     }
 
@@ -226,6 +259,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         CaptureOriginalEnvironment();
         EnsureSun();
         EnsureMaterials();
+        EnsureOverlay();
         List<RegionSpot> spots = CollectRegionSpots(type, region);
         heatDefaultPosition = spots.Count > 0 ? spots[0].position : Vector3.zero;
 
@@ -235,10 +269,23 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             {
                 fogEnabled = true,
                 fogColor = new Color(0.58f, 0.64f, 0.73f, 1f),
-                fogStart = 30f,
-                fogEnd = 230f,
+                fogStart = 18f,
+                fogEnd = 120f,
                 sunMultiplier = 0.75f,
-                useVolume = false
+                useVolume = true,
+                // 全屏：冷蓝灰染色 + 较重暗角 + 向下滚动雨丝；去饱和 + 冷色调色
+                overlayTint = new Color(0.40f, 0.46f, 0.58f, 1f),
+                overlayAlpha = 0.00f,   // 已有真雨丝层，去掉蓝色蒙版（用户要求）；阴沉感交给暗角+冷调色
+
+                vignetteColor = new Color(0.04f, 0.05f, 0.08f, 1f),
+                vignetteAlpha = 0.35f,
+                useRainOverlay = true,
+                rainScroll = 3.5f,
+                saturation = -25f,
+                contrast = 6f,
+                gradeFilter = new Color(0.80f, 0.86f, 1.00f, 1f),
+                gradeExposure = -0.05f,
+                useGrade = true
             };
             SpawnRain(spots);
         }
@@ -248,10 +295,22 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             {
                 fogEnabled = true,
                 fogColor = new Color(0.80f, 0.82f, 0.85f, 1f),
-                fogStart = 8f,
-                fogEnd = 95f,
+                fogStart = 15f,
+                fogEnd = 85f, // 减浓：雾推远、近景留清（原 6/48 太浓糊脸）
                 sunMultiplier = 0.85f,
-                useVolume = false
+                useVolume = true,
+                // 全屏：近白染色（远近发灰）+ 轻暗角；轻度去饱和，无雨丝
+                overlayTint = new Color(0.86f, 0.88f, 0.90f, 1f),
+                overlayAlpha = 0.15f,   // 减浓：白雾霭叠加从 0.30 降一半
+                vignetteColor = new Color(0.70f, 0.72f, 0.75f, 1f),
+                vignetteAlpha = 0.12f,
+                useRainOverlay = false,
+                rainScroll = 0f,
+                saturation = -15f,
+                contrast = -3f,
+                gradeFilter = new Color(0.96f, 0.97f, 0.99f, 1f),
+                gradeExposure = 0.03f,
+                useGrade = true
             };
             SpawnGroundFog(spots);
         }
@@ -261,7 +320,19 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             {
                 fogEnabled = false,
                 sunMultiplier = 1f,
-                useVolume = true
+                useVolume = true,
+                // 全屏：暖橙边缘暗角（中心留干净，别糊红蓝队色）+ 轻暖染色；暖调 + 提曝光，无雨丝
+                overlayTint = new Color(1.00f, 0.72f, 0.42f, 1f),   // 减红：偏黄一点、不那么橙红
+                overlayAlpha = 0.10f,                               // 减红：暖染色 0.16→0.10
+                vignetteColor = new Color(1.00f, 0.66f, 0.30f, 1f), // 减红：边缘暗角从橙红转琥珀
+                vignetteAlpha = 0.18f,                              // 减红：暗角 0.30→0.18
+                useRainOverlay = false,
+                rainScroll = 0f,
+                saturation = 3f,
+                contrast = 4f,
+                gradeFilter = new Color(1.00f, 0.93f, 0.82f, 1f),
+                gradeExposure = 0.22f,
+                useGrade = true
             };
             EnsureHotVolume();
             SpawnHeatShimmer(heatDefaultPosition);
@@ -698,12 +769,14 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         }
     }
 
+    // 运行时调色 Volume：原本只服务 HOT，现推广到三种天气（暴雨去饱和冷调 / 山雾去饱和 / 酷暑暖调提曝光）。
+    // 每帧由 ApplyEnvironmentBlend 从 currentProfile 写入 override 值并把 weight 挂到 envBlend 上。
     void EnsureHotVolume()
     {
         if (hotVolume != null) return;
         try
         {
-            volumeObject = new GameObject("WeatherFx_HotVolume");
+            volumeObject = new GameObject("WeatherFx_GradeVolume");
             volumeObject.transform.SetParent(transform, false);
             Volume volume = volumeObject.AddComponent<Volume>();
             volume.isGlobal = true;
@@ -711,18 +784,22 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             volume.weight = 0f;
             volumeProfileInstance = ScriptableObject.CreateInstance<VolumeProfile>();
             ColorAdjustments colorAdjustments = volumeProfileInstance.Add<ColorAdjustments>(false);
+            // 初值取酷暑（保留旧默认观感）；运行时各天气会按 currentProfile 覆盖这些参数。
             colorAdjustments.postExposure.Override(0.18f);
-            // 暖罩减半：原 (1,0.93,0.80) 把蓝队冲淡、红蓝难分 → (1,0.965,0.90)，热天仍偏暖但不压蓝
-            colorAdjustments.colorFilter.Override(new Color(1f, 0.965f, 0.90f, 1f));
+            colorAdjustments.contrast.Override(0f);
+            colorAdjustments.colorFilter.Override(new Color(1f, 0.93f, 0.82f, 1f));
+            colorAdjustments.saturation.Override(0f);
             volume.sharedProfile = volumeProfileInstance;
             hotVolume = volume;
+            gradeAdjustments = colorAdjustments;
         }
         catch (Exception exception)
         {
-            Debug.LogWarning("[天气特效] 创建酷热后处理 Volume 失败：" + exception.Message, this);
+            Debug.LogWarning("[天气特效] 创建天气调色 Volume 失败：" + exception.Message, this);
             if (volumeObject != null) Destroy(volumeObject);
             volumeObject = null;
             hotVolume = null;
+            gradeAdjustments = null;
         }
     }
 
@@ -776,8 +853,24 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
 
         if (sun != null && sunCaptured)
             sun.intensity = origSunIntensity * Mathf.Lerp(1f, profile.sunMultiplier, envBlend);
-        if (hotVolume != null)
-            hotVolume.weight = profile.useVolume ? envBlend : 0f;
+
+        // 调色 Volume：三种天气都用。weight 挂在 envBlend 上随淡入淡出，override 参数从当前 profile 写入。
+        if (profile.useGrade)
+        {
+            if (hotVolume == null) EnsureHotVolume();
+            if (gradeAdjustments != null)
+            {
+                gradeAdjustments.postExposure.value = profile.gradeExposure;
+                gradeAdjustments.contrast.value = profile.contrast;
+                gradeAdjustments.colorFilter.value = profile.gradeFilter;
+                gradeAdjustments.saturation.value = profile.saturation;
+            }
+            if (hotVolume != null) hotVolume.weight = envBlend;
+        }
+        else if (hotVolume != null)
+        {
+            hotVolume.weight = 0f;
+        }
     }
 
     void RestoreOriginalEnvironment()
@@ -791,6 +884,127 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         RenderSettings.fogDensity = origFogDensity;
         if (sun != null && sunCaptured) sun.intensity = origSunIntensity;
         if (hotVolume != null) hotVolume.weight = 0f;
+        // 全屏叠加层三张 Image alpha 归零（雨丝层一并停滚）
+        if (overlayTintImg != null) overlayTintImg.color = WithAlpha(overlayTintImg.color, 0f);
+        if (overlayVignetteImg != null) overlayVignetteImg.color = WithAlpha(overlayVignetteImg.color, 0f);
+        if (overlayRainImg != null) overlayRainImg.color = WithAlpha(overlayRainImg.color, 0f);
+    }
+
+    static Color WithAlpha(Color color, float alpha)
+    {
+        color.a = alpha;
+        return color;
+    }
+
+    // ---------------- 全屏氛围叠加层（ScreenSpaceOverlay） ----------------
+
+    // 镜像 HUD 的画布构建（ScreenSpaceOverlay + CanvasScaler + 全屏拉伸 Image），sortingOrder=125 压在 HUD(130) 之下。
+    // 三张全屏 quad：tint 染色 / vignette 暗角 / rain 滚动雨丝。全部 raycastTarget=false、静止 alpha=0。
+    void EnsureOverlay()
+    {
+        if (weatherCanvas != null) return;
+
+        if (whiteTex == null) whiteTex = BuildWhiteTexture();
+        if (vignetteTex == null) vignetteTex = BuildVignetteTexture(64);
+        if (rainScrollTex == null)
+        {
+            rainScrollTex = BuildRainStreakTextureRepeat();
+            rainScrollTexOwned = true;
+        }
+
+        GameObject canvasObject = new GameObject(
+            "WeatherFxOverlay_Canvas",
+            typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        canvasObject.transform.SetParent(transform, false);
+        RectTransform overlayRoot = canvasObject.GetComponent<RectTransform>();
+
+        weatherCanvas = canvasObject.GetComponent<Canvas>();
+        weatherCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        weatherCanvas.sortingOrder = 125; // HUD 是 130，必须压在它下面
+
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        // tint 染色（1x1 白纹按天气重新着色），底层
+        RectTransform tintRt = StretchRect("WeatherFxTint", overlayRoot);
+        overlayTintImg = tintRt.gameObject.AddComponent<Image>();
+        overlayTintImg.sprite = Sprite.Create(whiteTex, new Rect(0f, 0f, whiteTex.width, whiteTex.height), new Vector2(0.5f, 0.5f), 100f);
+        overlayTintImg.color = new Color(1f, 1f, 1f, 0f);
+        overlayTintImg.raycastTarget = false;
+
+        // rain 滚动雨丝（RawImage 才能直接驱动 uvRect 平铺/滚动），中层
+        RectTransform rainRt = StretchRect("WeatherFxRain", overlayRoot);
+        overlayRainImg = rainRt.gameObject.AddComponent<RawImage>();
+        overlayRainImg.texture = rainScrollTex;
+        overlayRainImg.uvRect = rainUv;
+        overlayRainImg.color = new Color(0.92f, 0.96f, 1.00f, 0f);
+        overlayRainImg.raycastTarget = false;
+
+        // vignette 暗角（径向四角加深、中心透明），顶层
+        RectTransform vigRt = StretchRect("WeatherFxVignette", overlayRoot);
+        overlayVignetteImg = vigRt.gameObject.AddComponent<Image>();
+        overlayVignetteImg.sprite = Sprite.Create(vignetteTex, new Rect(0f, 0f, vignetteTex.width, vignetteTex.height), new Vector2(0.5f, 0.5f), 100f);
+        overlayVignetteImg.color = new Color(0f, 0f, 0f, 0f);
+        overlayVignetteImg.raycastTarget = false;
+    }
+
+    // 四角锚满父级的全屏拉伸矩形（镜像 HUD 的同名帮手；本系统私有，避免跨类引用 HUD 的私有方法）。
+    static RectTransform StretchRect(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.localScale = Vector3.one;
+        return rt;
+    }
+
+    // 每帧把三张 Image 的 alpha lerp 到 目标×envBlend；雨丝层按 rainScroll×deltaTime 推进 UV.y（向下滚）。
+    void ApplyOverlayBlend()
+    {
+        if (weatherCanvas == null) return;
+        EnvProfile profile = currentProfile;
+        float blend = Mathf.Clamp01(envBlend);
+
+        float tintTarget = profile != null ? profile.overlayAlpha * blend : 0f;
+        float vigTarget = profile != null ? profile.vignetteAlpha * blend : 0f;
+        bool rainOn = profile != null && profile.useRainOverlay;
+        float rainTarget = rainOn ? 0.42f * blend : 0f;
+
+        float k = 1f - Mathf.Exp(-8f * Time.deltaTime); // 平滑跟随，避免切换瞬跳
+
+        if (overlayTintImg != null)
+        {
+            Color c = profile != null ? profile.overlayTint : Color.white;
+            c.a = Mathf.Lerp(overlayTintImg.color.a, tintTarget, k);
+            overlayTintImg.color = c;
+        }
+
+        if (overlayVignetteImg != null)
+        {
+            Color c = profile != null ? profile.vignetteColor : Color.black;
+            c.a = Mathf.Lerp(overlayVignetteImg.color.a, vigTarget, k);
+            overlayVignetteImg.color = c;
+        }
+
+        if (overlayRainImg != null)
+        {
+            if (rainOn)
+            {
+                // UV.y 减小 = 纹理向上 = 画面雨丝向下落
+                rainUv.y -= profile.rainScroll * Time.deltaTime;
+                if (rainUv.y < -1024f) rainUv.y += 1024f; // 防长跑累积溢出
+                overlayRainImg.uvRect = rainUv;
+            }
+            Color c = overlayRainImg.color;
+            c.a = Mathf.Lerp(c.a, rainTarget, k);
+            overlayRainImg.color = c;
+        }
     }
 
     // ---------------- 材质 / 贴图 ----------------
@@ -897,6 +1111,84 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
                 float u = x / (float)(width - 1);
                 float horizontal = 1f - Mathf.Abs(u - 0.5f) * 2f;
                 float alpha = Mathf.Clamp01(horizontal * horizontal * vertical);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+        texture.Apply(false, false);
+        return texture;
+    }
+
+    // 滚动雨丝层专用：分段散布的【细】雨滴短线（纵向留间断 → 滚动有下落动感；纹理加大+1px 主线，避免平铺放大后过粗），白色，Repeat 平铺。
+    static Texture2D BuildRainStreakTextureRepeat()
+    {
+        const int width = 128;
+        const int height = 256;
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Repeat,
+            filterMode = FilterMode.Bilinear
+        };
+        Color[] px = new Color[width * height];
+        for (int i = 0; i < px.Length; i++) px[i] = new Color(1f, 1f, 1f, 0f);
+        System.Random rng = new System.Random(20260623);
+        const int streaks = 22;
+        for (int s = 0; s < streaks; s++)
+        {
+            int cx = rng.Next(width);
+            int startY = rng.Next(height);
+            int len = 16 + rng.Next(28);                 // 16–43px 细短线
+            float peak = 0.55f + (float)rng.NextDouble() * 0.45f;
+            for (int d = 0; d < len; d++)
+            {
+                int y = (startY + d) % height;           // 纵向环绕，平铺无缝
+                float aFade = Mathf.Sin((d / (float)Mathf.Max(1, len - 1)) * Mathf.PI); // 两端淡出（雨滴拖尾）
+                float a = peak * aFade;
+                BlendRainPixel(px, width, cx, y, a);             // 1px 主线（细）
+                BlendRainPixel(px, width, cx + 1, y, a * 0.30f); // 右侧极淡抗锯齿，不加粗
+            }
+        }
+        texture.SetPixels(px);
+        texture.Apply(false, false);
+        return texture;
+    }
+
+    static void BlendRainPixel(Color[] px, int w, int x, int y, float a)
+    {
+        x = ((x % w) + w) % w;
+        int idx = y * w + x;
+        if (a > px[idx].a) px[idx] = new Color(1f, 1f, 1f, Mathf.Clamp01(a));
+    }
+
+    // 1x1 纯白：作为 tint 染色图，运行时整张按天气颜色重新着色。
+    static Texture2D BuildWhiteTexture()
+    {
+        Texture2D texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+        texture.SetPixel(0, 0, Color.white);
+        texture.Apply(false, false);
+        return texture;
+    }
+
+    // 径向暗角：中心 alpha=0、四角 alpha 渐增（RGB 留白，运行时按天气重新着色）。
+    static Texture2D BuildVignetteTexture(int size)
+    {
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x / (float)(size - 1) * 2f - 1f;
+                float dy = y / (float)(size - 1) * 2f - 1f;
+                float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                // 中心 0.40 半径内全透明，向四角（distance≈1.414）平滑加深到 a=1
+                float alpha = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.40f, 1.414f, distance));
                 texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }

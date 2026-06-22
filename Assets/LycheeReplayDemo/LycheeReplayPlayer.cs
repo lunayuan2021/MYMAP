@@ -143,6 +143,11 @@ public class LycheeReplayPlayer : MonoBehaviour
         public float holdSeconds = 3.2f;
         public bool resultResolved;
         public bool resultSuccess;
+        // 结算后向节点平滑冲刺（替代旧的瞬移闪现）：记录冲刺起点/起时/时长
+        public bool dashing;
+        public Vector3 dashFrom;
+        public float dashStartTime;
+        public float dashSeconds;
         public TextMesh label;
         /// <summary>跨河时垫在脚下的小船（懒创建，仅水面段激活）。</summary>
         public GameObject boat;
@@ -2053,6 +2058,24 @@ public class LycheeReplayPlayer : MonoBehaviour
                 squads.RemoveAt(i);
                 continue;
             }
+            if (squad.dashing)
+            {
+                // 结算冲刺：从当前位置平滑滑到结算节点，替代旧的瞬移闪现；到位后转入抵达/攻击演出。
+                float dprog = Mathf.Clamp01((Time.time - squad.dashStartTime) / Mathf.Max(0.01f, squad.dashSeconds));
+                Vector3 dpos = Vector3.Lerp(squad.dashFrom, squad.end, Mathf.SmoothStep(0f, 1f, dprog));
+                if (elevation != null) dpos.y = elevation.SampleWorldHeight(dpos.x, dpos.z) + 0.15f;
+                squad.root.transform.position = dpos;
+                Vector3 ddir = squad.end - squad.dashFrom; ddir.y = 0f;
+                if (ddir.sqrMagnitude > 0.001f)
+                    squad.root.transform.rotation = Quaternion.LookRotation(ddir.normalized, Vector3.up);
+                AnimateSquadMembers(squad, false, false);
+                if (dprog >= 1f)
+                {
+                    squad.dashing = false;
+                    squad.arrivedRealTime = Time.time;
+                }
+                continue;
+            }
             if (squad.arrivedRealTime < 0f)
             {
                 float duration = Mathf.Max(1f, squad.endRound - squad.startRound);
@@ -2176,13 +2199,34 @@ public class LycheeReplayPlayer : MonoBehaviour
         squad.resultSuccess = success;
         squad.holdSeconds = success ? 4.0f : 3.6f;
         squad.endRound = Mathf.Min(squad.endRound, round);
-        squad.root.transform.position = focusPosition;
+        if (squad.arrivedRealTime < 0f && !squad.dashing)
+        {
+            // 旧实现这里直接 squad.root.transform.position = focusPosition 瞬移到节点（"走一两步就闪现到节点"）。
+            // 改为从当前位置平滑冲刺到节点：距离越远略长、封顶 ~0.6s，到位后再进入攻击/结算演出。
+            Vector3 here = squad.root.transform.position;
+            float dist = Vector3.Distance(here, focusPosition);
+            if (dist > 0.4f)
+            {
+                squad.dashing = true;
+                squad.dashFrom = here;
+                squad.dashStartTime = Time.time;
+                squad.dashSeconds = Mathf.Clamp(dist / 14f, 0.18f, 0.6f);
+            }
+            else
+            {
+                squad.root.transform.position = focusPosition;
+                squad.arrivedRealTime = Time.time;
+            }
+        }
+        else
+        {
+            squad.root.transform.position = focusPosition;
+            if (squad.arrivedRealTime < 0f) squad.arrivedRealTime = Time.time;
+        }
         Vector3 direction = squad.end - squad.start;
         direction.y = 0f;
         if (direction.sqrMagnitude > 0.001f)
             squad.root.transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
-        if (squad.arrivedRealTime < 0f)
-            squad.arrivedRealTime = Time.time;
         if (squad.label != null)
             squad.label.text = TeamName(squad.playerId) + "小分队\n" + (success ? "清障成功" : "行动失败");
         if (!string.IsNullOrEmpty(squad.targetNodeId))
@@ -3258,10 +3302,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
         if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "icon_task.png";
         if (t.StartsWith("RUSH_", StringComparison.Ordinal)) return "EventIcons/icon_event_contest_swords.png";
-        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_forced_pass.png";
+        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐（JSON 缺载时的正确兜底）
         if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
         if (t.StartsWith("COST_", StringComparison.Ordinal)) return "icon_resource_passtoken.png";
-        if (t == "MATCH_END") return "EventIcons/icon_event_delivery_success.png";
+        if (t == "MATCH_END") return "EventIcons/icon_event_match_end.png"; // 与 JSON 对齐（原 delivery_success 与 verify 撞图且偏离 JSON）
         if (t.StartsWith("VERIFY", StringComparison.Ordinal)) return "EventIcons/icon_event_verify_gate.png";
         if (t.StartsWith("FORCED", StringComparison.Ordinal)) return "EventIcons/icon_event_forced_pass.png";
         if (t == "DELIVER_SUCCESS") return "EventIcons/icon_event_delivery_success.png";
@@ -3337,15 +3381,24 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "Illustrations/card_process.png";
         if (t == "SQUAD_DISPATCH") return "Illustrations/card_dispatch.png";
         if (t == "SQUAD_ARRIVE") return "Illustrations/card_squad_arrive.png";
+        if (t.StartsWith("SQUAD_", StringComparison.Ordinal)) return "Illustrations/card_squad_arrive.png"; // 其余非对抗小队事件（战术生效等）兜底，避免空白
         if (t == "GUARD_SET") return "Illustrations/card_guard.png";
         if (t == "MATCH_END") return "Illustrations/card_finish.png";
+        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "Illustrations/card_action_invalid.png";
+        if (t == "BOUNTY_SPAWN") return "Illustrations/card_bounty.png";
+        if (t == "BOUNTY_COMPLETE") return "Illustrations/card_bounty_done.png";
+        if (t == "VERIFY_GATE_START") return "Illustrations/card_verify.png";
+        if (t == "VERIFY_GATE_COMPLETE") return "Illustrations/card_verify_done.png";
+        if (t == "DELIVER_SUCCESS") return "Illustrations/card_deliver.png";
+        if (t == "RUSH_PHASE_START" || t == "RUSH_START") return "Illustrations/card_rush.png";
         if (t.Contains("WEATHER"))
         {
             string w = string.IsNullOrEmpty(payload == null ? null : payload.weatherType)
                 ? string.Empty : payload.weatherType.Trim().ToUpperInvariant();
             if (w == "MOUNTAIN_FOG") return "Illustrations/card_weather_fog.png";
             if (w == "HOT") return "Illustrations/card_weather_hot.png";
-            return "Illustrations/card_weather_rain.png";
+            if (w == "HEAVY_RAIN" || w == "RAIN") return "Illustrations/card_weather_rain.png";
+            return "Illustrations/card_weather.png";
         }
         return null;
     }

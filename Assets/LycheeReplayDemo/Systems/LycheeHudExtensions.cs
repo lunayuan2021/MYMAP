@@ -1689,10 +1689,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
         if (t.StartsWith("PROCESS_")) return "icon_task.png";
         if (t.StartsWith("RUSH_")) return "EventIcons/icon_event_contest_swords.png";
-        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_forced_pass.png";
+        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐
         if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
         if (t.StartsWith("COST_")) return "icon_resource_passtoken.png";
-        if (t == "MATCH_END") return "EventIcons/icon_event_delivery_success.png";
+        if (t == "MATCH_END") return "EventIcons/icon_event_match_end.png"; // 与 JSON 对齐
         if (t.Contains("VERIFY")) return "EventIcons/icon_event_verify_gate.png";
         if (t.Contains("FORCED")) return "EventIcons/icon_event_forced_pass.png";
         if (t.Contains("DELIVER")) return "EventIcons/icon_event_delivery_success.png";

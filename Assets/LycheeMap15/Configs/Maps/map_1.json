@@ -405,8 +405,13 @@
       {"nodeId": "S04", "resourceType": "SHORT_HORSE", "count": 1, "claimRound": 2},
       {"nodeId": "S04", "resourceType": "BOAT_RIGHT", "count": 1, "claimRound": 2},
       {"nodeId": "S04", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S06", "resourceType": "ICE_BOX", "count": 1, "claimRound": 2},
+      {"nodeId": "S06", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S08", "resourceType": "SHORT_HORSE", "count": 1, "claimRound": 2},
+      {"nodeId": "S08", "resourceType": "PASS_TOKEN", "count": 1, "claimRound": 2},
+      {"nodeId": "S08", "resourceType": "INTEL", "count": 1, "claimRound": 2},
       {"nodeId": "S07", "resourceType": "ICE_BOX", "count": 1, "claimRound": 2},
-      {"nodeId": "S07", "resourceType": "FAST_HORSE", "count": 1, "claimRound": 2},
+      {"nodeId": "S07", "resourceType": "SHORT_HORSE", "count": 1, "claimRound": 2},
       {"nodeId": "S07", "resourceType": "INTEL", "count": 1, "claimRound": 2},
       {"nodeId": "S09", "resourceType": "FAST_HORSE", "count": 1, "claimRound": 2},
       {"nodeId": "S09", "resourceType": "OFFICIAL_PERMIT", "count": 1, "claimRound": 2},
@@ -424,12 +429,20 @@
       {"nodeId": "S14", "processType": "VERIFY", "processRound": 6, "canWindow": true}
     ],
     "taskCandidates": {
-      "T01": ["S03", "S10", "S11"],
-      "T02": ["S02", "S07", "S09", "S13"],
-      "T04": ["S06", "S08"],
-      "T06": ["S04", "S07", "S09"],
+      "T01": ["S03"],
       "T08": ["S04", "S05"],
-      "T09": ["S14"]
+      "T04": ["S06", "S08"],
+      "T02": ["S07"],
+      "T06": ["S09", "S04"],
+      "T11": ["S08", "S10"],
+      "T12": ["S11", "S13"],
+      "T13": ["S13", "S09"],
+      "T14": ["S10", "S11"]
+    },
+    "routeTaskBuckets": {
+      "ROAD": ["S03", "S07", "S11", "S13"],
+      "WATER": ["S04", "S05", "S09", "S13"],
+      "MOUNTAIN": ["S06", "S08", "S10", "S11"]
     },
     "obstacleCandidateNodeIds": ["S06", "S08", "S11"]
   },
@@ -701,16 +714,8 @@
           "y": 32
         },
         {
-          "x": 57,
-          "y": 36
-        },
-        {
-          "x": 61,
-          "y": 37
-        },
-        {
-          "x": 65,
-          "y": 31
+          "x": 60,
+          "y": 28
         },
         {
           "x": 66,

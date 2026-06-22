@@ -451,8 +451,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         }
 
         // 中文名标签：图标下方，让人一眼看懂这是什么资源（用户要求"带中文解释"）
+        // 字号 30→42（约 +40%）：用户反馈这类资源名标签太小看不清。
         CreateWorldLabel(iconRoot.transform, new Vector3(0f, -1.05f, -0.02f),
-            ResourceChineseName(type), new Color(1f, 0.93f, 0.72f), 30, 0.075f, true);
+            ResourceChineseName(type), new Color(1f, 0.93f, 0.72f), 42, 0.075f, true);
 
         TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.7f, -0.7f, -0.02f),
             string.Empty, GoldColor, 28, 0.07f, false);
