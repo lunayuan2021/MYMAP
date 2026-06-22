@@ -80,6 +80,12 @@ public class LycheeReplayPlayer : MonoBehaviour
     int lastEventFrame = -1;
     float frameTime;
     bool playing;
+    // 开局首帧的 SQUAD_DISPATCH 延迟到出发动画结束再生成：否则在 Awake 的 ApplyFrame(0,true) 里就凭空冒出小队，
+    // 早于 LycheeOpeningShowcase 暂停播放（其暂停在 Start 协程 yield 之后才执行），表现为"出发动画前小队凭空派发、走着走着消失"。
+    bool applyingInitialFrame;
+    bool openingDispatchesReleased;
+    int pendingOpeningRound;
+    readonly List<LycheeReplayMessage> pendingOpeningDispatches = new List<LycheeReplayMessage>();
     LycheeReplayFrame lastAppliedFrame;
     bool matchOverRaised;
     string latestEvent = "READY";
@@ -174,6 +180,9 @@ public class LycheeReplayPlayer : MonoBehaviour
     public LycheeReplayFrame NextFrame => frames.Count == 0 ? null : frames[Mathf.Min(frameIndex + 1, frames.Count - 1)];
     public LycheeReplayFrame StartFrameData => startFrame;
     public LycheeReplayOverFrame OverFrame { get; private set; }
+    /// <summary>实际加载到的回放的 start 行原文（含 ?path= 外部回放）；供开场字幕等取 matchId/rulesVersion，
+    /// 避免 WebGL 上用 System.IO 读包内 replay.txt 必失败、且无视 ?path= 的问题。</summary>
+    public string StartLineRaw { get; private set; }
     public string ReplaySource { get; private set; }
     // 时长 = 真实回合数（1 回合 = 1 秒）。不再 Max 上 declaredTotalRounds(=durationRound 上限，如 600)，
     // 否则胜负已定、真实帧只到第 503 回合时，进度条/HUD 仍按 600 计，造成“为凑 10 分钟拉长”的错觉。
@@ -454,7 +463,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (frames.Count > 0)
         {
             playing = playOnStart;
+            applyingInitialFrame = true;
             ApplyFrame(0, true);
+            applyingInitialFrame = false;
             InterpolateConvoys(0f);
             UpdateRuntimeHud();
             ShowOpeningRoster();
@@ -463,13 +474,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         else
         {
             playing = false;
-            startupError =
-                "回放没有启动：未读取到任何 round 帧。\n" +
-                "来源：" + (string.IsNullOrEmpty(ReplaySource) ? ReplayRelative : ReplaySource) + "\n" +
-                "请确认构建包是通过 HTTP 服务打开，并且完整保留 StreamingAssets/Tournament/map1.txt。\n" +
-                "直接双击 index.html、只拷贝 Build 目录、或服务器拦截 txt/json 文件都会导致这里停住。";
-            if (!string.IsNullOrEmpty(replayLoadDiagnostics))
-                startupError += "\n\n加载记录：\n" + replayLoadDiagnostics.Trim();
+            // 若上游（如 ?path= 失败）已写入更具体的报错，则保留它，不被这条泛化信息覆盖。
+            if (string.IsNullOrEmpty(startupError))
+            {
+                startupError =
+                    "回放没有启动：未读取到任何 round 帧。\n" +
+                    "来源：" + (string.IsNullOrEmpty(ReplaySource) ? ReplayRelative : ReplaySource) + "\n" +
+                    "请确认构建包是通过 HTTP 服务打开，并且完整保留 StreamingAssets/Tournament/map1.txt。\n" +
+                    "直接双击 index.html、只拷贝 Build 目录、或服务器拦截 txt/json 文件都会导致这里停住。";
+                if (!string.IsNullOrEmpty(replayLoadDiagnostics))
+                    startupError += "\n\n加载记录：\n" + replayLoadDiagnostics.Trim();
+            }
             Debug.LogError("Replay initialization stopped: no round frames were loaded from " + ReplaySource + ".", this);
         }
     }
@@ -504,8 +519,22 @@ public class LycheeReplayPlayer : MonoBehaviour
         string relative = ReplayRelative;
         string text = null;
         string externalReplayUrl = ReplayUrlFromQuery();
-        if (!string.IsNullOrEmpty(externalReplayUrl))
+        bool externalRequested = !string.IsNullOrEmpty(externalReplayUrl);
+        if (externalRequested)
             yield return FetchReplayUrl(externalReplayUrl, "path", value => text = value);
+        // 显式指定了 ?path= 却没取到 → 明确报错，绝不静默退回包内 StreamingAssets / 内置样例。
+        // （否则会拿一份固定的旧回放冒充成功，结算/队名永远不变——这正是 ?path= "看似没生效" 的元凶。）
+        if (externalRequested && string.IsNullOrEmpty(text))
+        {
+            startupError =
+                "回放加载失败：?path= 指定的回放取不到。\n" +
+                "URL：" + externalReplayUrl + "\n" +
+                "请在浏览器直接打开该地址确认可访问（HTTP 200、内容非空；跨源时服务器需带 Access-Control-Allow-Origin 头）。" +
+                (string.IsNullOrEmpty(replayLoadDiagnostics) ? "" : "\n\n加载记录：\n" + replayLoadDiagnostics.Trim());
+            Debug.LogError("Replay load failed for explicit ?path=: " + externalReplayUrl, this);
+            InitializeAfterLoad();
+            yield break;
+        }
         if (string.IsNullOrEmpty(text))
             yield return FetchStreamingText(relative, value => text = value);
         ParseReplay(text);
@@ -610,6 +639,8 @@ public class LycheeReplayPlayer : MonoBehaviour
                     break;
                 }
                 frameIndex++;
+                // 播放真正越过开局首帧（出发动画已结束、或无演出）→ 兜底释放被延迟的开局小队派发。
+                if (!openingDispatchesReleased) ReleaseOpeningDispatches();
                 ApplyFrame(frameIndex, false);
                 frameSeconds = EffectiveSecondsForFrame(CurrentFrame);
             }
@@ -617,7 +648,8 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         float interpolation = FrameInterpolation;
         InterpolateConvoys(interpolation);
-        UpdateSquads(interpolation);
+        // 出发动画展示期间冻结小队动作/到达消失计时，避免漏网小队在演出中走动或被销毁。
+        if (!LycheeOpeningShowcase.AnyShowing) UpdateSquads(interpolation);
         UpdateRuntimeHud();
     }
 
@@ -730,6 +762,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (line.Contains("\"type\":\"start\""))
             {
                 startFrame = JsonUtility.FromJson<LycheeReplayFrame>(line);
+                StartLineRaw = line;
                 declaredTotalRounds = startFrame == null ? 0 : Mathf.Max(0, startFrame.tick > 0 ? startFrame.tick : startFrame.round);
                 if (declaredTotalRounds <= 0 && line.Contains("\"durationRound\""))
                     declaredTotalRounds = ExtractIntField(line, "durationRound");
@@ -1096,6 +1129,21 @@ public class LycheeReplayPlayer : MonoBehaviour
         lastAppliedFrame = frame;
     }
 
+    /// <summary>
+    /// 释放开局首帧被延迟入队的 SQUAD_DISPATCH：由 LycheeOpeningShowcase 在出发动画结束（CloseShowcase）
+    /// 或判定非开局/无演出时调用；播放推进越过首帧时也兜底释放。幂等，仅生效一次。
+    /// </summary>
+    public void ReleaseOpeningDispatches()
+    {
+        if (openingDispatchesReleased) return;
+        openingDispatchesReleased = true;
+        if (pendingOpeningDispatches.Count == 0) return;
+        LycheeReplayMessage[] queued = pendingOpeningDispatches.ToArray();
+        pendingOpeningDispatches.Clear();
+        foreach (LycheeReplayMessage queuedMessage in queued)
+            HandleEvent(queuedMessage, pendingOpeningRound);
+    }
+
     void InterpolateConvoys(float t)
     {
         LycheeReplayFrame current = frames[frameIndex];
@@ -1406,6 +1454,13 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
+            // 开局首帧（Awake 内 ApplyFrame(0,true)）派发的小队延迟到出发动画结束再生成，避免凭空出现/中途消失。
+            if (applyingInitialFrame && !openingDispatchesReleased)
+            {
+                pendingOpeningDispatches.Add(message);
+                pendingOpeningRound = round;
+                return;
+            }
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);

@@ -115,9 +115,14 @@ public class LycheeOpeningShowcase : MonoBehaviour
         yield return null;
         for (int i = 0; i < 120 && player != null && player.CurrentFrame == null; i++)
             yield return null;
-        if (Disabled || player == null || player.CurrentFrame == null) yield break;
+        if (Disabled || player == null || player.CurrentFrame == null)
+        {
+            if (player != null) player.ReleaseOpeningDispatches();
+            yield break;
+        }
         if (!openingRound) openingRound = player.CurrentRound <= OpeningRoundGrace;
         if (openingRound) BeginShowcase();
+        else player.ReleaseOpeningDispatches();
     }
 
     void OnDestroy()
@@ -292,6 +297,8 @@ public class LycheeOpeningShowcase : MonoBehaviour
         showing = false;
         AnyShowing = false;
         if (player != null && wasPlaying) player.SetPlaying(true);
+        // 出发动画结束 → 释放被延迟的开局小队派发，使小队随出发动画一起出发。
+        if (player != null) player.ReleaseOpeningDispatches();
     }
 
     /// <summary>演出期间持续压制播放；外部若中途 SetPlaying(true)，记入 wasPlaying 并在结束时恢复。</summary>
@@ -459,6 +466,8 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
     string ReadReplayStartLine()
     {
+        // 优先用 player 实际加载到的回放的 start 行（含 ?path= 外部回放）；System.IO 读包内文件在 WebGL 上无效、且无视 ?path=。
+        if (player != null && !string.IsNullOrEmpty(player.StartLineRaw)) return player.StartLineRaw;
         try
         {
             string path = System.IO.Path.Combine(Application.streamingAssetsPath, "replay.txt");
