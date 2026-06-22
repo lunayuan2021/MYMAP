@@ -1922,15 +1922,18 @@ public class LycheeReplayPlayer : MonoBehaviour
         int columns = Mathf.Clamp(Mathf.CeilToInt(Mathf.Sqrt(count)), 2, 5);
         for (int i = 0; i < count; i++)
         {
-            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 1.15f);
+            // 放大队员（1.15→1.6）：远处小队不再缩成看不清的一小撮，远看也认得出是人。
+            GameObject member = CreateNormalizedModel(squadMemberModel, root.transform, "Member_" + i, 1.6f);
             if (member != null)
             {
-                float x = (i % columns - (columns - 1) * 0.5f) * 0.58f;
-                float z = (i / columns - 0.5f) * 0.58f;
+                float x = (i % columns - (columns - 1) * 0.5f) * 0.72f;
+                float z = (i / columns - 0.5f) * 0.72f;
                 member.transform.localPosition = new Vector3(x, 0f, z);
                 TintModel(member, tint, 0.18f);
             }
         }
+        // 脚下队色光圈：远处也能一眼看出"这儿有一支红/蓝小队"，而不是只剩头顶一行字（复用车队同款光圈）。
+        CreateTeamRing(root.transform, tint.r > tint.b ? 0 : 1);
         // 成员全部创建完后通知骨骼动画系统接管（Member_* 是事件期临时对象，LycheeCharacterMotion
         // 的车队扫描覆盖不到，需要显式推送；对方实现为安全空操作兜底，没有骨骼也不会报错）
         LycheeCharacterMotion.NotifySquadSpawned(root);
