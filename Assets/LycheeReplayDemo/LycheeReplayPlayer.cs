@@ -1406,7 +1406,6 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "SQUAD_DISPATCH")
         {
-            ClearEventFocus();
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
@@ -1418,6 +1417,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             SquadVisual dispatched = SpawnSquad(payload, round);
             if (dispatched != null && dispatched.root != null)
             {
+                // 相机带一下出征的小队：跟拍小队根节点 ~3.4s、拉近到 17m，让 3D 队员"出发"看得见，
+                // 而不是只剩头顶一行飞字（旧代码这里是 ClearEventFocus()，镜头当场把小队甩回主车队）。
+                SetEventFocus(dispatched.root.transform, 3.4f, 17f);
                 SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发", TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             }
             else if (!string.IsNullOrEmpty(payload.targetNodeId) &&
@@ -1625,6 +1627,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = "准备生效";
             center = "抵达";
             imageIndex = 1;
+            seconds = 3.0f; // 抵达卡片够时长看清"谁到了哪、要干啥"
         }
         else if (type == "OBSTACLE_CLEAR" || type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS")
         {
@@ -1775,6 +1778,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     static bool IsPriorityEventCard(string type)
     {
         return type == "SQUAD_DISPATCH" ||
+            type == "SQUAD_ARRIVE" ||
             type == "SQUAD_CLEAR" ||
             type == "SQUAD_CLEAR_SUCCESS" ||
             type == "SQUAD_FAILED" ||
@@ -2718,27 +2722,12 @@ public class LycheeReplayPlayer : MonoBehaviour
         GameObject root = new GameObject("Event_" + text);
         root.transform.SetParent(eventRoot, false);
         root.transform.position = position + Vector3.up * 0.25f;
-        ParticleSystem particles = root.AddComponent<ParticleSystem>();
-        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        // 关键：设 URP 兼容材质，否则用默认粒子材质在 URP 下渲染成满屏洋红色块
-        ParticleSystemRenderer pulseRenderer = particles.GetComponent<ParticleSystemRenderer>();
-        Material pulseMat = EventPulseMaterial();
-        if (pulseRenderer != null && pulseMat != null) pulseRenderer.material = pulseMat;
-        ParticleSystem.MainModule main = particles.main;
-        main.duration = 0.45f;
-        main.startLifetime = 0.50f;
-        main.startSpeed = 1.65f;
-        main.startSize = 0.14f;
-        main.startColor = color;
-        main.maxParticles = 10;
-        ParticleSystem.EmissionModule emission = particles.emission;
-        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 8) });
-        ParticleSystem.ShapeModule shape = particles.shape;
-        shape.shapeType = ParticleSystemShapeType.Sphere;
-        shape.radius = 0.45f;
-        particles.Play();
-        CreateLabel(root.transform, text, color).transform.localPosition = new Vector3(0f, 1.4f, 0f);
-        if (icon != null) CreateEventIconBillboard(root.transform, icon);
+        // 去掉红黄粒子烟花（喷在角色同层、像放烟花，会挡住主角）：节点事件改为头顶清晰图标展示。
+        // 有图标用图标 billboard（抬高+放大+深色底衬）；无图标时退化为抬高的文字，同样不挡人。
+        if (icon != null)
+            CreateEventIconBillboard(root.transform, icon);
+        else
+            CreateLabel(root.transform, text, color).transform.localPosition = new Vector3(0f, 3.0f, 0f);
         eventEffects.Add(root);
         Destroy(root, 1.8f);
     }
@@ -3236,17 +3225,50 @@ public class LycheeReplayPlayer : MonoBehaviour
         return sprite;
     }
 
+    Sprite eventIconBackingSprite;
+
     void CreateEventIconBillboard(Transform parent, Sprite icon)
     {
         GameObject iconObject = new GameObject("EventIcon");
         iconObject.transform.SetParent(parent, false);
-        iconObject.transform.localPosition = new Vector3(0f, 3.05f, 0f);
-        iconObject.transform.localScale = Vector3.one * 1.25f;
+        iconObject.transform.localPosition = new Vector3(0f, 4.0f, 0f);  // 抬到角色头顶之上，不挡主角
+        iconObject.transform.localScale = Vector3.one * 1.8f;            // 放大，远景也看得清
+        // 深色软圆底衬：图标在杂乱草地/碎石路上更跳出
+        GameObject backing = new GameObject("EventIconBacking");
+        backing.transform.SetParent(iconObject.transform, false);
+        backing.transform.localScale = Vector3.one * 1.4f;
+        SpriteRenderer backRenderer = backing.AddComponent<SpriteRenderer>();
+        backRenderer.sprite = EventIconBackingSprite();
+        backRenderer.color = new Color(0.05f, 0.05f, 0.08f, 0.6f);
+        backRenderer.sortingOrder = 29999;
         SpriteRenderer iconRenderer = iconObject.AddComponent<SpriteRenderer>();
         iconRenderer.sprite = icon;
         iconRenderer.sortingOrder = 30000;
         LycheeReplayBillboard billboard = iconObject.AddComponent<LycheeReplayBillboard>();
-        billboard.maxScale = 1.9f; // 远景拉远时图标也保持可辨识
+        billboard.maxScale = 2.6f; // 远景拉远时图标也保持可辨识
+    }
+
+    /// <summary>事件图标的深色软圆底衬贴图（程序化生成一次并缓存）。</summary>
+    Sprite EventIconBackingSprite()
+    {
+        if (eventIconBackingSprite != null) return eventIconBackingSprite;
+        const int size = 64;
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Vector2 c = new Vector2(size * 0.5f, size * 0.5f);
+        float radius = size * 0.5f;
+        Color[] px = new Color[size * size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), c) / radius;
+                float a = 1f - Mathf.SmoothStep(0.72f, 1f, d); // 软边圆盘
+                px[y * size + x] = new Color(1f, 1f, 1f, Mathf.Clamp01(a));
+            }
+        tex.SetPixels(px);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.Apply();
+        eventIconBackingSprite = Sprite.Create(tex, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        return eventIconBackingSprite;
     }
 
     void OnGUI()
