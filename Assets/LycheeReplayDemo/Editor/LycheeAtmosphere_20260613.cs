@@ -237,12 +237,14 @@ static class LycheeAtmosphere_20260613
         ColorAdjustments color = EnsureOverride<ColorAdjustments>(profile, report, out bool colorNew);
         if (colorNew)
         {
-            // 新建时按生成器原值兜底曝光/对比，避免只有饱和度导致画面发闷
+            // 新建时兜底曝光，避免画面发闷
             color.postExposure.Override(0.14f);
-            color.contrast.Override(13f);
         }
-        color.saturation.Override(6f);              // v1 的 +10 偏浓，白天收到 +6
-        color.colorFilter.Override(Color.white);    // v2：滤镜改回纯白，去掉黄昏暖罩（太黄的主因之一）
+        // v3：对比度 13→4。13 太高把暗部压死，马车/人员/将军全发黑、红蓝难辨。
+        // 始终覆写（不再只在新建时设），rerun 也能把旧资产的 13 拉回来。
+        color.contrast.Override(4f);
+        color.saturation.Override(2f);              // v1 +10 / v2 +6 偏浓 → v3 +2，降低整体饱和
+        color.colorFilter.Override(Color.white);    // 纯白滤镜，去掉暖罩
 
         Vignette vignette = EnsureOverride<Vignette>(profile, report, out bool vignetteNew);
         vignette.intensity.Override(0.16f);         // 白天不需要重暗角，0.22 → 0.16
@@ -263,7 +265,7 @@ static class LycheeAtmosphere_20260613
         }
 
         EditorUtility.SetDirty(profile);
-        report.Add("后期: Tonemapping=ACES, ColorAdjustments(saturation +6, 纯白滤镜), Vignette(0.16) 已写入 " + ProfilePath + "（v2 白天）");
+        report.Add("后期: Tonemapping=ACES, ColorAdjustments(contrast 4, saturation +2, 纯白滤镜), Vignette(0.16) 已写入 " + ProfilePath + "（v3 白天·去暗部压死）");
     }
 
     /// <summary>取已有组件，缺则新建并嵌入 profile 资产——必须 AddObjectToAsset 才会真正落盘（旧 K 资产就是栽在这）。</summary>

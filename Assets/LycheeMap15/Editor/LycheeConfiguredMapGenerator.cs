@@ -722,9 +722,9 @@ public static class LycheeConfiguredMapGenerator
         tonemapping.mode.Override(TonemappingMode.ACES);
         ColorAdjustments color = profile.Add<ColorAdjustments>();
         color.postExposure.Override(0.14f);
-        color.contrast.Override(13f);
-        color.saturation.Override(5f);
-        color.colorFilter.Override(new Color(1f, 0.98f, 0.91f));
+        color.contrast.Override(4f);   // 原 13 过高把暗部压死、单位发黑 → 4（与 Atmosphere v3 一致）
+        color.saturation.Override(2f); // 原 5 偏浓 → 2
+        color.colorFilter.Override(new Color(1f, 0.99f, 0.96f)); // 几乎纯白，去暖罩
         Bloom bloom = profile.Add<Bloom>();
         bloom.threshold.Override(0.82f);
         bloom.intensity.Override(0.30f);

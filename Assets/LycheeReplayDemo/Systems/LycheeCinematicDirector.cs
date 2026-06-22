@@ -157,9 +157,10 @@ public class LycheeCinematicDirector : MonoBehaviour
         originalAmbientLight = RenderSettings.ambientLight;
         ambientRecorded = true;
         RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(0.68f, 0.68f, 0.72f);
-        RenderSettings.ambientEquatorColor = new Color(0.55f, 0.53f, 0.49f);
-        RenderSettings.ambientGroundColor = new Color(0.40f, 0.37f, 0.32f);
+        // 环境光略提，给单位暗部/将军补点散射光，避免侧面发黑（配合对比度下调）
+        RenderSettings.ambientSkyColor = new Color(0.75f, 0.75f, 0.79f);
+        RenderSettings.ambientEquatorColor = new Color(0.63f, 0.60f, 0.55f);
+        RenderSettings.ambientGroundColor = new Color(0.50f, 0.47f, 0.42f);
     }
 
     void ConfigureFog()

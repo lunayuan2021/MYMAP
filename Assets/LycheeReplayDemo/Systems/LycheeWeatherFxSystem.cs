@@ -711,8 +711,9 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             volume.weight = 0f;
             volumeProfileInstance = ScriptableObject.CreateInstance<VolumeProfile>();
             ColorAdjustments colorAdjustments = volumeProfileInstance.Add<ColorAdjustments>(false);
-            colorAdjustments.postExposure.Override(0.25f);
-            colorAdjustments.colorFilter.Override(new Color(1f, 0.93f, 0.8f, 1f));
+            colorAdjustments.postExposure.Override(0.18f);
+            // 暖罩减半：原 (1,0.93,0.80) 把蓝队冲淡、红蓝难分 → (1,0.965,0.90)，热天仍偏暖但不压蓝
+            colorAdjustments.colorFilter.Override(new Color(1f, 0.965f, 0.90f, 1f));
             volume.sharedProfile = volumeProfileInstance;
             hotVolume = volume;
         }

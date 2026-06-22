@@ -3037,6 +3037,18 @@ public class LycheeReplayPlayer : MonoBehaviour
             {
                 Material material = materials[i];
                 if (material == null) continue;
+
+                // glTF PBR 模型（将军/赤龙将军）常被导出成 metallicFactor=1 全金属：全金属面不显示
+                // albedo 贴图、只反射环境，在偏暗环境里渲染成"黑黢黢一团"。把金属度压到接近 0，让角色
+                // 本身的贴图正常受光显示；再给一点点 emissive 兜底，避免阴影侧仍偏黑。这条对 _BaseColor
+                // 找不到的 glTF 材质同样生效（下面的提亮分支只认 _BaseColor/_Color，会漏掉将军）。
+                if (material.HasProperty("metallicFactor") && material.GetFloat("metallicFactor") > 0.3f)
+                    material.SetFloat("metallicFactor", 0.05f);
+                if (material.HasProperty("_Metallic") && material.GetFloat("_Metallic") > 0.3f)
+                    material.SetFloat("_Metallic", 0.05f);
+                if (material.HasProperty("emissiveFactor") && material.GetColor("emissiveFactor").maxColorComponent < 0.02f)
+                    material.SetColor("emissiveFactor", new Color(0.06f, 0.06f, 0.06f, 1f));
+
                 Color baseColor = Color.white;
                 bool hasBase = false;
                 if (material.HasProperty("_BaseColor"))
@@ -3091,13 +3103,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         GameObject ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         ring.name = "TeamRing";
         ring.transform.SetParent(parent, false);
-        ring.transform.localPosition = new Vector3(0f, 0.04f, 0f);
-        ring.transform.localScale = new Vector3(1.15f, 0.025f, 1.15f);
+        ring.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+        // 放大并提亮成"脚下队色光圈"：红蓝一眼可分；emission 自发光，不被光照/后期对比度压暗
+        ring.transform.localScale = new Vector3(1.6f, 0.022f, 1.6f);
         Material material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-        Color color = camp == 0 ? new Color(0.95f, 0.16f, 0.08f) : new Color(0.06f, 0.42f, 1f);
+        Color color = camp == 0 ? new Color(1f, 0.20f, 0.12f) : new Color(0.10f, 0.45f, 1f);
         material.SetColor("_BaseColor", color);
         material.EnableKeyword("_EMISSION");
-        material.SetColor("_EmissionColor", color * 0.65f);
+        material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+        material.SetColor("_EmissionColor", color * 1.6f);
         ring.GetComponent<MeshRenderer>().material = material;
         Destroy(ring.GetComponent<Collider>());
     }
