@@ -4,7 +4,7 @@
     {
       "name": "lychee-webgl-replay",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "Builds/LycheeReplay_WebGL_20260616"],
+      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "Builds/LycheeReplay_WebGL_20260622"],
       "port": 8090
     }
   ]

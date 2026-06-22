@@ -19,7 +19,9 @@ static class LycheeWebGLBuild_20260612
     const string RequestMarker = "LycheeWebGLBuild_20260616.request";
     const string DoneMarker = "LycheeWebGLBuild_20260616.done";
     const string ReportPath = "LycheeWebGLBuild_20260616_report.txt";
-    const string OutputDir = "Builds/LycheeReplay_WebGL_20260616";
+    // 输出包按"构建当天"日期命名：同一天重复构建→替换同一目录(CleanOutputDir 会清空重写)；
+    // 跨天构建→自动落到带新日期的新目录，旧日期的包保留。
+    static string OutputDir => "Builds/LycheeReplay_WebGL_" + System.DateTime.Now.ToString("yyyyMMdd");
     const string DemoScene = "Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity";
     const string PreferredSingleMapScene = "Assets/Scenes/GeneratedMaps/Map_medium.unity";
     const string SelectorScene = "Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity";
