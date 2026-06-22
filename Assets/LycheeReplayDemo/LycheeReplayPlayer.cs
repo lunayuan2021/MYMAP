@@ -1644,6 +1644,13 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = ResourceName(payload.resourceType);
             right = "库存更新";
         }
+        else if (type == "RESOURCE_USE")
+        {
+            title = "使用补给";
+            subtitle = team + " 在 " + target + " 施用补给";
+            left = ResourceName(payload.resourceType);
+            right = "资源消耗";
+        }
         else if (type == "PROCESS_START")
         {
             title = "站点处理开始";
@@ -1668,6 +1675,13 @@ public class LycheeReplayPlayer : MonoBehaviour
             left = target;
             right = "继续前进";
             imageIndex = 2;
+        }
+        else if (type == "PROCESS_INTERRUPT")
+        {
+            title = "站点处理中断";
+            subtitle = team + " 在 " + target + " 的处理被打断";
+            left = ActionName(payload.processType);
+            right = "流程受阻";
         }
         else if (type == "SQUAD_DISPATCH")
         {
@@ -1859,10 +1873,10 @@ public class LycheeReplayPlayer : MonoBehaviour
     static bool EventUsesCombatIllustration(string type)
     {
         if (string.IsNullOrEmpty(type)) return false;
-        if (type.StartsWith("FORCED_", StringComparison.Ordinal)) return true;
+        // FORCED_PASS 与 SQUAD_FAILED 现各有专属插画（combat_forced_pass / combat_squad_failed），
+        // 改走 StreamingAssets 插画路径（EventIllustrationPath），不再共用 combatSprites 对抗图集。
         return type == "SQUAD_CLEAR" ||
             type == "SQUAD_CLEAR_SUCCESS" ||
-            type == "SQUAD_FAILED" ||
             type == "OBSTACLE_CLEAR" ||
             type == "GUARD_BREAK";
     }
@@ -3377,10 +3391,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t == "NODE_ENTER") return "Illustrations/card_arrive.png";
         if (t == "TASK_SPAWN" || t == "TASK_REFRESH") return "Illustrations/card_task_post.png";
         if (t == "TASK_COMPLETE") return "Illustrations/card_task_done.png";
-        if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "Illustrations/card_resource.png";
-        if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "Illustrations/card_process.png";
+        if (t == "RESOURCE_USE") return "Illustrations/card_resource_use.png";          // 使用补给：与"获得补给"分流
+        if (t == "RESOURCE_CLAIM") return "Illustrations/card_resource.png";
+        if (t == "PROCESS_INTERRUPT") return "Illustrations/card_process_interrupt.png"; // 流程中断
+        if (t == "PROCESS_COMPLETE") return "Illustrations/card_process_complete.png";    // 流程完成
+        if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "Illustrations/card_process.png"; // PROCESS_START/PROGRESS 兜底
+        if (t == "FORCED_PASS_START" || t == "FORCED_PASS_END") return "Illustrations/combat_forced_pass.png"; // 强行通关（专属图，不再共用对抗图集）
         if (t == "SQUAD_DISPATCH") return "Illustrations/card_dispatch.png";
         if (t == "SQUAD_ARRIVE") return "Illustrations/card_squad_arrive.png";
+        if (t == "SQUAD_FAILED") return "Illustrations/combat_squad_failed.png";         // 小队攻坚失败（专属图）
         if (t.StartsWith("SQUAD_", StringComparison.Ordinal)) return "Illustrations/card_squad_arrive.png"; // 其余非对抗小队事件（战术生效等）兜底，避免空白
         if (t == "GUARD_SET") return "Illustrations/card_guard.png";
         if (t == "MATCH_END") return "Illustrations/card_finish.png";

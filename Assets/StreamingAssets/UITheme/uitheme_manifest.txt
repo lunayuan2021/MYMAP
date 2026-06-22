@@ -36,7 +36,10 @@ Illustrations/card_dispatch.png
 Illustrations/card_finish.png
 Illustrations/card_guard.png
 Illustrations/card_process.png
+Illustrations/card_process_complete.png
+Illustrations/card_process_interrupt.png
 Illustrations/card_resource.png
+Illustrations/card_resource_use.png
 Illustrations/card_rush.png
 Illustrations/card_squad_arrive.png
 Illustrations/card_task_done.png
@@ -47,6 +50,8 @@ Illustrations/card_weather.png
 Illustrations/card_weather_fog.png
 Illustrations/card_weather_hot.png
 Illustrations/card_weather_rain.png
+Illustrations/combat_forced_pass.png
+Illustrations/combat_squad_failed.png
 card_abstain.png
 card_back.png
 card_bing_zheng.png
