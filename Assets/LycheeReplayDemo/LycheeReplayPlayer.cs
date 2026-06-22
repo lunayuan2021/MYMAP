@@ -3040,7 +3040,12 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (largest > 0.0001f) model.transform.localScale *= targetSize / largest;
         bounds = renderers[0].bounds;
         for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
-        model.transform.position -= new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+        // 地面对齐用的是世界包围盒，必须相对 wrapper(根)的世界坐标做偏移，否则当根已被预先定位
+        // (小队 SpawnSquad 先把 root 放到出发点、再建成员)时，会把模型直接平移到世界原点(0,0,0)——
+        // 表现就是"光圈+文字在小队处、3D 兵却被甩到地图原点不见了"，且离原点越远越明显。
+        // 车队是"先在原点建成员、后定位"，wrapper 在原点，wp≈0，与原行为一致，不受影响。
+        Vector3 wp = wrapper.transform.position;
+        model.transform.position -= new Vector3(bounds.center.x - wp.x, bounds.min.y - wp.y, bounds.center.z - wp.z);
         foreach (Collider collider in model.GetComponentsInChildren<Collider>(true))
             collider.enabled = false;
         ApplyCharacterBrightness(wrapper, objectName);
