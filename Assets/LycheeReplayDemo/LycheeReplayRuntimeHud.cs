@@ -496,8 +496,19 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     void DisplayCombat(int imageIndex, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
     {
         ApplyCombatCategoryBorder(category);
-        if (combatSprites != null && combatSprites.Length > 0)
-            combatImage.sprite = combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)];
+        // imageIndex < 0：该事件没有匹配插画（非对抗事件），隐藏图片区，卡片只留标题/文字，避免图文不符。
+        if (combatImage != null)
+        {
+            if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
+            {
+                combatImage.enabled = false;
+            }
+            else
+            {
+                combatImage.enabled = true;
+                combatImage.sprite = combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)];
+            }
+        }
         combatTitle.text = title;
         combatSubtitle.text = subtitle;
         combatRedCard.text = redCard;

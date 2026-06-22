@@ -1766,6 +1766,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = "状态更新";
         }
 
+        // 非对抗事件不再硬套"对抗插画"：whitelist 之外的事件把 imageIndex 置 -1，HUD 据此隐藏图片，
+        // 卡片仍保留标题/副标题/明细。等各事件的专属插画就位后，这里改为返回对应插画即可。
+        if (!EventUsesCombatIllustration(type))
+            imageIndex = -1;
+
         if (!string.IsNullOrEmpty(title))
         {
             if (priorityCard)
@@ -1783,6 +1788,19 @@ public class LycheeReplayPlayer : MonoBehaviour
             type == "SQUAD_CLEAR_SUCCESS" ||
             type == "SQUAD_FAILED" ||
             type == "OBSTACLE_CLEAR";
+    }
+
+    /// <summary>该事件是否用"对抗插画"做卡片图：仅真·对抗/清障/破卡类。其余事件不显示对抗图，
+    /// 等各自专属插画就位后再单独接入。</summary>
+    static bool EventUsesCombatIllustration(string type)
+    {
+        if (string.IsNullOrEmpty(type)) return false;
+        if (type.StartsWith("FORCED_", StringComparison.Ordinal)) return true;
+        return type == "SQUAD_CLEAR" ||
+            type == "SQUAD_CLEAR_SUCCESS" ||
+            type == "SQUAD_FAILED" ||
+            type == "OBSTACLE_CLEAR" ||
+            type == "GUARD_BREAK";
     }
 
     bool ShouldShowProcessProgressCard(LycheeReplayPayload payload, int round)
@@ -1873,7 +1891,21 @@ public class LycheeReplayPlayer : MonoBehaviour
         else
         {
             Transform convoy = GetConvoyRoot(payload.playerId);
-            startPos = convoy == null ? LocalSquadStagingPosition(target.transform.position, payload, round) : convoy.position + Vector3.up * 0.15f;
+            if (convoy != null)
+                startPos = convoy.position + Vector3.up * 0.15f;
+            else
+            {
+                // 车队还没解析到（开场早期 GetConvoyRoot 为空）时，从该队"当前所在节点"出发，
+                // 而不是凭空落在目标点旁 3.2m（旧 LocalSquadStagingPosition 是绕目标取点，正是"不是从起点发出"的根因）。
+                LycheeReplayPlayerState pstate = frames.Count > 0 && frames[frameIndex].players != null
+                    ? frames[frameIndex].players.FirstOrDefault(c => c.playerId == payload.playerId)
+                    : null;
+                if (pstate != null && !string.IsNullOrEmpty(pstate.currentNodeId) &&
+                    stations.TryGetValue(pstate.currentNodeId, out MapStationAnchor fromStation))
+                    startPos = fromStation.transform.position + Vector3.up * 0.15f;
+                else
+                    startPos = LocalSquadStagingPosition(target.transform.position, payload, round);
+            }
         }
         ApplySquadLaneOffset(ref startPos, ref endPos, payload);
         GameObject root = new GameObject("Squad_" + PayloadTactic(payload) + "_" + round);
