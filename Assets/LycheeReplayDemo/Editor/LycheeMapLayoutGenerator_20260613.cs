@@ -82,6 +82,11 @@ public static class LycheeMapLayoutGenerator_20260613
     // S4 节点分级抬升（建筑+脚下地形同抬一块小台 → 节点高度成玩法语言：山口最高、忙站微抬、官道广场平）
     const float NodeBusyLift = 0.10f;      // N1 忙站(>2 路/河汇聚)：建筑+脚下抬这么高的夯土小广场（用户锁定）
     const float NodePlazaPad = 1.4f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（台子比建筑大一圈、留集散地）
+    // S5 背景山川散布（图外留白处成链摆山脉+山脚岩树，"古地图味"；确定性哈希、禁无种子 Random）
+    const int   BackgroundMountainCount = 22; // 沿边环抱的背景山脉座数（角落更密更大）
+    const float BackgroundMountainScale = 1.0f; // 山脉基准缩放（×0.7~1.5 哈希抖动 + 角落更大）
+    const float BackgroundRingMargin = 14f;   // 山脉环内沿 = 玩法区半径 + 这个余量（再往外按哈希散开）
+    const float BackgroundKeepout = 3.5f;     // 背景景物距路/河中心线最小距离（不挡玩法可读区）
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
@@ -556,6 +561,7 @@ public static class LycheeMapLayoutGenerator_20260613
             HideWaterStationGroundPads(anchorById, report);  // 去掉水驿/码头脚下的夯土台：改为架在水上后不需旱台
             BuildWaterStationPonds(anchorById, sceneCtx, report);  // 给水驿脚下铺圆水塘：背水侧也进水、整个水驿坐在水中
             CleanupTransientRestoredTerrainAssets(sceneCtx, report);
+            ScatterBackgroundScenery(sceneCtx, anchorById, report);  // S5 图外留白处沿边环抱背景山脉+山脚岩树（"古地图味"）
 
             // 6c. 清障：清掉压在新路/新河上的植被、岩石（原装饰按旧路布的，会挡新路）。
             ClearDecorationAlongPaths(changedEdges, sceneCtx, report);
@@ -1970,6 +1976,97 @@ public static class LycheeMapLayoutGenerator_20260613
     }
 
     class NodeClass { public int degree, official, water, mountain, branch; public bool n1, n2, n3, n4, n5, n6; }
+
+    // 确定性哈希（FNV-1a，mapKey+两个整数）→ 散布/抬升一律可复现、跨图稳定、禁无种子 Random。
+    static uint StableHash(string s, int a, int b)
+    {
+        uint h = 2166136261u;
+        if (s != null) foreach (char c in s) { h ^= c; h *= 16777619u; }
+        unchecked { h ^= (uint)a; h *= 16777619u; h ^= (uint)b; h *= 16777619u; }
+        return h;
+    }
+    static float Hash01(string key, int a, int b) => (StableHash(key, a, b) & 0xFFFFFF) / (float)0x1000000;
+
+    static bool NearAnyPath(float x, float z, List<Vector3[]> paths, float r)
+    {
+        if (paths == null) return false;
+        foreach (var p in paths)
+            if (p != null && p.Length >= 2 && NearestOnPolylineXZ(x, z, p, out _, out _) < r) return true;
+        return false;
+    }
+
+    /// <summary>S5 背景山川散布：图外留白处沿边环抱成链摆背景山脉(mountain_terrain_02) + 山脚岩堆/树丛，
+    /// 补"古地图味"（用户记得"以前有山、现在没了"）。确定性哈希(StableHash)决策、禁无种子 Random；keep-out 距路/河
+    /// 中心线 ≥BackgroundKeepout 不挡玩法区；幂等(先删上轮容器再布)；落地用挖河后 ctx.terrainSurface.TrySampleTop。
+    /// 复用已有 prefab、零自造模型。容器名避开既有清理词(Exclude/Grass/BankTrim/ShoreTrim/RiverBed/EntranceBlend)。</summary>
+    static void ScatterBackgroundScenery(SceneContext ctx, Dictionary<string, MapStationAnchor> anchorById, List<string> report)
+    {
+        if (ctx == null) return;
+        const string rootName = "04_Background_Scenery";
+        for (var ex = GameObject.Find(rootName); ex != null; ex = GameObject.Find(rootName)) UnityEngine.Object.DestroyImmediate(ex);
+        var mtn = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Hill Rock Mountain Terrain/Prefab/mountain_terrain_02.prefab");
+        if (mtn == null) { report.Add("[背景山川] 缺 mountain_terrain_02，跳过"); return; }
+        var rocks = new List<GameObject>();
+        for (int k = 1; k <= 4; k++) { var r = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Hill Rock Mountain Terrain/Prefab/rock_set_0{k}.prefab"); if (r != null) rocks.Add(r); }
+        var trees = new List<GameObject>();
+        for (int k = 1; k <= 3; k++) { var tp = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Tree_Packs/URP_Tree_Pack/Prefabs/URP_Tree_{k}.prefab"); if (tp != null) trees.Add(tp); }
+        Transform root = new GameObject(rootName).transform;
+
+        // 玩法区包围盒（节点）+ 路/河中心线（keep-out）
+        float minx = 9999, maxx = -9999, minz = 9999, maxz = -9999;
+        if (anchorById != null)
+            foreach (var kv in anchorById)
+            { var a = kv.Value; if (a == null) continue; var p = a.transform.position; minx = Mathf.Min(minx, p.x); maxx = Mathf.Max(maxx, p.x); minz = Mathf.Min(minz, p.z); maxz = Mathf.Max(maxz, p.z); }
+        if (minx > maxx) { minx = -35; maxx = 38; minz = -22; maxz = 12; }
+        Vector2 c = new Vector2((minx + maxx) * 0.5f, (minz + maxz) * 0.5f);
+        float hx = (maxx - minx) * 0.5f, hz = (maxz - minz) * 0.5f;
+        var paths = new List<Vector3[]>();
+        foreach (var e in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
+            if (e != null) { var w = ExistingEdgeWorldPath(e); if (w != null) paths.Add(w); }
+
+        string mk = ctx.mapKey ?? "map";
+        int placedM = 0, placedFeet = 0;
+        for (int i = 0; i < BackgroundMountainCount; i++)
+        {
+            float ang = (i + Hash01(mk, i, 70) * 0.7f - 0.35f) / BackgroundMountainCount * Mathf.PI * 2f;
+            float corner = Mathf.Abs(Mathf.Cos(2f * ang));                 // 0 边中、1 角落 → 角落更外更大更密
+            float rx = (hx + BackgroundRingMargin) + Hash01(mk, i, 1) * 40f + corner * 18f;
+            float rz = (hz + BackgroundRingMargin) + Hash01(mk, i, 1) * 32f + corner * 14f;
+            float x = Mathf.Clamp(c.x + Mathf.Cos(ang) * rx, -104f, 104f);
+            float z = Mathf.Clamp(c.y + Mathf.Sin(ang) * rz, -84f, 84f);
+            if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;  // 山脉大、多留余量
+            float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
+            var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
+            m.transform.SetParent(root, true);
+            float sc = BackgroundMountainScale * (0.7f + Hash01(mk, i, 2) * 0.7f + corner * 0.45f);
+            m.transform.position = new Vector3(x, y - 1.0f, z);             // 基座埋一点、无缝接地
+            m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, i, 3) * 360f, 0f);
+            m.transform.localScale = Vector3.one * sc;
+            placedM++;
+            // 山脚：2~4 个岩堆/树丛
+            int feet = 2 + (int)(Hash01(mk, i, 4) * 3f);
+            for (int j = 0; j < feet; j++)
+            {
+                float fa = Hash01(mk, i * 11 + j, 5) * Mathf.PI * 2f;
+                float fr = (14f + Hash01(mk, i * 11 + j, 6) * 12f) * Mathf.Max(0.6f, sc);
+                float fx = x + Mathf.Cos(fa) * fr, fz = z + Mathf.Sin(fa) * fr;
+                if (NearAnyPath(fx, fz, paths, BackgroundKeepout)) continue;
+                bool isTree = Hash01(mk, i * 11 + j, 8) > 0.45f;
+                var pool = isTree ? trees : rocks;
+                if (pool.Count == 0) continue;
+                var pf = pool[(int)(Hash01(mk, i * 11 + j, 9) * pool.Count) % pool.Count];
+                float fy = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(fx, fz, out float fty) ? fty : 0f;
+                var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf);
+                inst.transform.SetParent(root, true);
+                inst.transform.position = new Vector3(fx, fy, fz);
+                inst.transform.rotation = Quaternion.Euler(0f, Hash01(mk, i * 11 + j, 10) * 360f, 0f);
+                float s2 = 0.8f + Hash01(mk, i * 11 + j, 11) * 0.8f;
+                inst.transform.localScale = Vector3.one * (isTree ? s2 : s2 * 1.3f);
+                placedFeet++;
+            }
+        }
+        report.Add($"[背景山川] 沿边环抱布 {placedM} 座背景山脉 + 山脚岩树丛 {placedFeet}（确定性哈希、keep-out {BackgroundKeepout:F1}，幂等容器 {rootName}）");
+    }
 
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById, List<string> report)
