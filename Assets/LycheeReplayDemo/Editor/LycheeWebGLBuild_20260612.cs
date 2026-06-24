@@ -19,9 +19,10 @@ static class LycheeWebGLBuild_20260612
     const string RequestMarker = "LycheeWebGLBuild_20260616.request";
     const string DoneMarker = "LycheeWebGLBuild_20260616.done";
     const string ReportPath = "LycheeWebGLBuild_20260616_report.txt";
-    // 输出包按"构建当天"日期命名：同一天重复构建→替换同一目录(CleanOutputDir 会清空重写)；
-    // 跨天构建→自动落到带新日期的新目录，旧日期的包保留。
-    static string OutputDir => "Builds/LycheeReplay_WebGL_" + System.DateTime.Now.ToString("yyyyMMdd");
+    // 输出包名带完整时间戳(yyyyMMdd_HHmmss)：每次构建都是独立新目录、不再互相替换（用户要求）。
+    // 用字段而非属性：属性每次取值都会得到不同的当前时间，会让 CleanOutputDir/BuildPlayer/PatchIndexHtml 指向不同目录而破坏构建；
+    // 故在 RunBuild 开始处一次性赋值，整次构建用同一个时间戳。
+    static string OutputDir;
     const string DemoScene = "Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity";
     const string PreferredSingleMapScene = "Assets/Scenes/GeneratedMaps/Map_medium.unity";
     const string SelectorScene = "Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity";
@@ -73,6 +74,7 @@ static class LycheeWebGLBuild_20260612
                 return; // 域重载后由静态构造函数重新挂上轮询（切换成功时保留 request 续跑）
             }
 
+            OutputDir = "Builds/LycheeReplay_WebGL_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_Linux"; // 日期_时分秒_Linux：带时间戳、匹配交付命名，每次构建独立目录
             string[] scenes = GetBuildScenes();
             FixSceneFonts(scenes);
             FixReplayCameraControllers(scenes);

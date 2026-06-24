@@ -42,11 +42,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BaseMap:
-        m_Texture: {fileID: 2800000, guid: dd4cb1153d607834482aa2cff04fcf07, type: 3}
-        m_Scale: {x: 0.34, y: 1.2}
+        m_Texture: {fileID: 2800000, guid: 48e7b7fead1e7c94298c74f5dd80c7e3, type: 3}
+        m_Scale: {x: 0.3, y: 1.2}
         m_Offset: {x: 0, y: 0}
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: 76c6e2a0a04c76c4fb2ba05a8deb993f, type: 3}
+        m_Texture: {fileID: 2800000, guid: a4de478484341ea469a6ebbbaf03de1b, type: 3}
         m_Scale: {x: 0.34, y: 1.2}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -66,8 +66,8 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: dd4cb1153d607834482aa2cff04fcf07, type: 3}
-        m_Scale: {x: 0.34, y: 1.2}
+        m_Texture: {fileID: 2800000, guid: 48e7b7fead1e7c94298c74f5dd80c7e3, type: 3}
+        m_Scale: {x: 0.3, y: 1.2}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
         m_Texture: {fileID: 0}
@@ -104,7 +104,7 @@ Material:
     - _AlphaToMask: 0
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
-    - _BumpScale: 0.82
+    - _BumpScale: 0.38
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
     - _Cull: 2
@@ -118,7 +118,7 @@ Material:
     - _Glossiness: 0
     - _GlossyReflections: 0
     - _Metallic: 0
-    - _OcclusionStrength: 0.72
+    - _OcclusionStrength: 0.3
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
@@ -132,8 +132,8 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 1.3, g: 1.12, b: 0.86, a: 1}
-    - _Color: {r: 1.3, g: 1.12, b: 0.86, a: 1}
+    - _BaseColor: {r: 0.8, g: 0.86, b: 0.98, a: 1}
+    - _Color: {r: 0.8, g: 0.86, b: 0.97999996, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []

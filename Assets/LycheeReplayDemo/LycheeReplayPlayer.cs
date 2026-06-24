@@ -1225,7 +1225,16 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             float progress = PlayerEdgeProgress(player);
             if (nextPlayer != null && nextPlayer.routeEdgeId == player.routeEdgeId)
-                progress = Mathf.Lerp(progress, PlayerEdgeProgress(nextPlayer), interpolation);
+            {
+                // 回合间 progress 用 Catmull-Rom 样条（穿过 前/现/次/次次 回合的 progress）而非直线 Lerp：
+                // 直线在每个回合边界处速度会"折"一下，1× 时摊到整整 1 秒非常显眼（"抽帧/一顿一顿"的感觉）；
+                // 样条让速度在回合边界连续(C1)、过弯/变速顺滑。两端缺邻居时回退到该端点 → 近似直线、不外冲。
+                float p1 = progress;
+                float p2 = PlayerEdgeProgress(nextPlayer);
+                float p0 = EdgeProgressAt(frameIndex - 1, player.playerId, player.routeEdgeId, p1);
+                float p3 = EdgeProgressAt(frameIndex + 2, player.playerId, player.routeEdgeId, p2);
+                progress = Mathf.Clamp01(CatmullRom(p0, p1, p2, p3, interpolation));
+            }
             bool reverse = player.currentNodeId == edge.toStationId;
             float evaluatedProgress = reverse ? 1f - progress : progress;
             float travelSign = reverse ? -1f : 1f;
@@ -1266,6 +1275,28 @@ public class LycheeReplayPlayer : MonoBehaviour
             Vector3 nextPosition = GridToWorld(nextGrid.x, nextGrid.y);
             tangent = nextPosition - position;
         }
+    }
+
+    /// <summary>取第 frameIdx 帧里 playerId 在 edgeId 上的进度；若该帧不存在/不是同一条边/玩家缺失，返回 fallback。
+    /// 给 Catmull-Rom 取相邻回合控制点用——换边或越界处回退到端点，自动退化为近似直线、避免样条外冲跑偏。</summary>
+    float EdgeProgressAt(int frameIdx, int playerId, string edgeId, float fallback)
+    {
+        if (frameIdx < 0 || frameIdx >= frames.Count) return fallback;
+        LycheeReplayFrame f = frames[frameIdx];
+        if (f.players == null) return fallback;
+        LycheeReplayPlayerState p = f.players.FirstOrDefault(c => c.playerId == playerId);
+        if (p == null || p.routeEdgeId != edgeId) return fallback;
+        return PlayerEdgeProgress(p);
+    }
+
+    /// <summary>均匀 Catmull-Rom：t∈[0,1] 在 p1→p2 之间，切线由 p0/p3 决定（穿过 p1、p2，回合边界速度连续 C1）。</summary>
+    static float CatmullRom(float p0, float p1, float p2, float p3, float t)
+    {
+        float t2 = t * t, t3 = t2 * t;
+        return 0.5f * ((2f * p1) +
+                       (-p0 + p2) * t +
+                       (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 +
+                       (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
     }
 
     static float PlayerEdgeProgress(LycheeReplayPlayerState state)

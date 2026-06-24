@@ -96,7 +96,11 @@ Shader "Lychee/Terrain Splat"
 
             half4 frag(Varyings input) : SV_Target
             {
-                float2 wuv = input.positionWS.xz;
+                // 三平面映射：原来只用世界 XZ 的平面投影 UV，在陡壁上会把贴图竖向拉成条纹（用户看到的"荒草"）。
+                // 改为按世界法线混合 zy/xz/xy 三向投影 → 平地仍走 xz（不变），陡壁改走侧投影、不再拉花。
+                float3 wpos = input.positionWS;
+                float3 wn = normalize(input.normalWS);
+                half3 tw = abs(wn); tw = tw / (tw.x + tw.y + tw.z + 0.0001);
 
                 // 顶点色权重：R=土 G=岩砂 B=变化草，底层主草 = 1-R-G-B
                 half wDirt = input.color.r;
@@ -104,17 +108,22 @@ Shader "Lychee/Terrain Splat"
                 half wVar  = input.color.b;
                 half wBase = saturate(1.0 - wDirt - wRock - wVar);
 
-                // 主草 texture bombing 简化版：同一张草贴图取两个相差较大的 tiling，
-                // 按低频噪声插值——重复节奏被打散，单贴图的"格子感"显著减弱
-                half bomb = saturate(input.color.a * 0.72 + SinNoise(wuv) * 0.28);
+                #define TRI3(tex, smp, tl) ( \
+                    SAMPLE_TEXTURE2D(tex, smp, wpos.zy * (tl)).rgb * tw.x + \
+                    SAMPLE_TEXTURE2D(tex, smp, wpos.xz * (tl)).rgb * tw.y + \
+                    SAMPLE_TEXTURE2D(tex, smp, wpos.xy * (tl)).rgb * tw.z )
+
+                // 主草 texture bombing：同一张草贴图取两个 tiling 按低频噪声插值，打散平铺格子感
+                half bomb = saturate(input.color.a * 0.72 + SinNoise(wpos.xz) * 0.28);
                 bomb = smoothstep(0.32, 0.68, bomb);
-                half3 grassNear = SAMPLE_TEXTURE2D(_Layer0, sampler_Layer0, wuv * _Tiling0).rgb;
-                half3 grassFar  = SAMPLE_TEXTURE2D(_Layer0, sampler_Layer0, wuv * _Tiling0B).rgb;
+                half3 grassNear = TRI3(_Layer0, sampler_Layer0, _Tiling0);
+                half3 grassFar  = TRI3(_Layer0, sampler_Layer0, _Tiling0B);
                 half3 layer0 = lerp(grassNear, grassFar, bomb) * _Tint0.rgb;
 
-                half3 layer1 = SAMPLE_TEXTURE2D(_Layer1, sampler_Layer1, wuv * _Tiling1).rgb * _Tint1.rgb;
-                half3 layer2 = SAMPLE_TEXTURE2D(_Layer2, sampler_Layer2, wuv * _Tiling2).rgb * _Tint2.rgb;
-                half3 layer3 = SAMPLE_TEXTURE2D(_Layer3, sampler_Layer3, wuv * _Tiling3).rgb * _Tint3.rgb;
+                half3 layer1 = TRI3(_Layer1, sampler_Layer1, _Tiling1) * _Tint1.rgb;
+                half3 layer2 = TRI3(_Layer2, sampler_Layer2, _Tiling2) * _Tint2.rgb;
+                half3 layer3 = TRI3(_Layer3, sampler_Layer3, _Tiling3) * _Tint3.rgb;
+                #undef TRI3
 
                 half3 albedo = layer0 * wBase + layer1 * wDirt + layer2 * wRock + layer3 * wVar;
 

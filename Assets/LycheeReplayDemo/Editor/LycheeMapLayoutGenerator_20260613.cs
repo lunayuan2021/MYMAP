@@ -62,6 +62,7 @@ public static class LycheeMapLayoutGenerator_20260613
     // 旧值 0.55 过宽导致"彩带和道路宽度不统一"，按实测统一。彩带贴在路面上方 OverlayLift。
     const float RoadOverlayWidth = 0.34f, WaterOverlayWidth = 0.36f, MountainOverlayWidth = 0.32f, BranchOverlayWidth = 0.30f;
     const float OverlayLift = 0.045f;    // 彩带高于路面，避免被压进路面/地表
+    const bool EnableOverlayRibbons = false; // 去彩带总开关：false=不生成/不重画路彩带与水路蓝线，并禁用母版现有彩带（重跑也不回来）
     const float RoadTuckUnder = 0.35f;   // 路头在建筑足迹内降到驿站地面下这么多 → 建筑盖住路头（不留缺口/不盖楼）
     const float RoadUnderRiver = 0.22f;  // 路与河重叠处把路面降到河床（CarvedY）之下这么多 → 河床/水面盖住路（道路在最底层）
     const float AnchorLift = 0.018f;     // 锚点贴地抬升，与原生成器一致
@@ -70,25 +71,29 @@ public static class LycheeMapLayoutGenerator_20260613
     // - 新 WATER 必须先下挖地形，再铺窄水面；不能只把蓝色贴片盖在地表上。
     // - 克隆水路模板时不保留模板中心宽黄土 RiverBank，避免低质量“大黄贴片”。
     // - 旧 WATER 改成陆路时，旧河床要抬回并覆盖为陆地材质，不能让黄土河床残在路底。
-    const float CarveHalfWidth = 3.0f;     // 河谷半宽：整体收窄河道（旧 3.4 偏宽），河谷更窄
-    const float CarveDepth = 1.85f;        // 河谷中心相对原地表的下挖深度（略加深，水体更有"河"的存在感）
+    const float CarveHalfWidth = 1.4f;     // 河谷半宽：大幅收窄河道（2.4→1.4，碗形截面）
+    const float CarveDepth = 1.50f;        // 河谷深度 1.5：容下 -1.26 的水面、谷壁高出水面 ~1.26
+    const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
+    const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float CarveEndTaperFrac = 0.18f; // 沿河两端更长收口到 0（端点是驿站/码头，不能挖坑淹建筑）
-    const float WaterDepthFrac = 0.45f;    // （旧平面水面用）水面坐落在平底之上
-    const float WaterDrapeWidth = 2.85f;   // 水面加宽：在收窄河床里占更大比例 → "水更多"、河感更强（旧 2.45 太细）
-    const float WaterDrapeLift = 0.205f;   // 水面贴河床上方的薄水膜高度（再抬一点让水更满）
-    const float RiverBedWidth = 4.2f;      // 沙床收窄到 4.2（旧 5.2 太宽显得沙多水少），仍每侧约 0.65 宽于水面以遮草皮
-    const int RiverBedCrossSegs = 10;      // 沙床横向细分段数（贴合 U 形河槽）
+    const float WaterDepthFrac = 0.3f;     // 水位（0.55→0.3 水面更靠近岸顶、河道水更满，露出的沙岸更薄）
+    const float WaterDrapeWidth = 4.2f;    // 水面宽：半宽2.1 几乎填满河槽(半宽2.4)，消掉裸沙浴缸、水贴岸→水与河谷一体（S1 一体化）
+    const float WaterDrapeLift = 0f;       // 水位不再额外抬（碗形：水面=岸顶-WaterDepthBelowBank；行船点/交汇共用）
+    const float WaterDepthBelowBank = 1.26f; // 网格顶点几何高度（注意：这个 WaterShader 渲染时不看顶点Y，只看物体 transform.Y → 见 WaterRenderHeight）
+    const float WaterRenderHeight = -0.15f;  // ★★ 真正生效的水面高度 = 水路物体 transform.Y。WaterShader 按物体位置渲染水面、无视网格顶点Y。用户验收值 -0.15
+    const float RiverBedWidth = 4.8f;      // 沙床宽：半宽2.4 配合收窄后河谷，盖满不露草
+    const int RiverBedCrossSegs = 16;      // 沙床/水面横向细分段数（10→16 水面更顺滑、少块状）
     const float RiverEndpointClearFrac = 0.06f; // 只保护紧贴驿站/码头的起止点；其余交汇道路必须压到河床下
     const float RiverBedEndpointClearDistance = 0.08f; // 河床必须铺到节点附近，避免透明水下露草地
     const float RoadWaterEndpointClearDistance = 5.2f; // 水驿/码头附近道路接头不能被河道下压吃掉
     const float WaterSurfaceEndTaperFrac = 0.14f; // 水面端点做宽度渐变，不再硬裁首尾
     const float WaterSurfaceEndMinWidthFrac = 0.68f; // 端点仍保留足够水面，避免水驿/码头旁断水露草
-    const float WaterSurfaceEndpointDrop = 0.44f; // 端点水位额外下压，避免透明水面盖到水驿/码头建筑底部
+    const float WaterSurfaceEndpointDrop = 0.2f; // 端点水位额外下压（0.44→0.2 别压太狠致端点水量看着空；建筑已被 LiftWaterStations 抬高）
     const float WaterOverlayLift = 0.05f;  // 水面高光带高于水面
-    const float WaterJunctionWaterReach = 3.05f; // 水驿多水路交汇：只补端口水舌，不替代主河床
-    const float WaterJunctionBedReach = 2.65f;
-    const float WaterJunctionWaterWidth = 1.75f;
-    const float WaterJunctionBedWidth = 4.55f;
+    const float WaterJunctionWaterReach = 1.6f; // 水驿多水路交汇：只补端口水舌，不替代主河床（收窄）
+    const float WaterJunctionBedReach = 1.7f;
+    const float WaterJunctionWaterWidth = 1.0f;
+    const float WaterJunctionBedWidth = 2.4f;
     const float WaterJunctionCoreWaterRadius = 3.2f; // 水驿交汇水面最小干地避让半径；实际还会按建筑包围盒扩大
     const float WaterJunctionCoreBedRadius = 2.25f;
     // 水驿建筑已被 LiftWaterStationsAboveWater 抬到水面之上，故不必再留很大干地——
@@ -100,6 +105,13 @@ public static class LycheeMapLayoutGenerator_20260613
     const float FormerRiverRestoreSettle = 0.04f;      // 回填后略低于两侧岸面，保留一点自然起伏
     const float RoadbedUnderlayLift = 0.008f;           // 新生成陆路的砂石路基，低于路肩/路面但高于地表
     const int RoadbedUnderlayCrossSegs = 4;
+    // 道路路堤/栈道：道路穿过天然低洼谷地会跟着沉到 y≈-0.82 被谷壁压成黑沟。
+    // 解法——把道路走廊下的地形"填洼"抬到接近岸高的平缓 grade，路面坐在抬高的实地上（不悬空），
+    // 路堤外侧用斜坡渐隐回原地形；河道下挖效果保留，近水路不抬以保河道不被填。
+    const float RoadEmbankSag = 0.2f;        // 路面允许比两端驿站连线略沉这一点，保留自然起伏但不掉进暗沟（无1.5封顶：本质贴连线不是凭空抬）
+    const float RoadEmbankSkirt = 2.6f;      // 路堤外侧斜坡宽（超出路基半宽后渐隐回地形）
+    const float RoadEmbankSink = 0.12f;      // 地形顶面坐在路面之下这一点点，让路面 ribbon 盖住路堤顶
+    const float RoadEmbankRiverKeepout = 1.4f; // 离水路中心线小于此(≈水面半宽)才不抬，只让位真正水槽、不再一刀切吃掉近河路堤
 
     static string ProjectRoot => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
     static string ReportPath => Path.Combine(ProjectRoot, ReportFileName);
@@ -267,7 +279,11 @@ public static class LycheeMapLayoutGenerator_20260613
             foreach (var e in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
                 if (!string.IsNullOrEmpty(e.edgeId)) edgeById[e.edgeId] = e;
 
+            BuildBusyJunctions(config, anchorById);  // 路口收窄：找出汇聚>2条路/河的"忙站"，路面末端在其附近收窄、不挤成团
+
             Transform overlayRoot = FindAnyByName(OverlayRootName);
+            if (!EnableOverlayRibbons && overlayRoot != null)  // 去彩带：禁用母版克隆来的所有彩带子物体
+                foreach (Transform c in overlayRoot) c.gameObject.SetActive(false);
             var sceneCtx = new SceneContext
             {
                 elevation = elevation, gridW = gridW, gridH = gridH, tile = tile,
@@ -279,7 +295,9 @@ public static class LycheeMapLayoutGenerator_20260613
             BuildTerrainSurface(sceneCtx);
             if (RestoreFormerRiverbeds(edgeById, newEdgeInfo, sceneCtx, report) > 0)
                 BuildTerrainSurface(sceneCtx);
-            report.Add($"地形采样器：三角形 {sceneCtx.terrainSurface.TriangleCount} 个 / 地形网格 {sceneCtx.terrainFilters.Count} 个（道路/彩带按真实地形面贴地）");
+            // 平面基底重构 第1步：把基底地形压成平面 Y=0（建路/挖河之前；之后 ConformY 取平面、CarveRivers 在平面挖河）。
+            FlattenBaseTerrain(sceneCtx, report);
+            report.Add($"地形采样器：三角形 {sceneCtx.terrainSurface.TriangleCount} 个 / 地形网格 {sceneCtx.terrainFilters.Count} 个（已压平为平面 Y=0，道路/彩带按平面贴地）");
             BuildTypeTemplates(edgeById, newEdgeInfo, overlayRoot, sceneCtx, report);
 
             // 校验：config 用到的每个路由类型都得有可克隆模板，否则新增该类型边会被静默跳过。
@@ -397,7 +415,10 @@ public static class LycheeMapLayoutGenerator_20260613
                         continue;
                     }
 
-                    unchanged++; continue;
+                    // 平面基底重构：原"陆路几何未变就原样保留"会把按旧起伏地形烘的路面+pathPoints 留在半空
+                    // （压平后实测浮到 +6.4m，秦岭山路尤甚）。平面上 ConformY 直接贴平、重建成本低，故不再保留，
+                    // 落到下方通用分支按平面重建（路面网格与 pathPoints 一起到 Y≈lift）。水路已在上面单独处理。
+                    report.Add($"[平面重建] {edge.edgeId} ({type}): 路径未变但按平面基底重铺（旧几何会悬空）");
                 }
 
                 Vector3[] world = BuildTerrainFollowingRoute(path.points, LiftFor(type), sceneCtx);
@@ -448,15 +469,28 @@ public static class LycheeMapLayoutGenerator_20260613
                     waterEdges.Add((resultEdge, world));
             }
 
+            // 6b0. 道路路堤：收集**全部陆路边**(changed 用新 world，unchanged 用现有 pathPoints world)——
+            //      否则只处理改动过的边、大部分老路永远留在沟里。BuildRoadEmbanks 与 LiftRoads 必须吃**同一份列表
+            //      (同 world 引用)**，否则地形抬了、路面网格没抬 → 路面入地 + 小队悬空(复核重点警告)。
+            // —— 路堤抬升暂时关闭：端点连线对"码头等低端点站"算不出抬升、又让路面颠簸；
+            //    用户要"道路贴着地形、别坑坑洼洼"，故让道路回到纯贴地(ConformY)、不做抬升。
+            _roadEmbanks = new List<(Vector3[] world, float[] grade, float[] delta, float halfW)>();
+
             // 6b. 新河道凹陷：下挖地形成河谷 + 沉水面（每图地形是独立副本，安全）。
+            //     CarveRivers 内部在 carve 之后顺带把道路走廊下的地形/高度场抬到路面之下（近水路不抬以保河道）。
             CarveRivers(waterEdges, sceneCtx, anchorById, report);
-            BuildWaterJunctionPools(config, newRoutePath, anchorById, sceneCtx, report);
+            SinkExtendedGroundBelowMain(report);  // 第二张底板下沉一点，消与主地形共面的 z-fighting（草上沙/石疯狂闪动）
+            // 6b2. 路堤已停用：道路保持纯贴地，不再抬升网格/pathPoints。
+            // BuildWaterJunctionPools(...);  // 去掉交汇池：水面已铺满全河，不需要补丁（用户要求）
             // 水驿建筑底沉在河谷里会被水面淹没（洞庭水驿）；挖河+补水舌后把水驿整体抬到水面之上。
             LiftWaterStationsAboveWater(anchorById, report);
             CleanupTransientRestoredTerrainAssets(sceneCtx, report);
 
             // 6c. 清障：清掉压在新路/新河上的植被、岩石（原装饰按旧路布的，会挡新路）。
             ClearDecorationAlongPaths(changedEdges, sceneCtx, report);
+            // 6c2. 专清河道走廊 + 码头/水驿足迹内的草丛：挖河把地表降了、草丛却贴老地表悬在河道里，
+            //      且现有沿中心线清障半径够不到码头四周（江南码头交错混乱的一大成因）。
+            ClearGrassInRiverAndDockFootprint(waterEdges, anchorById, report);
 
             // config 里没有、场景里还有的边 → 禁用 + 报告。
             var configEdgeIds = new HashSet<string>(newEdgeInfo.Keys);
@@ -887,7 +921,7 @@ public static class LycheeMapLayoutGenerator_20260613
     static void BuildOverlayLine(string edgeId, MapRouteType type, Vector3[] world, GameObject roadObject,
         SceneContext ctx, List<string> report)
     {
-        if (ctx.overlayRoot == null) return;
+        if (!EnableOverlayRibbons || ctx.overlayRoot == null) return;
 
         // 用新路面三角形建采样器，让彩带稳稳贴在路面上方。
         var roadSurface = new SurfaceSampler();
@@ -938,6 +972,30 @@ public static class LycheeMapLayoutGenerator_20260613
 
     /// <summary>带状网格：左右边各自贴 primary 采样面（采不到回退地形面/高度场）+ lift；顶点写到 target 局部空间，
     /// 不受 target/父级 transform 影响。这是"道路不沉入地表 + 与现役同款贴地"的核心。</summary>
+    // 路口收窄：汇聚 >2 条路/河的"忙站"XZ。ribbon 末端靠近忙站时宽度收窄，避免多路在建筑脚下挤成一团。
+    static List<Vector2> _busyJunctionXZ = new List<Vector2>();
+    static void BuildBusyJunctions(LycheeUiMapConfig config, Dictionary<string, MapStationAnchor> anchorById)
+    {
+        _busyJunctionXZ = new List<Vector2>();
+        if (config == null || config.edges == null || anchorById == null) return;
+        var deg = new Dictionary<string, int>();
+        foreach (var e in config.edges)
+        {
+            if (!string.IsNullOrEmpty(e.fromNodeId)) deg[e.fromNodeId] = deg.TryGetValue(e.fromNodeId, out var a) ? a + 1 : 1;
+            if (!string.IsNullOrEmpty(e.toNodeId)) deg[e.toNodeId] = deg.TryGetValue(e.toNodeId, out var b) ? b + 1 : 1;
+        }
+        foreach (var kv in deg)
+            if (kv.Value > 2 && anchorById.TryGetValue(kv.Key, out var an) && an != null)
+                _busyJunctionXZ.Add(new Vector2(an.transform.position.x, an.transform.position.z));
+    }
+    static bool NearBusyJunction(Vector3 p, float r)
+    {
+        if (_busyJunctionXZ == null) return false;
+        var xz = new Vector2(p.x, p.z);
+        foreach (var b in _busyJunctionXZ) if ((xz - b).sqrMagnitude < r * r) return true;
+        return false;
+    }
+
     static Mesh CreateRibbonMesh(Vector3[] center, float width, string name,
         SceneContext ctx, SurfaceSampler primary, float lift, Transform target)
     {
@@ -946,14 +1004,26 @@ public static class LycheeMapLayoutGenerator_20260613
         var uv = new Vector2[vertices.Length];
         var triangles = new int[(n - 1) * 6];
         float distance = 0f;
+        // 路口收窄：端点靠近"忙站(>2条路/河)"则该端宽度收窄到一半，避免多路在建筑脚下挤成一团。
+        bool startBusy = n > 1 && NearBusyJunction(center[0], 3.5f);
+        bool endBusy = n > 1 && NearBusyJunction(center[n - 1], 3.5f);
         for (int i = 0; i < n; i++)
         {
             Vector3 fwd = i == n - 1 ? center[i] - center[i - 1] : center[i + 1] - center[i];
             fwd.y = 0f;
             Vector3 side = Vector3.Cross(Vector3.up, fwd.sqrMagnitude < 1e-8f ? Vector3.forward : fwd.normalized);
             if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
-            Vector3 left = center[i] - side * width * 0.5f;
-            Vector3 right = center[i] + side * width * 0.5f;
+            float w = width;
+            if (startBusy || endBusy)
+            {
+                float along = i / (float)(n - 1);
+                float s = 1f;
+                if (startBusy) s = Mathf.Min(s, Mathf.Lerp(0.5f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(along / 0.22f))));
+                if (endBusy) s = Mathf.Min(s, Mathf.Lerp(0.5f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - along) / 0.22f))));
+                w = width * s;
+            }
+            Vector3 left = center[i] - side * w * 0.5f;
+            Vector3 right = center[i] + side * w * 0.5f;
             left.y = ConformY(ctx, primary, left.x, left.z, lift, center[i].y);
             right.y = ConformY(ctx, primary, right.x, right.z, lift, center[i].y);
             if (ctx.endRampOn) { left.y = RampEndY(ctx, left.x, left.z, left.y); right.y = RampEndY(ctx, right.x, right.z, right.y); }
@@ -1107,11 +1177,150 @@ public static class LycheeMapLayoutGenerator_20260613
         foreach (var mf in UnityEngine.Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
         {
             if (mf.sharedMesh == null || !mf.gameObject.activeInHierarchy) continue;
-            if (!mf.gameObject.name.Contains("Terrain")) continue;
+            // 含 "Terrain" 的主地形，外加 Replay_Extended_Ground（第二张地形/底板，名字不含 Terrain，
+            // 之前被漏掉→没被挖没被染砂，平草板停在 -2.20 顶穿挖深的河床露草，是"绿谷底"真凶）。
+            if (!mf.gameObject.name.Contains("Terrain") && !mf.gameObject.name.Contains("Extended_Ground")) continue;
             s.AddMesh(mf);
             ctx.terrainFilters.Add(mf);
         }
         ctx.terrainSurface = s;
+    }
+
+    // ============================================================ 平面基底重构 第1步：压平基底 Y=0
+
+    /// <summary>把基底地形从"随机起伏"压成平面 Y=0：①克隆每张地形网格、所有顶点世界 Y→0（保留母版烘的
+    /// splat 顶点色，外观不变只是变平）、法线重算（全朝上→地表/路面受光，黑路根因消失）；②高度场 heightSamples
+    /// 全置 0（运行时小队/行船采样一致）；③站点锚点世界 Y 落到 AnchorLift（与"移动站点"落点公式一致，水驿/码头
+    /// 随后由 LiftWaterStationsAboveWater 按挖出的水面再抬）；④重建采样器使 ctx.terrainSurface = 平面。
+    /// 调用点在 RestoreFormerRiverbeds 之后、建路/CarveRivers 之前 → 之后 ConformY 取平面、CarveRivers 在平面挖河。
+    /// 「四处同 delta 铁律」：地形 mesh / heightSamples 在此统一到 0，路面/pathPoints 随后按平面 ConformY 自然到 0。</summary>
+    static void FlattenBaseTerrain(SceneContext ctx, List<string> report)
+    {
+        if (ctx.terrainFilters == null || ctx.terrainFilters.Count == 0)
+        { report.Add("[压平] 场景无地形网格，跳过压平"); return; }
+        report.Add("--- 压平基底 Y=0 ---");
+
+        // 捕捉压平前的地形采样器：装饰物落回平面要按"压平前地形高度"下沉（采样器内部存的是建好时的世界三角，
+        // 后面换 mesh / 重建采样器都不影响这个引用）。
+        SurfaceSampler preFlatten = ctx.terrainSurface;
+
+        // 1. 克隆并压平每张地形网格（per-map 副本，绝不动共享原 mesh；顶点色/uv 保留 → splat 外观不变）。
+        foreach (var mf in ctx.terrainFilters)
+        {
+            if (mf == null || mf.sharedMesh == null) continue;
+            Mesh src = mf.sharedMesh;
+            Mesh clone = UnityEngine.Object.Instantiate(src);
+            clone.name = GeneratedTerrainBaseName(src.name, ctx) + "_Flat_" + Sanitize(ctx.mapKey);
+            Vector3[] verts = clone.vertices;
+            Color[] cols = clone.colors;       // 母版烘的 splat 顶点色（R土 G岩砂 B变化草 主草=1-R-G-B）
+            bool hasCols = cols != null && cols.Length == verts.Length;
+            Transform t = mf.transform;
+            int flattened = 0;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 w = t.TransformPoint(verts[i]);   // 本地→世界，压世界 Y（与挖河同一套 transform 语义）
+                if (Mathf.Abs(w.y) > 1e-4f) flattened++;
+                w.y = 0f;
+                verts[i] = t.InverseTransformPoint(w);
+            }
+            clone.vertices = verts;            // 只改位置；uv 不动
+            if (hasCols) clone.colors = cols;  // 显式回写顶点色，杜绝任何丢失（与 CarveRivers 同防御）→ splat 外观不变只是变平
+            clone.RecalculateNormals();        // 平面法线全朝上 (0,1,0) → 受光正常，路再也不沉进暗沟变黑
+            clone.RecalculateBounds();
+            Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
+            mf.sharedMesh = saved;
+            var mc = mf.GetComponent<MeshCollider>();
+            if (mc != null) mc.sharedMesh = saved;
+            EditorUtility.SetDirty(mf);
+            report.Add($"[压平] 地形 '{mf.name}' 顶点 {flattened}/{verts.Length} → Y=0");
+        }
+
+        // 2. 高度场全置 0（MapElevationData.heightSamples 是绝对世界高度，运行时贴地采样跟着到 0）。
+        var elev = ctx.elevation;
+        if (elev != null && elev.heightSamples != null)
+        {
+            float[] hs = elev.heightSamples;
+            for (int i = 0; i < hs.Length; i++) hs[i] = 0f;
+            elev.heightSamples = hs;
+            EditorUtility.SetDirty(elev);
+            report.Add($"[压平] 高度场 {hs.Length} 个采样 → 0");
+        }
+
+        // 3. 站点落到平面：所有锚点世界 Y = AnchorLift（与"移动站点"落点 SampleWorldHeight(=0)+AnchorLift 一致；
+        //    否则母版按随机地形烘的锚点会悬空/入地——本图实测 [-0.74, 6.30]）。XZ 不动；水驿/码头随后再按水面抬。
+        //    两段落地：未变站点只在此落一次；坐标变了的站点稍后在站点循环按 SampleWorldHeight(=0)+AnchorLift 重算，
+        //    两路殊途同归到同一 Y（无冲突）。
+        int grounded = 0;
+        foreach (var a in UnityEngine.Object.FindObjectsByType<MapStationAnchor>(FindObjectsSortMode.None))
+        {
+            if (a == null) continue;
+            Vector3 p = a.transform.position;
+            if (Mathf.Abs(p.y - AnchorLift) < 1e-4f) continue;
+            a.transform.position = new Vector3(p.x, AnchorLift, p.z);
+            EditorUtility.SetDirty(a.transform); EditorUtility.SetDirty(a);
+            grounded++;
+        }
+        if (grounded > 0) report.Add($"[压平] 站点落到平面 {grounded} 个 (Y={AnchorLift})");
+
+        // 3.5 装饰物随地形落回平面：母版的草/岩/树是按随机地形高度摆的（实测悬到 +6.2m）；压平后会悬空。
+        //     只在明确的装饰容器内逐实例下沉「压平前该处地形高度」→ 继续坐在平面上。绝不碰地形/道路/站点/
+        //     水面/相机/天空（它们各在 01/02/03/06/Water 等其它容器，天然不在这三个装饰容器里）。
+        int droppedDeco = RegroundDecorations(preFlatten, CollectDecorationContainers());
+        if (droppedDeco > 0) report.Add($"[压平] 装饰物随地形落回平面 {droppedDeco} 个实例");
+
+        // 4. 重建采样器：ctx.terrainSurface 现在是平面、ctx.terrainFilters 重新指向已压平的 mesh。
+        BuildTerrainSurface(ctx);
+        report.Add($"[压平] 重建地形采样器：三角形 {ctx.terrainSurface.TriangleCount} 个 / 地形网格 {ctx.terrainFilters.Count} 个（现为平面 Y=0）");
+    }
+
+    /// <summary>收集装饰容器：配置根下的 04_Natural_Decoration（主植生/岩） + 场景根下的
+    /// BoundaryTreeline*/BoundaryPalaceBuffer*（边界树/岩/覆盖）。只这些容器内的东西会被随地形落回平面。</summary>
+    static List<Transform> CollectDecorationContainers()
+    {
+        var list = new List<Transform>();
+        Transform natural = FindAnyByName("04_Natural_Decoration");
+        if (natural != null) list.Add(natural);
+        foreach (var t in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (t == null || t.parent != null) continue; // 仅场景根
+            if (t.name.StartsWith("BoundaryTreeline", StringComparison.Ordinal) ||
+                t.name.StartsWith("BoundaryPalaceBuffer", StringComparison.Ordinal))
+                list.Add(t);
+        }
+        return list;
+    }
+
+    /// <summary>把装饰容器内每个网格实例按「压平前该 XZ 处地形高度 oh」下沉（pos.y -= oh）——地形从 oh 降到 0，
+    /// 装饰同步降 oh 即继续坐在平面上。只移动直接挂 MeshRenderer 的 GO，且若其祖先也在集合里则跳过（由祖先带着动，
+    /// 杜绝父子双重下沉）。同一实例的多个零件 XZ 几乎相同、oh 一致 → 整体一起降不散架。容器外（地形/路/站点/水面/
+    /// 天空）一律不碰。</summary>
+    static int RegroundDecorations(SurfaceSampler preFlatten, List<Transform> containers)
+    {
+        if (preFlatten == null || containers == null || containers.Count == 0) return 0;
+        var rends = new List<MeshRenderer>();
+        foreach (var c in containers)
+            if (c != null) rends.AddRange(c.GetComponentsInChildren<MeshRenderer>(true));
+        var set = new HashSet<Transform>();
+        foreach (var r in rends) if (r != null) set.Add(r.transform);
+
+        int dropped = 0;
+        foreach (var r in rends)
+        {
+            if (r == null) continue;
+            Transform t = r.transform;
+            bool ancestorInSet = false;
+            for (Transform p = t.parent; p != null; p = p.parent)
+                if (set.Contains(p)) { ancestorInSet = true; break; }
+            if (ancestorInSet) continue; // 由祖先实例带着一起下沉
+            Vector3 pos = t.position;
+            if (preFlatten.TrySampleTop(pos.x, pos.z, out float oh) && Mathf.Abs(oh) > 1e-3f)
+            {
+                t.position = new Vector3(pos.x, pos.y - oh, pos.z);
+                EditorUtility.SetDirty(t);
+                dropped++;
+            }
+        }
+        return dropped;
     }
 
     // ============================================================ 旧河道回填（水路改陆路/删除水路）
@@ -1290,16 +1499,194 @@ public static class LycheeMapLayoutGenerator_20260613
         return string.IsNullOrEmpty(name) ? "Continuous_Terrain" : name;
     }
 
+    // ============================================================ 道路路堤/栈道（把路抬出洼地）
+
+    /// <summary>每条陆路一条记录：世界折线、填洼后的平缓 grade、每点相对原 grade 的抬升量 delta、路堤半宽。
+    /// 由 BuildRoadEmbanks 在 CarveRivers 之前填好，供地形抬升 pass(TryRoadEmbankTop) 与
+    /// 道路网格抬升 pass(LiftRoadsOntoEmbankments) 共用。</summary>
+    static List<(Vector3[] world, float[] grade, float[] delta, float halfW)> _roadEmbanks;
+
+    /// <summary>把一条路抬成"端点连线 grade"：路面不低于两端驿站连线 - RoadEmbankSag，顺天然地形更高处保留。
+    /// 这样路穿任何天然谷地都自动抬到连线上、不沉进暗沟——不依赖"恰好有更高邻居"(旧填V洼法对单调下坡失效的真根因)。
+    /// 返回 grade 与每点抬升量 delta(≥0)。</summary>
+    static (float[] grade, float[] delta) ComputeEmbankGrade(Vector3[] world)
+    {
+        int n = world.Length;
+        var grade = new float[n]; var orig = new float[n]; var delta = new float[n];
+        for (int i = 0; i < n; i++) orig[i] = world[i].y;
+        var arc = new float[n];
+        for (int i = 1; i < n; i++)
+        { float dx = world[i].x - world[i - 1].x, dz = world[i].z - world[i - 1].z; arc[i] = arc[i - 1] + Mathf.Sqrt(dx * dx + dz * dz); }
+        float total = Mathf.Max(1e-4f, arc[n - 1]);
+        float yA = world[0].y, yB = world[n - 1].y;   // 两端=驿站连接点高程
+        // 端点连线下限：每点 = max(原地形, 两端连线插值 - 容许下沉)。无封顶（贴连线，不凭空抬高）。
+        for (int i = 0; i < n; i++)
+            grade[i] = Mathf.Max(orig[i], Mathf.Lerp(yA, yB, arc[i] / total) - RoadEmbankSag);
+        // 轻度平滑去折点（端点固定，且永不低于原地形）。
+        for (int it = 0; it < 3; it++)
+            for (int i = 1; i < n - 1; i++)
+                grade[i] = Mathf.Max(orig[i], (grade[i - 1] + grade[i] + grade[i + 1]) / 3f);
+        for (int i = 0; i < n; i++) delta[i] = Mathf.Max(0f, grade[i] - orig[i]);
+        return (grade, delta);
+    }
+
+    /// <summary>在 CarveRivers 之前构建 _roadEmbanks（只收陆路，跳过 Water）。halfW = RoadbedWidthFor(type)*0.5。</summary>
+    static void BuildRoadEmbanks(List<(MapRouteEdge edge, Vector3[] world, MapRouteType type)> changed)
+    {
+        _roadEmbanks = new List<(Vector3[], float[], float[], float)>();
+        if (changed == null) return;
+        foreach (var (edge, world, type) in changed)
+        {
+            if (type == MapRouteType.Water || world == null || world.Length < 2) continue;
+            var (grade, delta) = ComputeEmbankGrade(world);
+            _roadEmbanks.Add((world, grade, delta, RoadbedWidthFor(type) * 0.5f));
+        }
+    }
+
+    /// <summary>某 XZ 处路堤要把地形抬到的目标顶面（取所有路的最大；近水路则不抬，保河道）。
+    /// origY = 该点 t=0(路堤够不到/边缘)时的基准（原地形高度），路下满高、外侧 SmoothStep 渐隐回 origY。
+    /// 只在结果高于 origY 时返回 true。</summary>
+    static bool TryRoadEmbankTop(float x, float z, float origY,
+        List<(MapRouteEdge edge, Vector3[] world)> waters, out float topY)
+    {
+        topY = origY; bool any = false;
+        if (_roadEmbanks == null) return false;
+        // 近水路保护：该点离任一水路中心线太近则一律不抬，避免把河道填平。
+        if (waters != null)
+            foreach (var (_, ww) in waters)
+            {
+                if (ww == null || ww.Length < 2) continue;
+                if (NearestOnPolylineXZ(x, z, ww, out _, out _) < RoadEmbankRiverKeepout) return false;
+            }
+        foreach (var (world, grade, delta, halfW) in _roadEmbanks)
+        {
+            float d = NearestOnPolylineXZ(x, z, world, out float along, out _);
+            float reach = halfW + RoadEmbankSkirt;
+            if (d >= reach) continue;
+            int n = world.Length;
+            int idx = Mathf.Clamp(Mathf.RoundToInt(along * (n - 1)), 0, n - 1);
+            if (delta[idx] <= 0.001f) continue; // 这段没抬，不动地形
+            float gradeY = grade[idx];
+            float t = d <= halfW ? 1f : 1f - (d - halfW) / RoadEmbankSkirt; // 路下满高，外侧线性降到 0
+            t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+            float candidate = Mathf.Lerp(origY, gradeY - RoadEmbankSink, t); // t=0 时不抬（=origY）
+            if (candidate > topY) { topY = candidate; any = true; }
+        }
+        return any && topY > origY;
+    }
+
+    /// <summary>CarveRivers 之后：把每条陆路的网格子物体(路面/路基/车辙/border)与 pathPoints 按其
+    /// 折线抬升量 delta 抬到路堤上（只抬不降），让路面坐在抬高的实地上、小队走路/跟随同步上来。</summary>
+    static void LiftRoadsOntoEmbankments(List<(MapRouteEdge edge, Vector3[] world, MapRouteType type)> changed,
+        SceneContext ctx, List<string> report)
+    {
+        if (changed == null || _roadEmbanks == null) return;
+        int liftedEdges = 0;
+        foreach (var (edge, world, type) in changed)
+        {
+            if (type == MapRouteType.Water || edge == null) continue;
+            // 找到这条路对应的 embank（按引用相等 world）。
+            float[] delta = null; Vector3[] ew = null;
+            foreach (var e in _roadEmbanks) if (ReferenceEquals(e.world, world)) { delta = e.delta; ew = e.world; break; }
+            if (delta == null || ew == null || ew.Length < 2) continue;
+            bool anyLift = false; foreach (var dlt in delta) if (dlt > 0.001f) { anyLift = true; break; }
+            if (!anyLift) continue;
+            // 局部函数：某世界 XZ 处的抬升量（最近折线点的 delta）。
+            System.Func<float, float, float> deltaAt = (x, z) =>
+            {
+                NearestOnPolylineXZ(x, z, ew, out float along, out _);
+                int idx = Mathf.Clamp(Mathf.RoundToInt(along * (ew.Length - 1)), 0, ew.Length - 1);
+                return delta[idx];
+            };
+            // 抬所有有几何的子物体网格（路面/路基/车辙/border），逐顶点按其 XZ 的 delta 抬高。
+            foreach (Transform child in edge.gameObject.transform)
+            {
+                var mf = child.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (child.GetComponent<MeshRenderer>() == null) continue; // 跳过无渲染的（如 pathPoint 容器）
+                var mesh = mf.sharedMesh;
+                var vs = mesh.vertices;
+                bool changedV = false;
+                for (int i = 0; i < vs.Length; i++)
+                {
+                    Vector3 wv = child.TransformPoint(vs[i]);
+                    float dl = deltaAt(wv.x, wv.z);
+                    if (dl > 0.001f) { wv.y += dl; vs[i] = child.InverseTransformPoint(wv); changedV = true; }
+                }
+                if (changedV)
+                {
+                    // 与现役道路子网格一致：另存为 per-edge .asset（不改可能被共享的原 asset）。
+                    var nm = UnityEngine.Object.Instantiate(mesh);
+                    nm.name = mesh.name + "_Emb";
+                    nm.vertices = vs; nm.RecalculateNormals(); nm.RecalculateBounds();
+                    mf.sharedMesh = SaveMesh(nm, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + child.name + "_Emb.asset");
+                    EditorUtility.SetDirty(mf);
+                }
+            }
+            // 抬 pathPoints（小队走/行船按它贴地跟随）。
+            if (edge.pathPoints != null)
+                foreach (var pp in edge.pathPoints)
+                    if (pp != null)
+                    {
+                        var p = pp.position; float dl = deltaAt(p.x, p.z);
+                        if (dl > 0.001f) { pp.position = new Vector3(p.x, p.y + dl, p.z); EditorUtility.SetDirty(pp); }
+                    }
+            liftedEdges++;
+        }
+        report?.Add($"[路堤] 抬升道路 {liftedEdges} 条出洼地");
+    }
+
     // ============================================================ 挖河凹陷（新水路 = 与现役同质量的下沉河道）
 
     /// <summary>为新增/重建的水路下挖河谷 + 沉水面：①克隆地形网格副本并按到水路中心线的距离下挖顶点；
     /// ②同步下挖 MapElevationData.heightSamples；③把水面/高光/彩带/行船 pathPoints 沉到原地表下 WaterSurfaceDrop。
     /// 原地表高度取自挖河前建好的 ctx.terrainSurface（不受本次下挖影响），保证水面相对原岸的下沉量稳定。</summary>
+    /// <summary>第二张底板 Replay_Extended_Ground 与主地形 Continuous_Terrain 共面（同 splat 材质、同 Y），
+    /// 播放时相机移动两层抢深度→草上沙/石贴图疯狂闪动（z-fighting）。把底板整体下沉一点，让主地形在重叠区永远在上、消冲突。
+    /// 碗形河床仍由主地形表现，底板被主地形盖住（也就不会从河底露草）。重跑幂等（每次从母版0再下沉）。</summary>
+    static void SinkExtendedGroundBelowMain(List<string> report)
+    {
+        const float sink = 0.10f;
+        Transform t = FindAnyByName("Replay_Extended_Ground");
+        if (t == null) return;
+        Vector3 p = t.position;
+        t.position = new Vector3(p.x, p.y - sink, p.z);
+        if (report != null) report.Add($"[消Z冲突] Replay_Extended_Ground 下沉 {sink:F2} 到主地形之下");
+    }
+
+    /// <summary>给河道中心线加 Perlin 蜿蜒：每个中间点沿垂直方向按噪声偏移（端点不动、中间最大），河不再直直的、更自然。
+    /// 就地改 world 数组 → 之后的挖河/水面/沙岸/航线点全部跟随同一条蜿蜒线。确定性（按世界坐标采样 Perlin，可复现）。</summary>
+    static void MeanderRiverPaths(List<(MapRouteEdge edge, Vector3[] world)> waters)
+    {
+        foreach (var (edge, world) in waters)
+        {
+            if (world == null || world.Length < 3) continue;
+            Vector3[] orig = (Vector3[])world.Clone();
+            int n = world.Length;
+            for (int i = 1; i < n - 1; i++)
+            {
+                Vector3 fwd = orig[i + 1] - orig[i - 1]; fwd.y = 0f;
+                if (fwd.sqrMagnitude < 1e-6f) continue;
+                fwd.Normalize();
+                Vector3 perp = Vector3.Cross(Vector3.up, fwd);
+                float window = Mathf.Sin(Mathf.PI * i / (float)(n - 1));   // 端点0、中间1
+                float noise = Mathf.PerlinNoise(orig[i].x * RiverMeanderFreq + 13.7f, orig[i].z * RiverMeanderFreq + 7.3f) * 2f - 1f;
+                world[i] = orig[i] + perp * (noise * RiverMeanderAmp * window);
+            }
+        }
+    }
+
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById, List<string> report)
     {
         if (waters == null || waters.Count == 0) return;
+        MeanderRiverPaths(waters);  // 河道中心线加蜿蜒，避免直直的、更自然（端点不动；carve/水面/沙岸/航线点都跟随）
         report.Add("--- 挖河凹陷 ---");
+        BuildRiverBaseY(waters, ctx, anchorById);  // 每条水路用两端较低岸高作恒定基准 + 站点干核 → 两河一致、水坐进槽、水驿落地
+        // 全局禁用遗留河岸修边容器 River_ShoreTrim_*（挂在配置根下、不在 edge 子级，CleanLegacyWaterChildren 扫不到）→ 去橄榄绿河岸线
+        foreach (var _tr in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            if (_tr != null && (_tr.name.StartsWith("River_ShoreTrim") || _tr.name.StartsWith("Water_Junction_Patches") || _tr.name.StartsWith("Route_Line_Overlay") || _tr.name.EndsWith("_BankTrim") || _tr.name.EndsWith("_BankSlope") || _tr.name.EndsWith("_RiverBed") || _tr.name.Contains("EntranceBlend")))
+                _tr.gameObject.SetActive(false);
 
         // 1. 克隆并下挖地形网格（per-map 副本，绝不动共享原 mesh；含河床子网格一并下挖）。
         foreach (var mf in ctx.terrainFilters)
@@ -1309,15 +1696,41 @@ public static class LycheeMapLayoutGenerator_20260613
             Mesh clone = UnityEngine.Object.Instantiate(src);
             clone.name = GeneratedTerrainBaseName(src.name, ctx) + "_Carved_" + Sanitize(ctx.mapKey);
             Vector3[] verts = clone.vertices;
+            Color[] cols = clone.colors;                       // 母版已烘 splat 顶点色（R土 G岩砂 B变化草 主草=1-R-G-B）
+            bool hasCols = cols != null && cols.Length == verts.Length;
             Transform t = mf.transform;
-            int carved = 0;
+            int carved = 0, sandPainted = 0;
             for (int i = 0; i < verts.Length; i++)
             {
                 Vector3 w = t.TransformPoint(verts[i]);
-                if (TryCarveTargetY(ctx, w.x, w.z, w.y, waters, out float ny) && ny < w.y - 0.0001f)
-                { w.y = ny; verts[i] = t.InverseTransformPoint(w); carved++; }
+                bool wasCarved = TryCarveTargetY(ctx, w.x, w.z, w.y, waters, out float ny) && ny < w.y - 0.0001f;
+                if (wasCarved) { w.y = ny; verts[i] = t.InverseTransformPoint(w); carved++; }
+                // 路线A核心：挖河同步重刷 splat 顶点色，把河道走廊染成砂(Layer2/G=岩砂层)。
+                // 绑定真实几何：挖到的顶点=一定在河道内→强制全砂(根治挖壁上半截露草，不再靠猜半径)；
+                // 未挖到的按到中心线距离羽化到岸→砂渐隐入草。terrain 自身像素级"水→砂→草"过渡，不靠硬边贴片。
+                if (hasCols)
+                {
+                    float sandW;
+                    if (wasCarved)
+                    {
+                        // 染砂对齐到渲染水面 WaterRenderHeight（shader 真正显示的水位），不再用网格深水位 → 各段沙带一致、不再硬边
+                        sandW = 1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.35f, w.y); // 水线起一条较宽沙滩、往上柔和渐隐为草
+                    }
+                    else sandW = RiverSandSplatWeight(w.x, w.z, waters);
+                    if (sandW > 0.001f)
+                    {
+                        Color o = cols[i];
+                        cols[i] = new Color(o.r * (1f - sandW), Mathf.Lerp(o.g, 1f, sandW), o.b * (1f - sandW), o.a);
+                        sandPainted++;
+                    }
+                }
+                // 路堤：把道路走廊下的地形抬到路面之下一点（只抬不降，近水路不抬以保河道）。
+                // 用当前 w.y（可能已被 carve 改过）作基准取 max；不给路堤顶点染砂（保持原草/土色）。
+                if (TryRoadEmbankTop(w.x, w.z, w.y, waters, out float embTop) && embTop > w.y)
+                { w.y = embTop; verts[i] = t.InverseTransformPoint(w); }
             }
             clone.vertices = verts;
+            if (hasCols) clone.colors = cols;
             clone.RecalculateNormals();
             clone.RecalculateBounds();
             Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
@@ -1325,7 +1738,7 @@ public static class LycheeMapLayoutGenerator_20260613
             var mc = mf.GetComponent<MeshCollider>();
             if (mc != null) mc.sharedMesh = saved;
             EditorUtility.SetDirty(mf);
-            report.Add($"地形 '{mf.name}' 下挖顶点 {carved}/{verts.Length}");
+            report.Add($"地形 '{mf.name}' 下挖顶点 {carved}/{verts.Length}，河道染砂 {sandPainted}");
         }
 
         // 2. 同步下挖 MapElevationData.heightSamples（运行时高度采样一致；行序 北→南）。
@@ -1342,6 +1755,8 @@ public static class LycheeMapLayoutGenerator_20260613
                     float wx = elev.worldOrigin.x + x * elev.cellSize;
                     float wz = elev.worldOrigin.y + (H - z) * elev.cellSize;
                     if (TryCarveTargetY(ctx, wx, wz, hs[idx], waters, out float nh) && nh < hs[idx] - 0.0001f) hs[idx] = nh;
+                    // 路堤：同步抬升高度场（小队走路贴地要跟着路堤上来；近水路不抬以保河道）。
+                    if (TryRoadEmbankTop(wx, wz, hs[idx], waters, out float et) && et > hs[idx]) hs[idx] = et;
                 }
             elev.heightSamples = hs;
             EditorUtility.SetDirty(elev);
@@ -1353,29 +1768,43 @@ public static class LycheeMapLayoutGenerator_20260613
         {
             if (edge == null) continue;
             CleanLegacyWaterChildren(edge.gameObject, edge.edgeId);
-            // 沙石河床（水下沙底 + 两侧河滩，U 形贴河床）。
-            BuildRiverBed(edge, world, ctx, waters, sandMat, anchorById, report);
+            // 河床归并到地形层：独立河床 mesh 与地形 splat 砂层重复（地形顶点0.4m够密、splat足够细），
+            // 删之去"多层凸起/乱"。河床 = 地形挖出的 U 形槽 + carve 时染的 splat 砂。BuildRiverBed 停用。
+            // BuildRiverBed(edge, world, ctx, waters, sandMat, anchorById, report);
 
             Vector3[] waterVisual = TrimWaterSurfaceToEndpointClearance(edge, world, anchorById);
             bool waterTrimmed = waterVisual != world && waterVisual != null && world != null && waterVisual.Length != world.Length;
             if (waterTrimmed)
                 report.Add($"[水面避让] {edge.edgeId}: 水驿端主水面裁出建筑足迹，保留河床连续并由交汇水舌接驳");
 
-            // 水面：全线连续铺设，端点只渐窄/渐浅，不再整段裁掉，避免码头和水驿旁出现断水碎片。
-            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_Route", waterVisual, WaterDrapeWidth, WaterDrapeLift,
-                ctx, waters, WaterSurfaceEndTaperFrac, WaterSurfaceEndMinWidthFrac);
-            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_WaterHighlight", waterVisual, WaterDrapeWidth * 0.22f,
-                WaterDrapeLift + 0.045f, ctx, waters, WaterSurfaceEndTaperFrac, 0.62f);
-
-            // 彩带蓝线随水面铺。
-            Transform line = FindOverlayLine(edge.edgeId, ctx.overlayRoot);
-            if (line != null && line.GetComponent<MeshFilter>() != null)
+            // 水面铺满全河（用完整 world 折线、不裁端点）→ 水面铺到驿站、不再短一截（用户要求）。
+            ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_Route", world, WaterDrapeWidth, WaterDrapeLift,
+                ctx, waters, 0f, 1f);
+            // 河面改用会动的 WaterShader（替换静态 Unlit 的 M_RiverWater_Fuller）→ 流动水感。
             {
-                var lf = line.GetComponent<MeshFilter>();
-                Mesh lm = CreateWaterSurfaceGrid(waterVisual, OverlayWidthFor(MapRouteType.Water), 4, line.name, line, ctx, waters,
-                    WaterDrapeLift + 0.05f, WaterSurfaceEndTaperFrac, 0.62f);
-                lf.sharedMesh = SaveMesh(lm, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + line.name + ".asset");
-                EditorUtility.SetDirty(lf);
+                Transform _routeT = FindChild(edge.gameObject.transform, edge.edgeId + "_Route");
+                var _routeMR = _routeT != null ? _routeT.GetComponent<MeshRenderer>() : null;
+                Material _flowMat = FindWaterMaterial();
+                if (_routeMR != null && _flowMat != null) { _routeMR.sharedMaterial = _flowMat; EditorUtility.SetDirty(_routeMR); }
+                // ★ 真正控制水面高度的地方：设水路物体 transform.Y（WaterShader 按它渲染水面、不看网格顶点Y）。
+                if (_routeT != null) { var _wp = _routeT.position; _routeT.position = new Vector3(_wp.x, WaterRenderHeight, _wp.z); EditorUtility.SetDirty(_routeT); }
+            }
+            // S1 河道压一层：去掉浮在主面上方 +0.045 的 _WaterHighlight 独立薄层（旧子物体由 CleanLegacyWaterChildren 删）。
+            // ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_WaterHighlight", waterVisual, WaterDrapeWidth * 0.22f,
+            //     WaterDrapeLift + 0.045f, ctx, waters, WaterSurfaceEndTaperFrac, 0.62f);
+
+            // 彩带蓝线随水面铺（受去彩带总开关控制）。
+            if (EnableOverlayRibbons)
+            {
+                Transform line = FindOverlayLine(edge.edgeId, ctx.overlayRoot);
+                if (line != null && line.GetComponent<MeshFilter>() != null)
+                {
+                    var lf = line.GetComponent<MeshFilter>();
+                    Mesh lm = CreateWaterSurfaceGrid(waterVisual, OverlayWidthFor(MapRouteType.Water), 4, line.name, line, ctx, waters,
+                        WaterDrapeLift + 0.05f, WaterSurfaceEndTaperFrac, 0.62f);
+                    lf.sharedMesh = SaveMesh(lm, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + line.name + ".asset");
+                    EditorUtility.SetDirty(lf);
+                }
             }
 
             // 行船点贴中心线水面（车队/小队过河时坐船贴水）。
@@ -1385,7 +1814,7 @@ public static class LycheeMapLayoutGenerator_20260613
                     {
                         float along = world.Length <= 1 ? 0f : i / (float)(world.Length - 1);
                         edge.pathPoints[i].position = new Vector3(world[i].x,
-                            WaterSurfaceYAt(ctx, world[i], along, waters) + WaterDrapeLift, world[i].z);
+                            WaterRenderHeight, world[i].z);  // 船贴真实渲染水面（transform.Y 驱动，与水面同高）
                     }
             EditorUtility.SetDirty(edge);
             report.Add($"[挖河] {edge.edgeId} 下挖河谷 {world.Length} 点（谷深 {CarveDepth:F2}/谷半宽 {CarveHalfWidth:F1}/水宽 {WaterDrapeWidth:F1}/沙床 {RiverBedWidth:F1}）");
@@ -1554,12 +1983,15 @@ public static class LycheeMapLayoutGenerator_20260613
     static void CleanLegacyWaterChildren(GameObject edgeObject, string edgeId)
     {
         if (edgeObject == null || string.IsNullOrEmpty(edgeId)) return;
-        DestroyChild(edgeObject.transform, edgeId + "_RiverBank");
-        DestroyChild(edgeObject.transform, edgeId + "_ShallowWater");
-        DestroyChild(edgeObject.transform, edgeId + "_L_BankTrim");
-        DestroyChild(edgeObject.transform, edgeId + "_R_BankTrim");
-        DestroyChild(edgeObject.transform, edgeId + "_L_BankSlope");
-        DestroyChild(edgeObject.transform, edgeId + "_R_BankSlope");
+        // 名字含这些遗留水路修边的子物体可能有重复同名变体(W/X/Y)，逐一全删（橄榄绿河岸线根因）
+        var doomed = new List<Transform>();
+        foreach (Transform c in edgeObject.transform)
+        {
+            string n = c.name;
+            if (n.Contains("_BankTrim") || n.Contains("_BankSlope") || n.Contains("_RiverBank") || n.Contains("_ShallowWater") || n.Contains("_WaterHighlight"))
+                doomed.Add(c);
+        }
+        foreach (var d in doomed) if (d != null) UnityEngine.Object.DestroyImmediate(d.gameObject);
     }
 
     static float JunctionWaterY(SceneContext ctx, MapStationAnchor anchor, List<WaterEndpointDir> endpoints,
@@ -1593,10 +2025,10 @@ public static class LycheeMapLayoutGenerator_20260613
             }
         }
 
-        if (count > 0) return sum / count - 0.10f;
+        if (count > 0) return sum / count;   // S1：去掉 -0.10 错层，交汇水面与主河道同高
         Vector3 p = anchor != null ? anchor.transform.position : Vector3.zero;
         float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(p.x, p.z, out float ty) ? ty : p.y;
-        return y + WaterDrapeLift - 0.10f;
+        return y - WaterDepthBelowBank + WaterDrapeLift;   // 与统一水位一致（岸顶-0.30）
     }
 
     static void CreateWaterJunctionObject(Transform root, string name, Vector3 anchorPos, List<WaterEndpointDir> endpoints,
@@ -1868,10 +2300,10 @@ public static class LycheeMapLayoutGenerator_20260613
     {
         string[] preferred =
         {
-            "Assets/LycheeMap15/Materials/M_RiverWater_Fuller_20260611Y.mat",
-            "Assets/LycheeMap15/Materials/M_Config_WaterRoute.mat",
+            "Assets/LycheeMap15/Materials/M_Config_WaterRoute.mat",          // Shader Graphs/WaterShader：会动的流水（优先，给流动水感）
             "Assets/IgniteCoders/Simple Water Shader/Resources/Water_mat_01.mat",
-            "Assets/IgniteCoders/Simple Water Shader/Resources/Water_mat_02.mat"
+            "Assets/IgniteCoders/Simple Water Shader/Resources/Water_mat_02.mat",
+            "Assets/LycheeMap15/Materials/M_RiverWater_Fuller_20260611Y.mat" // 静态 Unlit，仅作兜底
         };
         foreach (string p in preferred)
         {
@@ -1968,6 +2400,58 @@ public static class LycheeMapLayoutGenerator_20260613
         report.Add($"[清障] 清除压在新路/新河上的植被岩石 {n} 个");
     }
 
+    /// <summary>专清落在河道走廊与水驿/码头足迹内的草丛(PP_Grass 等)：挖河把地表降了、草丛还贴老地表悬在
+    /// 河道里；现有沿中心线清障半径够不到码头四周(江南码头交错混乱成因之一)。只删名字含 Grass 的装饰实例整株删；
+    /// 复用 IsDecoration/DecoInstanceRoot，借 DecoExcludeKeywords 天然不碰站点建筑/河床/船/树。只在副本场景执行。</summary>
+    static void ClearGrassInRiverAndDockFootprint(
+        List<(MapRouteEdge edge, Vector3[] world)> waters,
+        Dictionary<string, MapStationAnchor> anchorById, List<string> report)
+    {
+        float riverClear = Mathf.Max(CarveHalfWidth, RiverBedWidth * 0.5f) + 0.9f; // 盖到沙床外缘+岸过渡带
+        var dockCircles = new List<(Vector2 c, float r)>();
+        if (anchorById != null)
+            foreach (var a in anchorById.Values)
+            {
+                if (a == null) continue;
+                if (a.stationType != MapStationType.Dock && a.stationType != MapStationType.WaterStation) continue;
+                Bounds bb = default; bool has = false;
+                foreach (var mr in a.GetComponentsInChildren<MeshRenderer>(true))
+                { if (!has) { bb = mr.bounds; has = true; } else bb.Encapsulate(mr.bounds); }
+                float r = (has ? Mathf.Max(bb.extents.x, bb.extents.z) : 2.2f) + 1.0f;
+                dockCircles.Add((new Vector2(a.transform.position.x, a.transform.position.z), r));
+            }
+
+        var toRemove = new HashSet<GameObject>();
+        foreach (var rend in UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+        {
+            var go = rend.gameObject;
+            if (!go.name.Contains("Grass")) continue;          // 只清草丛，绝不碰树/石/建筑/河床
+            if (!IsDecoration(go.transform)) continue;
+            Vector3 c = rend.bounds.center;
+            bool hit = false;
+            if (waters != null)
+                foreach (var (edge, w) in waters)
+                {
+                    if (w == null || w.Length == 0) continue;
+                    if (NearestOnPolylineXZ(c.x, c.z, w, out _, out _) < riverClear) { hit = true; break; }
+                }
+            if (!hit)
+            {
+                var p2 = new Vector2(c.x, c.z);
+                foreach (var (cc, rr) in dockCircles)
+                    if ((p2 - cc).sqrMagnitude < rr * rr) { hit = true; break; }
+            }
+            if (hit)
+            {
+                GameObject inst = DecoInstanceRoot(go.transform);
+                if (inst != null) toRemove.Add(inst);
+            }
+        }
+        int n = 0;
+        foreach (var go in toRemove) { if (go != null) { UnityEngine.Object.DestroyImmediate(go); n++; } }
+        report.Add($"[清草] 河道走廊+码头足迹内草丛清除 {n} 株");
+    }
+
     static bool IsDecoration(Transform t)
     {
         for (var cur = t; cur != null; cur = cur.parent)
@@ -2012,9 +2496,9 @@ public static class LycheeMapLayoutGenerator_20260613
             if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
 
             float endT = Mathf.Min(i / Mathf.Max(1f, (n - 1) * 0.20f), (n - 1 - i) / Mathf.Max(1f, (n - 1) * 0.20f));
-            float taper = Mathf.Lerp(0.82f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(endT)));
-            float leftNoise = (Mathf.PerlinNoise(i * 0.21f + 17.3f, 6.2f) - 0.5f) * 0.14f;
-            float rightNoise = (Mathf.PerlinNoise(i * 0.19f + 31.1f, 2.8f) - 0.5f) * 0.14f;
+            float taper = Mathf.Lerp(0.96f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(endT))); // 端点收口 0.82→0.96，沙床端点不缩进露草
+            float leftNoise = (Mathf.PerlinNoise(i * 0.21f + 17.3f, 6.2f) - 0.5f) * 0.05f;      // 边缘噪声 0.14→0.05，沙床边缘稳定盖满不露草
+            float rightNoise = (Mathf.PerlinNoise(i * 0.19f + 31.1f, 2.8f) - 0.5f) * 0.05f;
             float leftHalf = width * 0.5f * taper + leftNoise;
             float rightHalf = width * 0.5f * taper + rightNoise;
 
@@ -2084,6 +2568,29 @@ public static class LycheeMapLayoutGenerator_20260613
         return mesh;
     }
 
+    /// <summary>从 center 沿 dir 对真实地形 raycast，返回"地形升到水面 waterY"处的横向距离（即水线半宽）。
+    /// 水面网格用它裁边 → 精确贴合碗壁、不超出河槽，从根上杜绝"水漫到岸上"（不依赖 shader 深度遮挡）。</summary>
+    static float TerrainWaterlineHalf(Vector3 center, Vector3 dir, float waterY)
+    {
+        float last = 0.15f;
+        for (float lat = 0.15f; lat <= 2.2f; lat += 0.1f)
+        {
+            Vector3 sp = center + dir * lat; sp.y = waterY + 4f;
+            var hits = Physics.RaycastAll(sp, Vector3.down, 8f);
+            float terr = float.NaN;
+            foreach (var h in hits)
+            {
+                string nm = h.collider.gameObject.name;
+                if ((nm.Contains("Terrain") || nm.Contains("Extended_Ground")) && (float.IsNaN(terr) || h.point.y > terr))
+                    terr = h.point.y;
+            }
+            if (float.IsNaN(terr)) return last;          // 采不到地形 → 到此为止
+            if (terr >= waterY - 0.005f) return lat;     // 地形升到水面 → 水线（略含进岸一点，水塞到岸下）
+            last = lat;
+        }
+        return last;
+    }
+
     /// <summary>水面网格：每个横截面使用同一个水位，形成有深度的水平水面，而不是贴着河床起伏。</summary>
     static Mesh CreateWaterSurfaceGrid(Vector3[] center, float width, int crossSegs, string name, Transform target,
         SceneContext ctx, List<(MapRouteEdge edge, Vector3[] world)> waters, float lift,
@@ -2103,8 +2610,8 @@ public static class LycheeMapLayoutGenerator_20260613
             if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
 
             float along = n <= 1 ? 0f : i / (float)(n - 1);
-            float rowWidth = width * EndWidthScale(i, n, endTaperFrac, minWidthFrac);
             float waterY = WaterSurfaceYAt(ctx, center[i], along, waters) + lift;
+            float rowWidth = 2f * (CarveHalfWidth + 0.4f); // 恢复满宽、不裁剪（用户要求）
             for (int j = 0; j < cols; j++)
             {
                 float lat = -rowWidth * 0.5f + rowWidth * (j / (float)crossSegs);
@@ -2184,6 +2691,58 @@ public static class LycheeMapLayoutGenerator_20260613
         return TryCarveTargetY(ctx, x, z, origY, waters, out float ny) ? ny : origY;
     }
 
+    // ===== 河道一致化基准：每条水路用「两端较低岸高」作恒定基准，水面/河床/挖深不再逐点跟地形爬 → 两河深浅一致、水坐进槽、水驿不悬浮 =====
+    static Dictionary<MapRouteEdge, float> _riverBaseY;
+    static List<(Vector2 c, float r)> _riverDryCores;   // 水驿/码头建筑足迹：地形挖河时此处不挖 → 保住建筑落地、不悬浮
+
+    static void BuildRiverBaseY(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
+        Dictionary<string, MapStationAnchor> anchorById)
+    {
+        _riverBaseY = new Dictionary<MapRouteEdge, float>();
+        _riverDryCores = new List<(Vector2, float)>();
+        if (waters == null) return;
+        foreach (var (edge, world) in waters)
+        {
+            if (edge == null || world == null || world.Length == 0) continue;
+            float a = SampleOrigTop(ctx, world[0].x, world[0].z, world[0].y);
+            float b = SampleOrigTop(ctx, world[world.Length - 1].x, world[world.Length - 1].z, world[world.Length - 1].y);
+            _riverBaseY[edge] = Mathf.Min(a, b);
+            AddStationDryCore(edge.fromStationId, anchorById);
+            AddStationDryCore(edge.toStationId, anchorById);
+        }
+    }
+
+    static void AddStationDryCore(string id, Dictionary<string, MapStationAnchor> anchorById)
+    {
+        if (string.IsNullOrEmpty(id) || anchorById == null || !anchorById.TryGetValue(id, out var a) || a == null) return;
+        if (a.stationType != MapStationType.WaterStation && a.stationType != MapStationType.Dock) return;
+        Bounds bb = default; bool has = false;
+        foreach (var mr in a.GetComponentsInChildren<MeshRenderer>(true))
+        { if (!has) { bb = mr.bounds; has = true; } else bb.Encapsulate(mr.bounds); }
+        float r = has ? Mathf.Max(bb.extents.x, bb.extents.z) + 0.4f : 2.2f;
+        _riverDryCores.Add((new Vector2(a.transform.position.x, a.transform.position.z), r));
+    }
+
+    static float SampleOrigTop(SceneContext ctx, float x, float z, float fallback)
+    {
+        return ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float cy) ? cy : fallback;
+    }
+
+    // 取某采样点最近水路的恒定基准 y（找不到则交回原地表逻辑）
+    static bool TryRiverBaseY(List<(MapRouteEdge edge, Vector3[] world)> waters, float x, float z, out float baseY, out float along)
+    {
+        baseY = 0f; along = 0f;
+        if (_riverBaseY == null || waters == null) return false;
+        float bestD = float.MaxValue; bool found = false;
+        foreach (var (edge, w) in waters)
+        {
+            if (edge == null) continue;
+            float d = NearestOnPolylineXZ(x, z, w, out float al, out _);
+            if (d < bestD && _riverBaseY.TryGetValue(edge, out float by)) { bestD = d; baseY = by; along = al; found = true; }
+        }
+        return found;
+    }
+
     /// <summary>河道下挖目标 y（≤ origY），U 形断面：
     ///   ① 中心 flatHalf 内 = **绝对水平平底**（bottom = 最近中心线原高 - 谷深×端点收口，横向恒定）；
     ///   ② flatHalf~CarveHalfWidth = U 形坡壁，从平底平滑升回原地表。
@@ -2192,34 +2751,72 @@ public static class LycheeMapLayoutGenerator_20260613
         List<(MapRouteEdge edge, Vector3[] world)> waters, out float newY)
     {
         newY = origY; bool any = false;
-        float flatHalf = WaterDrapeWidth * 0.5f + 0.08f; // 平底≈窄水面宽，岸坡留给沙床/岸线表现下挖感
-        foreach (var (_, w) in waters)
+        if (_riverDryCores != null)
+        {
+            var p2 = new Vector2(x, z);
+            foreach (var (c, r) in _riverDryCores)
+                if ((p2 - c).sqrMagnitude < r * r) return false; // 站点干核：保住建筑落地，不挖此处地形
+        }
+        foreach (var (edge, w) in waters)
         {
             float d = NearestOnPolylineXZ(x, z, w, out float along, out Vector2 nearest);
             if (d >= CarveHalfWidth) continue;
-            float centerY = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(nearest.x, nearest.y, out float cy) ? cy : origY;
+            float centerY = (_riverBaseY != null && edge != null && _riverBaseY.TryGetValue(edge, out float by))
+                ? by
+                : (ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(nearest.x, nearest.y, out float cy) ? cy : origY);
             float endP = RiverEndFade(along);
-            float bottom = centerY - CarveDepth * endP;
-            float carved;
-            if (d <= flatHalf) carved = bottom; // 水平平底
-            else
-            {
-                float wallT = Mathf.SmoothStep(0f, 1f, (d - flatHalf) / Mathf.Max(0.01f, CarveHalfWidth - flatHalf));
-                carved = Mathf.Lerp(bottom, origY, wallT); // U 形坡壁
-            }
+            float s = d / CarveHalfWidth;           // 0 中心 .. 1 岸
+            const float flatFrac = 0.65f;            // 宽平底占比，其余是陡直壁 → 水填满大部、岸薄、河谷凹得明显
+            float shape = s <= flatFrac ? 1f : Mathf.Clamp01(1f - (s - flatFrac) / (1f - flatFrac));
+            float carved = centerY - CarveDepth * endP * shape;
             if (carved < newY) { newY = carved; any = true; }
         }
         return any;
     }
 
-    /// <summary>中心线某点的水面 y：该点原高 - 谷深×端点收口×WaterDepthFrac（水在水平河床之上）。</summary>
+    /// <summary>河道砂染权重：到最近水路中心线 XZ 距离 → [内全砂 1, 外 0] 平滑。
+    /// 内半径盖住挖槽+沙床(让沙床边坐在已染砂地形上、消除砂压草硬边)，外半径再羽化一截到岸 → 砂渐隐入草。</summary>
+    static float RiverSandSplatWeight(float x, float z, List<(MapRouteEdge edge, Vector3[] world)> waters)
+    {
+        if (waters == null) return 0f;
+        const float innerR = 1.6f;  // ≤此全砂（未挖到的顶点）；沙滩更宽
+        const float outerR = 3.0f;  // ≥此全草；砂带更宽、向草地柔和过渡（边界不再太硬，沙多一点）
+        float best = float.MaxValue;
+        foreach (var (edge, w) in waters)
+        {
+            if (w == null || w.Length == 0) continue;
+            float d = NearestOnPolylineXZ(x, z, w, out _, out _);
+            if (d < best) best = d;
+        }
+        if (best >= outerR) return 0f;
+        return 1f - Mathf.SmoothStep(0f, 1f, (best - innerR) / (outerR - innerR));
+    }
+
+    /// <summary>中心线某点的水面 y（统一水位）：岸顶基准 centerY 下沉 WaterDepthBelowBank，全线同高。
+    /// 主水面/行船点/交汇补片共用此函数 → 一层水，坐进碗形河槽。</summary>
     static float WaterSurfaceYAt(SceneContext ctx, Vector3 centerPt, float along,
         List<(MapRouteEdge edge, Vector3[] world)> waters)
     {
-        float centerY = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(centerPt.x, centerPt.z, out float cy) ? cy : centerPt.y;
-        float endP = RiverEndFade(along);
-        float endpointP = 1f - endP;
-        return centerY - CarveDepth * endP * WaterDepthFrac - WaterSurfaceEndpointDrop * endpointP;
+        float centerY;
+        if (TryRiverBaseY(waters, centerPt.x, centerPt.z, out float by, out float _))
+            centerY = by;
+        else
+            centerY = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(centerPt.x, centerPt.z, out float cy) ? cy : centerPt.y;
+        return centerY - WaterDepthBelowBank;
+    }
+
+    /// <summary>碗形河床下，水面在某点应有的半宽：水填到"河床=水面"的岸线处。
+    /// 抛物线碗 bed=centerY-CarveDepth*endP*(1-s²)，令 bed=水面 → s=√(1-WaterDepthBelowBank/(CarveDepth*endP))，半宽=CarveHalfWidth*s。
+    /// 端点太浅(深度&lt;水深)→返回0自然收口。这样水正好填到岸、不露河底、不溢出。</summary>
+    static float WaterHalfWidthAt(SceneContext ctx, Vector3 centerPt,
+        List<(MapRouteEdge edge, Vector3[] world)> waters)
+    {
+        float along = 0f;
+        if (!TryRiverBaseY(waters, centerPt.x, centerPt.z, out float _, out along)) along = 0.5f;
+        float depthHere = CarveDepth * RiverEndFade(along);
+        if (depthHere <= WaterDepthBelowBank + 1e-4f) return 0f;
+        float s = Mathf.Sqrt(Mathf.Clamp01(1f - WaterDepthBelowBank / depthHere));
+        return CarveHalfWidth * s;
     }
 
     static float RiverEndFade(float along)

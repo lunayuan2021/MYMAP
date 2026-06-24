@@ -317,15 +317,6 @@
       "pathId": "P_E13"
     },
     {
-      "edgeId": "E14",
-      "fromNodeId": "S09",
-      "toNodeId": "S11",
-      "routeType": "BRANCH",
-      "distance": 72,
-      "bidirectional": true,
-      "pathId": "P_E14"
-    },
-    {
       "edgeId": "E15",
       "fromNodeId": "S01",
       "toNodeId": "S06",
@@ -387,6 +378,15 @@
       "distance": 54,
       "bidirectional": true,
       "pathId": "P_E21"
+    },
+    {
+      "edgeId": "E22",
+      "fromNodeId": "S08",
+      "toNodeId": "S09",
+      "routeType": "BRANCH",
+      "distance": 64,
+      "bidirectional": true,
+      "pathId": "P_E22"
     }
   ],
   "gameplay": {
@@ -412,10 +412,10 @@
       {"nodeId": "S08", "resourceType": "INTEL", "count": 1, "claimRound": 2},
       {"nodeId": "S07", "resourceType": "ICE_BOX", "count": 1, "claimRound": 2},
       {"nodeId": "S07", "resourceType": "SHORT_HORSE", "count": 1, "claimRound": 2},
-      {"nodeId": "S07", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S11", "resourceType": "INTEL", "count": 1, "claimRound": 2},
       {"nodeId": "S09", "resourceType": "FAST_HORSE", "count": 1, "claimRound": 2},
       {"nodeId": "S09", "resourceType": "OFFICIAL_PERMIT", "count": 1, "claimRound": 2},
-      {"nodeId": "S09", "resourceType": "INTEL", "count": 1, "claimRound": 2},
+      {"nodeId": "S10", "resourceType": "INTEL", "count": 1, "claimRound": 2},
       {"nodeId": "S13", "resourceType": "PASS_TOKEN", "count": 1, "claimRound": 2},
       {"nodeId": "S13", "resourceType": "OFFICIAL_PERMIT", "count": 1, "claimRound": 2},
       {"nodeId": "S13", "resourceType": "INTEL", "count": 1, "claimRound": 2}
@@ -432,19 +432,19 @@
       "T01": ["S03"],
       "T08": ["S04", "S05"],
       "T04": ["S06", "S08"],
-      "T02": ["S07"],
-      "T06": ["S09", "S04"],
-      "T11": ["S08", "S10"],
+      "T02": ["S07", "S10"],
+      "T06": ["S09", "S04", "S06"],
+      "T11": ["S08", "S10", "S11"],
       "T12": ["S11", "S13"],
-      "T13": ["S13", "S09"],
-      "T14": ["S10", "S11"]
+      "T13": ["S13", "S09", "S12"],
+      "T14": ["S10", "S11", "S12"]
     },
     "routeTaskBuckets": {
-      "ROAD": ["S03", "S07", "S11", "S13"],
-      "WATER": ["S04", "S05", "S09", "S13"],
-      "MOUNTAIN": ["S06", "S08", "S10", "S11"]
+      "ROAD": ["S03", "S07", "S10", "S11", "S13"],
+      "WATER": ["S04", "S05", "S09", "S12", "S13"],
+      "MOUNTAIN": ["S06", "S08", "S10", "S11", "S12"]
     },
-    "obstacleCandidateNodeIds": ["S06", "S08", "S11"]
+    "obstacleCandidateNodeIds": ["S06", "S08", "S10", "S11"]
   },
   "routePaths": [
     {
@@ -706,24 +706,6 @@
       ]
     },
     {
-      "pathId": "P_E14",
-      "edgeId": "E14",
-      "points": [
-        {
-          "x": 55,
-          "y": 32
-        },
-        {
-          "x": 60,
-          "y": 28
-        },
-        {
-          "x": 66,
-          "y": 22
-        }
-      ]
-    },
-    {
       "pathId": "P_E15",
       "edgeId": "E15",
       "points": [
@@ -776,8 +758,12 @@
           "y": 24
         },
         {
-          "x": 52,
-          "y": 24
+          "x": 50,
+          "y": 28
+        },
+        {
+          "x": 56,
+          "y": 28
         },
         {
           "x": 62,
@@ -868,12 +854,30 @@
           "y": 36
         }
       ]
+    },
+    {
+      "pathId": "P_E22",
+      "edgeId": "E22",
+      "points": [
+        {
+          "x": 42,
+          "y": 24
+        },
+        {
+          "x": 48,
+          "y": 31
+        },
+        {
+          "x": 55,
+          "y": 32
+        }
+      ]
     }
   ],
   "weatherRegionRule": {
     "HOT": {
       "weatherRegionCode": 1,
-      "renderMode": "FULLSCREEN_OR_HEAT_OVERLAY"
+      "renderMode": "FULLSCREEN_OVERLAY"
     },
     "HEAVY_RAIN": {
       "weatherRegionCode": 2,
