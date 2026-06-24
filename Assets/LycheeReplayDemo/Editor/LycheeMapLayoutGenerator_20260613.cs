@@ -79,6 +79,9 @@ public static class LycheeMapLayoutGenerator_20260613
     const float RidgeEndTaperFrac = 0.22f; // 端点收口占比：山路两端这一段把脊高渐隐到 0，别顶飞驿站
     const float RidgeWaterKeepout = 2.0f;  // 到水中心线 <此距离 不抬脊（防把河填平）
     const float RidgePassExtra = 0.35f;    // N3 山口/关隘：≥2 条山路汇聚的节点处脊顶再叠这么高（全图制高点，S4 用）
+    // S4 节点分级抬升（建筑+脚下地形同抬一块小台 → 节点高度成玩法语言：山口最高、忙站微抬、官道广场平）
+    const float NodeBusyLift = 0.10f;      // N1 忙站(>2 路/河汇聚)：建筑+脚下抬这么高的夯土小广场（用户锁定）
+    const float NodePlazaPad = 1.4f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（台子比建筑大一圈、留集散地）
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
@@ -363,8 +366,9 @@ public static class LycheeMapLayoutGenerator_20260613
                 report.Add($"[移动] {node.nodeId} {node.name}: {Fmt(oldPos)} -> {Fmt(newPos)}");
             }
 
-            // 5b. S3 山路抬山脊：在平面上沿山路中心线抬出倒U山脊（站点已移、建路之前；抬完重建采样器 →
-            //     山路/邻近路面经 ConformY 自动贴脊）。镜像 CarveRivers，只抬不降；近水/站点核不抬、端点收口。
+            // 5b. S3 山路抬山脊 + S4 节点分级抬台：站点已移、建路之前；抬完重建采样器 → 路面经 ConformY 自动贴脊/台。
+            //     山脊沿山路中心线抬倒U；节点按 ClassifyNodes 分级：N3 山口=脊上再凸 RidgeCrest+RidgePassExtra(全图制高点)、
+            //     N1 忙站=+NodeBusyLift 小广场；台子无建筑核守卫(抬建筑脚下)、与脊 max 融合。水驿/码头(N4)走水上、不做陆地台。
             var mountainPaths = new List<Vector3[]>();
             foreach (var me in config.edges)
             {
@@ -372,11 +376,33 @@ public static class LycheeMapLayoutGenerator_20260613
                 if (!newRoutePath.TryGetValue(me.edgeId, out var mp) || mp.points == null || mp.points.Count < 2) continue;
                 mountainPaths.Add(BuildTerrainFollowingRoute(mp.points, 0f, sceneCtx));
             }
-            if (mountainPaths.Count > 0)
+            var nodeClass = ClassifyNodes(config);
+            var nodePlatforms = new List<(Vector2 c, float r, float h)>();
+            var nodeLift = new List<MapStationAnchor>();   // N1/N3 陆地节点：抬台后把建筑吸附到抬起的地形上
+            int n1c = 0, n3c = 0, n5c = 0;
+            foreach (var node in config.nodes)
             {
-                RaiseMountains(mountainPaths, sceneCtx, anchorById, sceneCtx.waterTuples, null, report);
-                BuildTerrainSurface(sceneCtx); // 重建采样器 → 后续建路 ConformY 取到抬起的脊
-                report.Add($"[山脊] 抬起 {mountainPaths.Count} 条山路中心线（crest {RidgeCrest:F2}/半宽 {RidgeHalfWidth:F1}），采样器已重建");
+                if (node == null || !nodeClass.TryGetValue(node.nodeId, out var nc)) continue;
+                if (!anchorById.TryGetValue(node.nodeId, out var a) || a == null) continue;
+                if (nc.n5) n5c++;
+                if (IsWaterStationOrDock(a)) continue;     // 临水驿站/码头不抬陆地台（它们坐进水里）
+                Vector2 pc = new Vector2(a.transform.position.x, a.transform.position.z);
+                float r = BuildingRadius(a) + NodePlazaPad;
+                if (nc.n3)      { nodePlatforms.Add((pc, r, RidgeCrest + RidgePassExtra)); nodeLift.Add(a); n3c++; } // 山口=全图制高点
+                else if (nc.n1) { nodePlatforms.Add((pc, r, NodeBusyLift));               nodeLift.Add(a); n1c++; } // 忙站小广场
+            }
+            if (mountainPaths.Count > 0 || nodePlatforms.Count > 0)
+            {
+                RaiseMountains(mountainPaths, nodePlatforms, sceneCtx, anchorById, sceneCtx.waterTuples, null, report);
+                BuildTerrainSurface(sceneCtx); // 重建采样器 → 后续建路 ConformY 取到抬起的脊/台
+                // 把 N1/N3 建筑吸附到抬起的地形顶（否则建筑留在 0、陷进抬起的台里）
+                foreach (var a in nodeLift)
+                {
+                    var p = a.transform.position;
+                    if (sceneCtx.terrainSurface != null && sceneCtx.terrainSurface.TrySampleTop(p.x, p.z, out float ty))
+                    { a.transform.position = new Vector3(p.x, ty + AnchorLift, p.z); EditorUtility.SetDirty(a.transform); }
+                }
+                report.Add($"[山脊/节点台] 山路 {mountainPaths.Count} 条 + 抬台 N1忙站×{n1c}/N3山口×{n3c}（N5官道广场×{n5c} 保持平整、靠铺装区分），采样器已重建");
             }
 
             // 6. 道路：差异化处理。
@@ -1763,13 +1789,16 @@ public static class LycheeMapLayoutGenerator_20260613
     /// 调，抬完立即 BuildTerrainSurface 重建采样器。四处同源：地形 mesh 顶点 + heightSamples 一起抬；脊顶染岩(splat G)否则
     /// 露草。端点 RidgeEndFade 收口防顶飞驿站、近水(RidgeWaterKeepout)不抬防填河、站点建筑核内不抬。
     /// passNodes=汇聚≥2 山路的山口(N3,S4 传入)：其半径内脊顶额外叠 RidgePassExtra 成全图制高点。</summary>
-    static void RaiseMountains(List<Vector3[]> mountains, SceneContext ctx,
+    static void RaiseMountains(List<Vector3[]> mountains, List<(Vector2 c, float r, float h)> platforms, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById,
         List<(MapRouteEdge edge, Vector3[] world)> waters,
         List<(Vector2 c, float r)> passNodes, List<string> report)
     {
-        if (mountains == null || mountains.Count == 0 || ctx == null) return;
-        report.Add("--- 山脊抬起 ---");
+        if (ctx == null) return;
+        bool hasM = mountains != null && mountains.Count > 0;     // 山脊（沿山路）
+        bool hasP = platforms != null && platforms.Count > 0;     // 节点抬台（N1 忙站/N3 山口，绝对高度、无建筑核守卫）
+        if (!hasM && !hasP) return;
+        report.Add("--- 山脊/节点台抬起 ---");
         // 1. 克隆并抬升地形网格（per-map 副本，绝不动共享原 mesh）。
         foreach (var mf in ctx.terrainFilters)
         {
@@ -1785,13 +1814,16 @@ public static class LycheeMapLayoutGenerator_20260613
             for (int i = 0; i < verts.Length; i++)
             {
                 Vector3 w = t.TransformPoint(verts[i]);
-                if (TryRaiseRidgeY(ctx, w.x, w.z, w.y, mountains, waters, anchorById, passNodes, out float ny) && ny > w.y + 0.0001f)
+                float tgt = w.y;
+                if (hasM && TryRaiseRidgeY(ctx, w.x, w.z, w.y, mountains, waters, anchorById, passNodes, out float rny) && rny > tgt) tgt = rny;
+                if (hasP && TryRaisePlatformY(platforms, w.x, w.z, w.y, out float pny) && pny > tgt) tgt = pny;
+                if (tgt > w.y + 0.0001f)
                 {
-                    float amt = ny - w.y;
-                    w.y = ny; verts[i] = t.InverseTransformPoint(w); raised++;
+                    float amt = tgt - w.y;
+                    w.y = tgt; verts[i] = t.InverseTransformPoint(w); raised++;
                     if (hasCols)
                     {
-                        // 抬得越高越染岩(G/Layer2)：脊顶最岩、山脚渐隐回草，与挖河染砂同机制（位置不重叠不撞色）
+                        // 抬得越高越染岩(G/Layer2)：脊顶/台顶最岩、山脚渐隐回草，与挖河染砂同机制（位置不重叠不撞色）
                         float rockW = Mathf.SmoothStep(0f, RidgeCrest * 0.55f, amt);
                         Color o = cols[i];
                         cols[i] = new Color(o.r * (1f - rockW), Mathf.Lerp(o.g, 1f, rockW), o.b * (1f - rockW), o.a);
@@ -1823,7 +1855,10 @@ public static class LycheeMapLayoutGenerator_20260613
                     if (idx < 0 || idx >= hs.Length) continue;
                     float wx = elev.worldOrigin.x + x * elev.cellSize;
                     float wz = elev.worldOrigin.y + (H - z) * elev.cellSize;
-                    if (TryRaiseRidgeY(ctx, wx, wz, hs[idx], mountains, waters, anchorById, passNodes, out float nh) && nh > hs[idx] + 0.0001f) hs[idx] = nh;
+                    float th = hs[idx];
+                    if (hasM && TryRaiseRidgeY(ctx, wx, wz, hs[idx], mountains, waters, anchorById, passNodes, out float rh) && rh > th) th = rh;
+                    if (hasP && TryRaisePlatformY(platforms, wx, wz, hs[idx], out float ph) && ph > th) th = ph;
+                    if (th > hs[idx] + 0.0001f) hs[idx] = th;
                 }
             elev.heightSamples = hs;
             EditorUtility.SetDirty(elev);
@@ -1877,6 +1912,64 @@ public static class LycheeMapLayoutGenerator_20260613
         float b = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - along) / Mathf.Max(0.001f, RidgeEndTaperFrac)));
         return a * b;
     }
+
+    /// <summary>节点抬台目标 Y（S4 N1 忙站/N3 山口）：绝对高度 h 的平顶圆台（内 40% 平、外渐降），取各台最高。
+    /// 无建筑核守卫（要抬起建筑脚下）；与山脊 max 合成 → 山口在脊上再凸一块成全图制高点。</summary>
+    static bool TryRaisePlatformY(List<(Vector2 c, float r, float h)> platforms, float x, float z, float origY, out float newY)
+    {
+        newY = origY; bool any = false;
+        if (platforms == null) return false;
+        var p = new Vector2(x, z);
+        foreach (var (c, r, h) in platforms)
+        {
+            float d = (p - c).magnitude;
+            if (d >= r) continue;
+            float s = d / r;
+            float shape = s < 0.4f ? 1f : Mathf.SmoothStep(1f, 0f, (s - 0.4f) / 0.6f); // 平顶 + 边缘宽缓渐降
+            float raised = h * shape; // 绝对高度（节点在平地 origY≈0；与脊取 max 自然融合）
+            if (raised > newY) { newY = raised; any = true; }
+        }
+        return any;
+    }
+
+    /// <summary>S4 节点分级：遍历 config.edges 一次，每节点产「度 + 各路型计数」，判 N0~N6。一处算、各处复用。
+    /// N1=总度&gt;2(忙站) / N2=Water≥2(汇水) / N3=Mountain≥2(山口) / N4=邻接Water(临水) / N5=OfficialRoad≥3(官道广场) /
+    /// N6=同含 Mountain+OfficialRoad(山路↔官道过渡)。一个节点可同时属多级（取各自处理）。不依赖具体 edgeId/nodeId、配置驱动。</summary>
+    static Dictionary<string, NodeClass> ClassifyNodes(LycheeUiMapConfig config)
+    {
+        var map = new Dictionary<string, NodeClass>();
+        if (config == null || config.nodes == null) return map;
+        foreach (var node in config.nodes)
+            if (node != null && !string.IsNullOrEmpty(node.nodeId)) map[node.nodeId] = new NodeClass();
+        if (config.edges != null)
+            foreach (var e in config.edges)
+            {
+                if (e == null) continue;
+                var t = ParseRouteType(e.routeType);
+                for (int k = 0; k < 2; k++)
+                {
+                    string nid = k == 0 ? e.fromNodeId : e.toNodeId;
+                    if (string.IsNullOrEmpty(nid) || !map.TryGetValue(nid, out var nc)) continue;
+                    nc.degree++;
+                    if (t == MapRouteType.OfficialRoad) nc.official++;
+                    else if (t == MapRouteType.Water) nc.water++;
+                    else if (t == MapRouteType.Mountain) nc.mountain++;
+                    else if (t == MapRouteType.Branch) nc.branch++;
+                }
+            }
+        foreach (var nc in map.Values)
+        {
+            nc.n1 = nc.degree > 2;
+            nc.n2 = nc.water >= 2;
+            nc.n3 = nc.mountain >= 2;
+            nc.n4 = nc.water >= 1;
+            nc.n5 = nc.official >= 3;
+            nc.n6 = nc.mountain >= 1 && nc.official >= 1;
+        }
+        return map;
+    }
+
+    class NodeClass { public int degree, official, water, mountain, branch; public bool n1, n2, n3, n4, n5, n6; }
 
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById, List<string> report)
