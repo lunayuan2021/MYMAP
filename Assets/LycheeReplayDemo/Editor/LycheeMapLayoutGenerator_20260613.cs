@@ -54,7 +54,7 @@ public static class LycheeMapLayoutGenerator_20260613
 
     // 道路宽度/抬升：与 LycheeConfiguredMapGenerator.CreateRoutes 同一套数值，保证新道路与现役同款。
     // 路面宽度：支路原 0.94 太窄（用户反馈"比别的路窄"），加宽到 1.4（≈山路，介于山路与官道之间）。
-    const float RoadWidth = 1.65f, WaterWidth = 3.2f, MountainWidth = 1.28f, BranchWidth = 1.4f;
+    const float RoadWidth = 1.65f, WaterWidth = 3.2f, MountainWidth = 1.28f, BranchWidth = 1.05f; // S2:支路变细 1.4→1.05(用户锁定)
     // 清障：物体「包围盒边缘」到新路/新河中心线小于此值即清（用包围盒能清掉树冠/大石悬到路上的）。
     const float DecoReachRoad = 1.4f, DecoReachWater = 3.4f;
     const float RoadLift = 0.026f, WaterLift = 0.038f, MountainLift = 0.032f, BranchLift = 0.028f;
@@ -832,7 +832,7 @@ public static class LycheeMapLayoutGenerator_20260613
         {
             case MapRouteType.OfficialRoad: return 3.0f;
             case MapRouteType.Mountain: return 2.35f;
-            case MapRouteType.Branch: return 2.65f;
+            case MapRouteType.Branch: return 1.9f; // S2:支路路床 2.65→1.9(随路面变细)
             default: return WidthFor(type) + 0.8f;
         }
     }
