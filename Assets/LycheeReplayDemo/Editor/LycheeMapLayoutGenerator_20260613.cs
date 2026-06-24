@@ -73,6 +73,12 @@ public static class LycheeMapLayoutGenerator_20260613
     // - 旧 WATER 改成陆路时，旧河床要抬回并覆盖为陆地材质，不能让黄土河床残在路底。
     const float CarveHalfWidth = 1.4f;     // 河谷半宽：大幅收窄河道（2.4→1.4，碗形截面）
     const float CarveDepth = 1.50f;        // 河谷深度 1.5：容下 -1.26 的水面、谷壁高出水面 ~1.26
+    // S3 山路抬脊（镜像挖河、只抬不降）：沿山路中心线把平面抬成倒U山脊，山路自然贴脊
+    const float RidgeCrest = 0.6f;         // 山脊中心抬高（用户锁定"微微"）；山口 N3 再叠 RidgePassExtra
+    const float RidgeHalfWidth = 2.5f;     // 山脊半宽：中心最高、到此宽渐降回平地（用户锁定）
+    const float RidgeEndTaperFrac = 0.22f; // 端点收口占比：山路两端这一段把脊高渐隐到 0，别顶飞驿站
+    const float RidgeWaterKeepout = 2.0f;  // 到水中心线 <此距离 不抬脊（防把河填平）
+    const float RidgePassExtra = 0.35f;    // N3 山口/关隘：≥2 条山路汇聚的节点处脊顶再叠这么高（全图制高点，S4 用）
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
@@ -355,6 +361,22 @@ public static class LycheeMapLayoutGenerator_20260613
                 EditorUtility.SetDirty(anchor.transform); EditorUtility.SetDirty(anchor);
                 movedStations++;
                 report.Add($"[移动] {node.nodeId} {node.name}: {Fmt(oldPos)} -> {Fmt(newPos)}");
+            }
+
+            // 5b. S3 山路抬山脊：在平面上沿山路中心线抬出倒U山脊（站点已移、建路之前；抬完重建采样器 →
+            //     山路/邻近路面经 ConformY 自动贴脊）。镜像 CarveRivers，只抬不降；近水/站点核不抬、端点收口。
+            var mountainPaths = new List<Vector3[]>();
+            foreach (var me in config.edges)
+            {
+                if (ParseRouteType(me.routeType) != MapRouteType.Mountain) continue;
+                if (!newRoutePath.TryGetValue(me.edgeId, out var mp) || mp.points == null || mp.points.Count < 2) continue;
+                mountainPaths.Add(BuildTerrainFollowingRoute(mp.points, 0f, sceneCtx));
+            }
+            if (mountainPaths.Count > 0)
+            {
+                RaiseMountains(mountainPaths, sceneCtx, anchorById, sceneCtx.waterTuples, null, report);
+                BuildTerrainSurface(sceneCtx); // 重建采样器 → 后续建路 ConformY 取到抬起的脊
+                report.Add($"[山脊] 抬起 {mountainPaths.Count} 条山路中心线（crest {RidgeCrest:F2}/半宽 {RidgeHalfWidth:F1}），采样器已重建");
             }
 
             // 6. 道路：差异化处理。
@@ -1734,6 +1756,126 @@ public static class LycheeMapLayoutGenerator_20260613
                 world[i] = orig[i] + perp * (noise * RiverMeanderAmp * window);
             }
         }
+    }
+
+    /// <summary>S3 山路抬山脊（镜像 CarveRivers，只抬不降）：沿每条山路中心线把平面基底抬成倒U山脊，山路 ribbon 经
+    /// ConformY（取地形/路面/高度场最高+lift）自动贴脊、无需改 ConformY 本体。必须在 FlattenBaseTerrain 之后、建路之前
+    /// 调，抬完立即 BuildTerrainSurface 重建采样器。四处同源：地形 mesh 顶点 + heightSamples 一起抬；脊顶染岩(splat G)否则
+    /// 露草。端点 RidgeEndFade 收口防顶飞驿站、近水(RidgeWaterKeepout)不抬防填河、站点建筑核内不抬。
+    /// passNodes=汇聚≥2 山路的山口(N3,S4 传入)：其半径内脊顶额外叠 RidgePassExtra 成全图制高点。</summary>
+    static void RaiseMountains(List<Vector3[]> mountains, SceneContext ctx,
+        Dictionary<string, MapStationAnchor> anchorById,
+        List<(MapRouteEdge edge, Vector3[] world)> waters,
+        List<(Vector2 c, float r)> passNodes, List<string> report)
+    {
+        if (mountains == null || mountains.Count == 0 || ctx == null) return;
+        report.Add("--- 山脊抬起 ---");
+        // 1. 克隆并抬升地形网格（per-map 副本，绝不动共享原 mesh）。
+        foreach (var mf in ctx.terrainFilters)
+        {
+            if (mf == null || mf.sharedMesh == null) continue;
+            Mesh src = mf.sharedMesh;
+            Mesh clone = UnityEngine.Object.Instantiate(src);
+            clone.name = GeneratedTerrainBaseName(src.name, ctx) + "_Ridge_" + Sanitize(ctx.mapKey);
+            Vector3[] verts = clone.vertices;
+            Color[] cols = clone.colors;
+            bool hasCols = cols != null && cols.Length == verts.Length;
+            Transform t = mf.transform;
+            int raised = 0, rockPainted = 0;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 w = t.TransformPoint(verts[i]);
+                if (TryRaiseRidgeY(ctx, w.x, w.z, w.y, mountains, waters, anchorById, passNodes, out float ny) && ny > w.y + 0.0001f)
+                {
+                    float amt = ny - w.y;
+                    w.y = ny; verts[i] = t.InverseTransformPoint(w); raised++;
+                    if (hasCols)
+                    {
+                        // 抬得越高越染岩(G/Layer2)：脊顶最岩、山脚渐隐回草，与挖河染砂同机制（位置不重叠不撞色）
+                        float rockW = Mathf.SmoothStep(0f, RidgeCrest * 0.55f, amt);
+                        Color o = cols[i];
+                        cols[i] = new Color(o.r * (1f - rockW), Mathf.Lerp(o.g, 1f, rockW), o.b * (1f - rockW), o.a);
+                        rockPainted++;
+                    }
+                }
+            }
+            clone.vertices = verts;
+            if (hasCols) clone.colors = cols;
+            clone.RecalculateNormals();
+            clone.RecalculateBounds();
+            Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
+            mf.sharedMesh = saved;
+            var mc = mf.GetComponent<MeshCollider>();
+            if (mc != null) mc.sharedMesh = saved;
+            EditorUtility.SetDirty(mf);
+            report.Add($"地形 '{mf.name}' 抬脊顶点 {raised}/{verts.Length}，脊顶染岩 {rockPainted}");
+        }
+        // 2. 同步抬升 heightSamples（小队走山路贴地要跟着上脊；行序 北→南）。
+        var elev = ctx.elevation;
+        if (elev != null && elev.heightSamples != null)
+        {
+            int W = elev.gridWidth, H = elev.gridHeight;
+            float[] hs = elev.heightSamples;
+            for (int z = 0; z <= H; z++)
+                for (int x = 0; x <= W; x++)
+                {
+                    int idx = z * (W + 1) + x;
+                    if (idx < 0 || idx >= hs.Length) continue;
+                    float wx = elev.worldOrigin.x + x * elev.cellSize;
+                    float wz = elev.worldOrigin.y + (H - z) * elev.cellSize;
+                    if (TryRaiseRidgeY(ctx, wx, wz, hs[idx], mountains, waters, anchorById, passNodes, out float nh) && nh > hs[idx] + 0.0001f) hs[idx] = nh;
+                }
+            elev.heightSamples = hs;
+            EditorUtility.SetDirty(elev);
+        }
+    }
+
+    /// <summary>某点的山脊抬升目标 Y（只抬不降，取各山路最高）。近水/站点核内/路堤外不抬。</summary>
+    static bool TryRaiseRidgeY(SceneContext ctx, float x, float z, float origY,
+        List<Vector3[]> mountains, List<(MapRouteEdge edge, Vector3[] world)> waters,
+        Dictionary<string, MapStationAnchor> anchorById, List<(Vector2 c, float r)> passNodes, out float newY)
+    {
+        newY = origY; bool any = false;
+        // 近水不抬：防把河填平
+        if (waters != null)
+            foreach (var (e, w) in waters)
+                if (w != null && w.Length >= 2 && NearestOnPolylineXZ(x, z, w, out _, out _) < RidgeWaterKeepout) return false;
+        // 站点建筑核内不抬：防顶飞建筑
+        if (anchorById != null)
+            foreach (var kv in anchorById)
+            {
+                var a = kv.Value; if (a == null) continue;
+                float br = BuildingRadius(a);
+                float dx = x - a.transform.position.x, dz = z - a.transform.position.z;
+                if (dx * dx + dz * dz < br * br) return false;
+            }
+        foreach (var m in mountains)
+        {
+            if (m == null || m.Length < 2) continue;
+            float d = NearestOnPolylineXZ(x, z, m, out float along, out Vector2 nearest);
+            if (d >= RidgeHalfWidth) continue;
+            float baseY = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(nearest.x, nearest.y, out float cy) ? cy : origY;
+            float endFade = RidgeEndFade(along);
+            float s = d / RidgeHalfWidth;
+            float shape = Mathf.SmoothStep(1f, 0f, s); // 1 中心 → 0 边缘：倒U山脊
+            float crest = RidgeCrest;
+            if (passNodes != null)                      // N3 山口：节点半径内额外叠高 → 全图制高点
+                foreach (var (pc, pr) in passNodes)
+                {
+                    float pd = (new Vector2(x, z) - pc).magnitude;
+                    if (pd < pr) { crest += RidgePassExtra * Mathf.SmoothStep(1f, 0f, pd / Mathf.Max(0.01f, pr)); break; }
+                }
+            float raised = baseY + crest * endFade * shape;
+            if (raised > newY) { newY = raised; any = true; }
+        }
+        return any;
+    }
+
+    static float RidgeEndFade(float along)
+    {
+        float a = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(along / Mathf.Max(0.001f, RidgeEndTaperFrac)));
+        float b = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - along) / Mathf.Max(0.001f, RidgeEndTaperFrac)));
+        return a * b;
     }
 
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
