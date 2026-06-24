@@ -440,8 +440,8 @@
       "T14": ["S10", "S11", "S12"]
     },
     "routeTaskBuckets": {
-      "ROAD": ["S03", "S07", "S10", "S11", "S13"],
-      "WATER": ["S04", "S05", "S09", "S12", "S13"],
+      "ROAD": ["S03", "S07", "S09", "S11", "S13"],
+      "WATER": ["S04", "S05", "S09", "S10", "S12", "S13"],
       "MOUNTAIN": ["S06", "S08", "S10", "S11", "S12"]
     },
     "obstacleCandidateNodeIds": ["S06", "S08", "S10", "S11"]

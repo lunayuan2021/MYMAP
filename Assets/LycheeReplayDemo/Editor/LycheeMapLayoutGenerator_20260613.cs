@@ -75,6 +75,18 @@ public static class LycheeMapLayoutGenerator_20260613
     const float CarveDepth = 1.50f;        // 河谷深度 1.5：容下 -1.26 的水面、谷壁高出水面 ~1.26
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
+    const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
+    const float RoadCausewayHalfWidth = 1.2f; // 陆路堤半宽：连到水驿的陆路在此半宽内保留实地不挖（窄一点、像路面宽的小堤）
+    const float WaterStationRoadGap = -0.8f;  // 陆路堤戳进水塘多深：负=堤头探进塘内 0.8m（短短一截）；路面在堤上、过堤头才沉
+    const float WaterStationRoadDip = 0.5f;   // 陆路在水驿端下沉到「水面 - 这个深度」→ 路伸进水塘被水盖住、消失在水边
+    const float StationWaterPad = 0.5f;       // 水塘半径 = 建筑包围盒半宽 + 这个余量；只比水驿大一圈（用户：圆别太大、差不多就好）
+    const float RoadWaterNarrowFrac = 0.35f;  // 陆路在贴着水中心线处收窄到原宽的这个比例（大幅收窄、过河/近河处变细）
+    const float RoadWaterNarrowDist = 2.5f;   // 到水中心线 ≤此距离 → 收到最窄
+    const float RoadWaterNarrowFull = 5.0f;   // 到水中心线 ≥此距离 → 恢复原宽（中间平滑过渡）
+    const float BoatRiverAngleOffset = 0f;    // 船身顺河时的额外偏转角（船模型长轴若不是 +Z，用它校正 ±90）
+    const float BoatModelRestHeading = 0f;    // 船模型静止时长轴的世界朝向(度)：0=沿+Z（同一母版恒定，别再按包围盒长边自动判、近正方形会判反）
+    const float BoatAlongRiverOffset = 1.33f; // 船心相对站点锚点：沿河方向偏移(m)（用户手调验收：船坐进河道、离站约这么远）
+    const float BoatAcrossRiverOffset = -0.30f; // 船心相对站点锚点：垂直河方向偏移(m)（基本压在中心线、略偏一侧）
     const float CarveEndTaperFrac = 0.18f; // 沿河两端更长收口到 0（端点是驿站/码头，不能挖坑淹建筑）
     const float WaterDepthFrac = 0.3f;     // 水位（0.55→0.3 水面更靠近岸顶、河道水更满，露出的沙岸更薄）
     const float WaterDrapeWidth = 4.2f;    // 水面宽：半宽2.1 几乎填满河槽(半宽2.4)，消掉裸沙浴缸、水贴岸→水与河谷一体（S1 一体化）
@@ -431,10 +443,18 @@ public static class LycheeMapLayoutGenerator_20260613
                     anchorById.TryGetValue(edge.fromNodeId, out var fa) && fa != null &&
                     anchorById.TryGetValue(edge.toNodeId, out var ta) && ta != null)
                 {
+                    // 路面整条铺过去；两端压低：陆站端压到建筑底下（楼盖路头）；水驿端一路下沉到水面以下 →
+                    // 陆路伸进水塘、被水盖住「消失在水边」（像下水的埠头）。压降范围水驿端取整个塘半径。
                     var fp = fa.transform.position; var tp = ta.transform.position;
                     sceneCtx.endA = new Vector2(fp.x, fp.z); sceneCtx.endB = new Vector2(tp.x, tp.z);
-                    sceneCtx.endAY = fp.y - RoadTuckUnder; sceneCtx.endBY = tp.y - RoadTuckUnder;
-                    sceneCtx.endRampA = BuildingRadius(fa) + 0.2f; sceneCtx.endRampB = BuildingRadius(ta) + 0.2f;
+                    sceneCtx.endAY = IsWaterStation(fa) ? WaterRenderHeight - WaterStationRoadDip : fp.y - RoadTuckUnder;
+                    sceneCtx.endBY = IsWaterStation(ta) ? WaterRenderHeight - WaterStationRoadDip : tp.y - RoadTuckUnder;
+                    // 水驿端 endRamp 范围 = 堤头(塘半径+WaterStationRoadGap)：路在堤上保持地面高、过堤头才往下沉 → 自然下水、不被堤埋
+                    sceneCtx.endRampA = IsWaterStation(fa) ? WaterStationPondRadius(fa) + WaterStationRoadGap : BuildingRadius(fa) + 0.2f;
+                    sceneCtx.endRampB = IsWaterStation(ta) ? WaterStationPondRadius(ta) + WaterStationRoadGap : BuildingRadius(ta) + 0.2f;
+                    // 砂石路基(土黄)在水驿端往岸上收一截：灰路面照样沉进水，但黄路基不探到水边、不"多出来没接住"
+                    sceneCtx.endAUnderlayTrim = IsWaterStation(fa) ? WaterStationPondRadius(fa) + 2.5f : 0f;
+                    sceneCtx.endBUnderlayTrim = IsWaterStation(ta) ? WaterStationPondRadius(ta) + 2.5f : 0f;
                     sceneCtx.endRampOn = true;
                 }
 
@@ -482,8 +502,11 @@ public static class LycheeMapLayoutGenerator_20260613
             SinkExtendedGroundBelowMain(report);  // 第二张底板下沉一点，消与主地形共面的 z-fighting（草上沙/石疯狂闪动）
             // 6b2. 路堤已停用：道路保持纯贴地，不再抬升网格/pathPoints。
             // BuildWaterJunctionPools(...);  // 去掉交汇池：水面已铺满全河，不需要补丁（用户要求）
-            // 水驿建筑底沉在河谷里会被水面淹没（洞庭水驿）；挖河+补水舌后把水驿整体抬到水面之上。
-            LiftWaterStationsAboveWater(anchorById, report);
+            // 水驿/码头各部件高度用用户手调并验收的值（按站型烘）；取代旧的整体抬升 LiftWaterStationsAboveWater。
+            ApplyWaterStationPartHeights(anchorById, report);
+            OrientStationBoatsAlongRiver(anchorById, report);  // 船身顺着河岸/水流停靠（对齐水路切向）
+            HideWaterStationGroundPads(anchorById, report);  // 去掉水驿/码头脚下的夯土台：改为架在水上后不需旱台
+            BuildWaterStationPonds(anchorById, sceneCtx, report);  // 给水驿脚下铺圆水塘：背水侧也进水、整个水驿坐在水中
             CleanupTransientRestoredTerrainAssets(sceneCtx, report);
 
             // 6c. 清障：清掉压在新路/新河上的植被、岩石（原装饰按旧路布的，会挡新路）。
@@ -567,6 +590,7 @@ public static class LycheeMapLayoutGenerator_20260613
         public bool endRampOn;
         public Vector2 endA, endB;
         public float endAY, endBY, endRampA, endRampB;
+        public float endAUnderlayTrim, endBUnderlayTrim;  // 砂石路基在该端裁掉此半径内的点（水驿端用，让黄路基不探到水边）
         // 所有水路中心线（建路前预算）：路在与河重叠处下沉到河床以下，实现"道路最底/河床/水面+建筑在上"的层级。
         public List<(MapRouteEdge edge, Vector3[] world)> waterTuples;
         public readonly Dictionary<MapRouteType, MapRouteEdge> edgeTemplate = new();
@@ -756,10 +780,28 @@ public static class LycheeMapLayoutGenerator_20260613
         }
     }
 
+    /// <summary>砂石路基折线在水驿端裁掉落在 endXUnderlayTrim 半径内的点 → 黄路基止于岸上、不探到水边/塘里（灰路面照样沉进水）。</summary>
+    static Vector3[] TrimUnderlayAtWaterEnds(Vector3[] world, SceneContext ctx)
+    {
+        if (world == null || world.Length < 3) return world;
+        if (ctx.endAUnderlayTrim <= 0f && ctx.endBUnderlayTrim <= 0f) return world;
+        var r = new List<Vector3>();
+        foreach (var p in world)
+        {
+            var pp = new Vector2(p.x, p.z);
+            if (ctx.endAUnderlayTrim > 0f && Vector2.Distance(pp, ctx.endA) < ctx.endAUnderlayTrim) continue;
+            if (ctx.endBUnderlayTrim > 0f && Vector2.Distance(pp, ctx.endB) < ctx.endBUnderlayTrim) continue;
+            r.Add(p);
+        }
+        return r.Count >= 2 ? r.ToArray() : world;
+    }
+
     static void BuildRoadbedUnderlay(GameObject edgeObject, string edgeId, MapRouteType type,
         Vector3[] world, SceneContext ctx)
     {
         if (edgeObject == null || world == null || world.Length < 2) return;
+        world = TrimUnderlayAtWaterEnds(world, ctx);  // 水驿端把砂石路基往岸上收，不让土黄路基探到水边
+        if (world == null || world.Length < 2) return;
         string childName = edgeId + "_RoadbedUnderlay";
         Transform child = FindChild(edgeObject.transform, childName);
         if (child == null)
@@ -1022,6 +1064,7 @@ public static class LycheeMapLayoutGenerator_20260613
                 if (endBusy) s = Mathf.Min(s, Mathf.Lerp(0.5f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - along) / 0.22f))));
                 w = width * s;
             }
+            w *= WaterCrossingNarrow(ctx, center[i].x, center[i].z);  // 近河/跨河大幅收窄路面
             Vector3 left = center[i] - side * w * 0.5f;
             Vector3 right = center[i] + side * w * 0.5f;
             left.y = ConformY(ctx, primary, left.x, left.z, lift, center[i].y);
@@ -1074,6 +1117,23 @@ public static class LycheeMapLayoutGenerator_20260613
         else if (inB)
             y = Mathf.Lerp(ctx.endBY, conformedY, Mathf.SmoothStep(0f, 1f, dB / ctx.endRampB));
         return y;
+    }
+
+    /// <summary>陆路在贴着水中心线处大幅收窄：到最近水路中心线距离 → [近=RoadWaterNarrowFrac, 远=1] 平滑。
+    /// 路面/路肩/车辙/路基都用它乘宽度 → 路在跨河/近河处变细、河岸的宽路基也跟着缩（用户：路近河收窄）。</summary>
+    static float WaterCrossingNarrow(SceneContext ctx, float x, float z)
+    {
+        if (ctx.waterTuples == null || ctx.waterTuples.Count == 0) return 1f;
+        float best = float.MaxValue;
+        foreach (var (edge, w) in ctx.waterTuples)
+        {
+            if (w == null || w.Length == 0) continue;
+            float d = NearestOnPolylineXZ(x, z, w, out _, out _);
+            if (d < best) best = d;
+        }
+        if (best >= RoadWaterNarrowFull) return 1f;
+        if (best <= RoadWaterNarrowDist) return RoadWaterNarrowFrac;
+        return Mathf.Lerp(RoadWaterNarrowFrac, 1f, Mathf.SmoothStep(RoadWaterNarrowDist, RoadWaterNarrowFull, best));
     }
 
     /// <summary>路与河重叠处不再下压道路。旧策略把道路压到河床下，会在水驿/河道交汇处形成视觉断路。</summary>
@@ -1683,6 +1743,7 @@ public static class LycheeMapLayoutGenerator_20260613
         MeanderRiverPaths(waters);  // 河道中心线加蜿蜒，避免直直的、更自然（端点不动；carve/水面/沙岸/航线点都跟随）
         report.Add("--- 挖河凹陷 ---");
         BuildRiverBaseY(waters, ctx, anchorById);  // 每条水路用两端较低岸高作恒定基准 + 站点干核 → 两河一致、水坐进槽、水驿落地
+        BuildRoadCauseways(anchorById);            // 陆路堤：连到水驿的陆路路下保留实地、不挖 → 路避开水、不悬空
         // 全局禁用遗留河岸修边容器 River_ShoreTrim_*（挂在配置根下、不在 edge 子级，CleanLegacyWaterChildren 扫不到）→ 去橄榄绿河岸线
         foreach (var _tr in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             if (_tr != null && (_tr.name.StartsWith("River_ShoreTrim") || _tr.name.StartsWith("Water_Junction_Patches") || _tr.name.StartsWith("Route_Line_Overlay") || _tr.name.EndsWith("_BankTrim") || _tr.name.EndsWith("_BankSlope") || _tr.name.EndsWith("_RiverBed") || _tr.name.Contains("EntranceBlend")))
@@ -1717,6 +1778,7 @@ public static class LycheeMapLayoutGenerator_20260613
                         sandW = 1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.35f, w.y); // 水线起一条较宽沙滩、往上柔和渐隐为草
                     }
                     else sandW = RiverSandSplatWeight(w.x, w.z, waters);
+                    sandW *= StationSandDamp(w.x, w.z);   // 站点干核内收沙：中央硬岸、只在水线一圈留窄沙（不再大沙坑）
                     if (sandW > 0.001f)
                     {
                         Color o = cols[i];
@@ -1821,18 +1883,110 @@ public static class LycheeMapLayoutGenerator_20260613
         }
     }
 
+    /// <summary>把用户手调并验收的水驿/码头各部件 localY 烘回去（重生成会重克隆母版、冲掉手调值）。按站型设
+    /// Imported_Station_Model / WaterStation_Split / Dock_AboveWater / Boat_OnWater / House_OnLand 的局部 Y。
+    /// 取代 LiftWaterStationsAboveWater（手调值已含正确高度，锚点保持基准、不再额外抬）。值见记忆 waterstation-dock-part-heights。</summary>
+    static void ApplyWaterStationPartHeights(Dictionary<string, MapStationAnchor> anchorById, List<string> report)
+    {
+        if (anchorById == null) return;
+        int n = 0;
+        foreach (var kv in anchorById)
+        {
+            var a = kv.Value;
+            if (a == null) continue;
+            float imp, split, dock, boat, house;
+            if (a.stationType == MapStationType.WaterStation) { imp = 0.004f; split = 0.743f; dock = 0.300f; boat = 0.140f; house = 0.420f; }
+            else if (a.stationType == MapStationType.Dock)     { imp = 0.041f; split = 0.430f; dock = 0.280f; boat = 0.220f; house = 0.180f; }
+            else continue;
+            SetPartLocalY(a, "Imported_Station_Model", imp);
+            SetPartLocalY(a, "WaterStation_Split", split);
+            SetPartLocalY(a, "Dock_AboveWater", dock);
+            SetPartLocalY(a, "Boat_OnWater", boat);
+            SetPartLocalY(a, "House_OnLand", house);
+            n++;
+        }
+        if (n > 0) report.Add($"[水驿部件高度] 按站型烘回 {n} 个站点的部件 localY（用户手调值）");
+    }
+
+    /// <summary>船坐进河道、船身顺水流停靠（用户手调验收的通用计算）：对每个水驿/码头的 Boat_OnWater——
+    /// ① 朝向：把船旋到「连到本站的水路切向」上（长轴对齐河向）；② 位置：把船心移到「锚点 + 沿河 BoatAlongRiverOffset + 垂河 BoatAcrossRiverOffset」。
+    /// 关键坑：船网格是「世界坐标烘」的(顶点在站点处、transform 在世界原点)——直接改 localEulerAngles/localPosition 会绕世界原点甩飞，
+    /// 必须 RotateAround(船心,up,Δ) 原地转、再用世界位移把船心移到目标。船静止长轴用固定 BoatModelRestHeading(同母版恒定，
+    /// 别按包围盒长边自动判——近正方形会判反，曾让 S05 偏 90°)。Y 不动(由 ApplyWaterStationPartHeights 烘的 localY 决定)。</summary>
+    static void OrientStationBoatsAlongRiver(Dictionary<string, MapStationAnchor> anchorById, List<string> report)
+    {
+        if (anchorById == null) return;
+        var waterEdges = new List<MapRouteEdge>();
+        foreach (var e in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
+            if (e != null && e.routeType == MapRouteType.Water) waterEdges.Add(e);
+        int n = 0;
+        foreach (var kv in anchorById)
+        {
+            var a = kv.Value;
+            if (a == null) continue;
+            if (a.stationType != MapStationType.WaterStation && a.stationType != MapStationType.Dock) continue;
+            MapRouteEdge we = null;
+            foreach (var e in waterEdges)
+                if (e.fromStationId == kv.Key || e.toStationId == kv.Key) { we = e; break; }
+            if (we == null) continue;
+            Vector3[] w = ExistingEdgeWorldPath(we);
+            if (w == null || w.Length < 2) continue;
+            Vector3 ap = a.transform.position;
+            NearestOnPolylineXZWithDirection(ap.x, ap.z, w, out _, out _, out Vector2 dir);
+            if (dir.sqrMagnitude < 1e-6f) continue;
+            Vector2 D = dir.normalized;                 // 河向（沿河单位向量, x=worldX,y=worldZ）
+            Vector2 N = new Vector2(-D.y, D.x);          // 垂河单位向量（与诊断同一手性）
+            float riverAngle = Mathf.Atan2(D.x, D.y) * Mathf.Rad2Deg; // Unity Y旋转: 0=+Z,90=+X
+            Transform bt = null;
+            foreach (var t in a.GetComponentsInChildren<Transform>(true))
+                if (t != null && t.name.Contains("Boat_OnWater")) { bt = t; break; }
+            if (bt == null) continue;
+            bool has = false; Bounds bb = new Bounds();
+            foreach (var r in bt.GetComponentsInChildren<MeshRenderer>())
+            { if (!has) { bb = r.bounds; has = true; } else bb.Encapsulate(r.bounds); }
+            if (!has) continue;
+            // ① 朝向：固定静止长轴 → 河向，收到 [-90,90]（顺河 180°对称、取最小转角）
+            float delta = Mathf.DeltaAngle(BoatModelRestHeading, riverAngle);
+            while (delta > 90f) delta -= 180f;
+            while (delta < -90f) delta += 180f;
+            delta += BoatRiverAngleOffset;
+            bt.RotateAround(bb.center, Vector3.up, delta); // 绕船心原地转
+            // ② 位置：船心 → 锚点 + 沿河*along + 垂河*across（仅 XZ，Y 保持烘值）
+            bool h2 = false; Bounds bb2 = new Bounds();
+            foreach (var r in bt.GetComponentsInChildren<MeshRenderer>())
+            { if (!h2) { bb2 = r.bounds; h2 = true; } else bb2.Encapsulate(r.bounds); }
+            Vector3 cur = bb2.center;
+            Vector2 target = new Vector2(ap.x, ap.z) + BoatAlongRiverOffset * D + BoatAcrossRiverOffset * N;
+            bt.position += new Vector3(target.x - cur.x, 0f, target.y - cur.z); // 世界位移把船心移到目标(Y不动)
+            EditorUtility.SetDirty(bt);
+            n++;
+        }
+        if (n > 0) report.Add($"[船坐进河道] {n} 艘：顺河向 + 船心移到锚点沿河{BoatAlongRiverOffset:F2}/垂河{BoatAcrossRiverOffset:F2}");
+    }
+
+    static void SetPartLocalY(MapStationAnchor a, string namePart, float y)
+    {
+        foreach (var t in a.GetComponentsInChildren<Transform>(true))
+        {
+            if (t == null || !t.name.Contains(namePart)) continue;
+            var lp = t.localPosition;
+            t.localPosition = new Vector3(lp.x, y, lp.z);
+            EditorUtility.SetDirty(t);
+        }
+    }
+
     /// <summary>水驿建筑底高于附近水面：挖河后水驿仍坐在河谷低处会被水面淹没，按建筑底与最近水面高差整体抬升。
-    /// 只抬升（取净空），已在水面之上的不动；用渲染器包围盒计算，与运行期可见高度一致。</summary>
+    /// 只抬升（取净空），已在水面之上的不动；用渲染器包围盒计算，与运行期可见高度一致。【已停用：改用 ApplyWaterStationPartHeights 烘手调值】</summary>
     static void LiftWaterStationsAboveWater(Dictionary<string, MapStationAnchor> anchorById, List<string> report)
     {
         if (anchorById == null) return;
-        const float clearance = 0.25f;   // 建筑底需高出水面的净空
+        const float clearance = 1.0f;    // 建筑底需高出水面的净空（0.6→1.0：用户要水驿再抬高一点）
         const float searchRadius = 9f;   // 取该半径内的水面渲染器作为“附近水面”
         var allRenderers = UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
         foreach (var kv in anchorById)
         {
             MapStationAnchor anchor = kv.Value;
-            if (anchor == null || anchor.stationType != MapStationType.WaterStation) continue;
+            if (anchor == null || anchor.stationType != MapStationType.WaterStation) continue; // 只抬水驿；码头半水半陆、落在岸上不抬
             Vector3 p = anchor.transform.position;
 
             float waterTop = float.NegativeInfinity;
@@ -1860,6 +2014,86 @@ public static class LycheeMapLayoutGenerator_20260613
             EditorUtility.SetDirty(anchor);
             report.Add($"[水驿抬升] {kv.Key} +{need:F2}m 使建筑底高于水面 (waterTop={waterTop:F2}, baseY={baseY:F2})");
         }
+    }
+
+    /// <summary>去掉水驿/码头脚下的夯土台 mesh（Node_GroundBlend）：水驿改为「架在水上」后不再需要旱台，
+    /// 隐藏它即可露出脚下的水/河床（用户：把地形台去掉，水驿在水里才正常）。</summary>
+    static void HideWaterStationGroundPads(Dictionary<string, MapStationAnchor> anchorById, List<string> report)
+    {
+        if (anchorById == null) return;
+        int n = 0;
+        foreach (var kv in anchorById)
+        {
+            var a = kv.Value;
+            if (a == null || (a.stationType != MapStationType.WaterStation && a.stationType != MapStationType.Dock)) continue;
+            foreach (var t in a.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null || !t.name.Contains("GroundBlend")) continue;
+                if (t.gameObject.activeSelf) { t.gameObject.SetActive(false); n++; }
+            }
+        }
+        if (n > 0) report.Add($"[水驿去台] 隐藏 {n} 个站点夯土台(GroundBlend)");
+    }
+
+    /// <summary>给每个水驿/码头脚下铺一张圆形水面（水塘）：河道只从特定方向来、背水侧没水，用这张圆水面
+    /// 把整个水驿盖进水里。高度用 transform.Y=WaterRenderHeight（WaterShader 按物体位置渲染，非顶点）；
+    /// 略低于河道水面 0.02 → 与河道重叠处让河道在上、不叠成亮块。半径 = WaterStationPondRadius（与挖塘/退路同源）。</summary>
+    static void BuildWaterStationPonds(Dictionary<string, MapStationAnchor> anchorById, SceneContext ctx, List<string> report)
+    {
+        if (anchorById == null) return;
+        Material waterMat = FindWaterRouteMaterial();
+        if (waterMat == null) { report.Add("[水塘] 找不到水材质，跳过"); return; }
+        Transform root = EnsureSceneRoot("MapLayout_WaterStationPonds");
+        for (int i = root.childCount - 1; i >= 0; i--) UnityEngine.Object.DestroyImmediate(root.GetChild(i).gameObject);
+        int n = 0;
+        foreach (var kv in anchorById)
+        {
+            var a = kv.Value;
+            if (!IsWaterStation(a)) continue;
+            float r = WaterStationPondRadius(a);
+            Vector3 ap = a.transform.position;
+            var go = new GameObject(kv.Key + "_WaterPond");
+            go.transform.SetParent(root, false);
+            go.transform.position = new Vector3(ap.x, WaterRenderHeight - 0.02f, ap.z);
+            go.AddComponent<MeshFilter>().sharedMesh = CreateDiscMesh(r, 32, kv.Key + "_WaterPond", ctx);
+            go.AddComponent<MeshRenderer>().sharedMaterial = waterMat;
+            n++;
+        }
+        report.Add($"[水塘] 生成 {n} 个水驿水塘");
+    }
+
+    static Material FindWaterRouteMaterial()
+    {
+        foreach (var mr in UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            if (mr != null && mr.sharedMaterial != null && mr.name.Contains("_Route") && mr.sharedMaterial.name.Contains("Water"))
+                return mr.sharedMaterial;
+        return null;
+    }
+
+    /// <summary>生成一张水平圆盘网格（扇形三角、法线朝上 +Y），半径 radius，存为资产。</summary>
+    static Mesh CreateDiscMesh(float radius, int segs, string name, SceneContext ctx)
+    {
+        var verts = new Vector3[segs + 1];
+        var uvs = new Vector2[segs + 1];
+        var tris = new int[segs * 3];
+        verts[0] = Vector3.zero; uvs[0] = new Vector2(0.5f, 0.5f);
+        for (int i = 0; i < segs; i++)
+        {
+            float ang = (i / (float)segs) * Mathf.PI * 2f;
+            float cx = Mathf.Cos(ang), cz = Mathf.Sin(ang);
+            verts[i + 1] = new Vector3(cx * radius, 0f, cz * radius);
+            uvs[i + 1] = new Vector2(cx * 0.5f + 0.5f, cz * 0.5f + 0.5f);
+        }
+        for (int i = 0; i < segs; i++)
+        {
+            tris[i * 3] = 0;
+            tris[i * 3 + 1] = (i + 1) % segs + 1;  // 顺序使法线朝上 +Y
+            tris[i * 3 + 2] = i + 1;
+        }
+        var m = new Mesh { name = name };
+        m.vertices = verts; m.uv = uvs; m.triangles = tris;
+        m.RecalculateNormals(); m.RecalculateBounds();
+        return SaveMesh(m, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + name + ".asset");
     }
 
     /// <summary>把水面子物体换成水平水位网格，河床继续下挖，水面不再像贴膜一样沿 U 形坑起伏。</summary>
@@ -2231,6 +2465,36 @@ public static class LycheeMapLayoutGenerator_20260613
         return Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
     }
 
+    /// <summary>把可见路面折线"精确裁到水塘边界圆上"：水驿(WaterStation)端按 WaterStationPondRadius+WaterStationRoadGap 裁，
+    /// 并在圆周处插一个插值点 → 灰路面正好铺到塘边/码头口、不留黄沙缺口、也不架水上。
+    /// 只裁水驿端（删点会停在最后一个外侧稀疏点上、离塘远，故要插边界点）；码头/陆站端不动。</summary>
+    static Vector3[] TrimRibbonAtWaterStationEnds(Vector3[] world, MapStationAnchor from, MapStationAnchor to)
+    {
+        if (world == null || world.Length < 2) return world;
+        bool fw = IsWaterStation(from), tw = IsWaterStation(to);
+        if (!fw && !tw) return world;
+        var list = new List<Vector3>(world);
+        if (fw) ClipPathStartAtCircle(list, new Vector2(from.transform.position.x, from.transform.position.z), WaterStationPondRadius(from) + WaterStationRoadGap);
+        if (tw) { list.Reverse(); ClipPathStartAtCircle(list, new Vector2(to.transform.position.x, to.transform.position.z), WaterStationPondRadius(to) + WaterStationRoadGap); list.Reverse(); }
+        return list.Count >= 2 ? list.ToArray() : world;
+    }
+
+    /// <summary>从折线起点方向裁掉落在「圆心 center、半径 radius」圆内的点，并在圆周处插一个插值点 → 折线正好止于圆周。</summary>
+    static void ClipPathStartAtCircle(List<Vector3> pts, Vector2 center, float radius)
+    {
+        int firstOut = -1;
+        for (int i = 0; i < pts.Count; i++)
+            if (Vector2.Distance(new Vector2(pts[i].x, pts[i].z), center) >= radius) { firstOut = i; break; }
+        if (firstOut <= 0) return; // 起点已在圆外（无需裁）或全部在圆内（不动）
+        Vector3 inside = pts[firstOut - 1], outside = pts[firstOut];
+        float da = Vector2.Distance(new Vector2(inside.x, inside.z), center);
+        float db = Vector2.Distance(new Vector2(outside.x, outside.z), center);
+        float t = Mathf.Approximately(db, da) ? 0f : Mathf.Clamp01((radius - da) / (db - da));
+        Vector3 boundary = Vector3.Lerp(inside, outside, t);
+        pts.RemoveRange(0, firstOut);
+        pts.Insert(0, boundary);
+    }
+
     /// <summary>把路面折线裁到两端驿站建筑足迹之外：去掉落在 from/to 建筑半径内的点，路面止于建筑边缘、不盖楼/码头/船。
     /// 至少保留 2 点；驿站无建筑模型时该端按默认半径裁一点。</summary>
     static Vector3[] TrimToBuildingEdges(Vector3[] world, MapStationAnchor from, MapStationAnchor to)
@@ -2240,8 +2504,9 @@ public static class LycheeMapLayoutGenerator_20260613
                                   : new Vector2(world[0].x, world[0].z);
         Vector2 tp = to != null ? new Vector2(to.transform.position.x, to.transform.position.z)
                                 : new Vector2(world[world.Length - 1].x, world[world.Length - 1].z);
-        float fr = BuildingRadius(from) + 0.4f;
-        float tr = BuildingRadius(to) + 0.4f;
+        // 水驿：路退到塘外留水隔开；码头：普通裁到建筑边（路直接通到脚下）
+        float fr = IsWaterStation(from) ? WaterStationPondRadius(from) + WaterStationRoadGap : BuildingRadius(from) + 0.4f;
+        float tr = IsWaterStation(to)   ? WaterStationPondRadius(to)   + WaterStationRoadGap : BuildingRadius(to)   + 0.4f;
         var r = new List<Vector3>();
         foreach (var p in world)
         {
@@ -2251,6 +2516,12 @@ public static class LycheeMapLayoutGenerator_20260613
         }
         return r.Count >= 2 ? r.ToArray() : world;
     }
+
+    static bool IsWaterStationOrDock(MapStationAnchor a) =>
+        a != null && (a.stationType == MapStationType.WaterStation || a.stationType == MapStationType.Dock);
+
+    static bool IsWaterStation(MapStationAnchor a) =>
+        a != null && a.stationType == MapStationType.WaterStation;
 
     /// <summary>驿站建筑足迹的水平半径（Imported_Station_Model 包围盒 XZ 半宽）；无模型回退 2.2m。</summary>
     static float BuildingRadius(MapStationAnchor a)
@@ -2660,11 +2931,13 @@ public static class LycheeMapLayoutGenerator_20260613
             fwd.y = 0f;
             Vector3 side = Vector3.Cross(Vector3.up, fwd.sqrMagnitude < 1e-8f ? Vector3.forward : fwd.normalized);
             if (i > 0) distance += Vector3.Distance(center[i - 1], center[i]);
+            float wid = width * WaterCrossingNarrow(ctx, center[i].x, center[i].z);  // 路基近河/跨河收窄，跟路面一致
             for (int j = 0; j < cols; j++)
             {
-                float lat = -width * 0.5f + width * (j / (float)crossSegs);
+                float lat = -wid * 0.5f + wid * (j / (float)crossSegs);
                 Vector3 wpt = center[i] + side * lat;
                 wpt.y = ConformY(ctx, ctx.terrainSurface, wpt.x, wpt.z, lift, center[i].y);
+                if (ctx.endRampOn) wpt.y = RampEndY(ctx, wpt.x, wpt.z, wpt.y);  // 端点压低跟路面一致（陆站端压建筑底/水驿端沉水下），否则路基浮在水上
                 wpt.y = Mathf.Min(wpt.y, RoadUnderRiverY(ctx, wpt.x, wpt.z));
                 int idx = i * cols + j;
                 vertices[idx] = target.InverseTransformPoint(wpt);
@@ -2693,13 +2966,14 @@ public static class LycheeMapLayoutGenerator_20260613
 
     // ===== 河道一致化基准：每条水路用「两端较低岸高」作恒定基准，水面/河床/挖深不再逐点跟地形爬 → 两河深浅一致、水坐进槽、水驿不悬浮 =====
     static Dictionary<MapRouteEdge, float> _riverBaseY;
-    static List<(Vector2 c, float r)> _riverDryCores;   // 水驿/码头建筑足迹：地形挖河时此处不挖 → 保住建筑落地、不悬浮
+    static List<(Vector2 c, float r, bool isPond)> _riverDryCores; // 水驿/码头核心圈：端点不收口让水到脚下；isPond=水驿(挖整圆塘) / 码头(只临河侧进水)
+    static List<(Vector3[] path, float r)> _roadCauseways; // 连到水驿/码头的陆路走廊：路下保留实地堤、不挖 → 路避开水、不悬空
 
     static void BuildRiverBaseY(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById)
     {
         _riverBaseY = new Dictionary<MapRouteEdge, float>();
-        _riverDryCores = new List<(Vector2, float)>();
+        _riverDryCores = new List<(Vector2, float, bool)>();
         if (waters == null) return;
         foreach (var (edge, world) in waters)
         {
@@ -2712,15 +2986,78 @@ public static class LycheeMapLayoutGenerator_20260613
         }
     }
 
+    /// <summary>建「陆路堤」走廊：连到水驿/码头的陆路，整条路径登记为不挖实地 → 路下永远有地、不悬空架在水上。
+    /// 远离水的路段本就不挖、登记是空操作；只有路接近水驿那段才真正起作用（= 一条避开水的路堤/causeway）。</summary>
+    static void BuildRoadCauseways(Dictionary<string, MapStationAnchor> anchorById)
+    {
+        _roadCauseways = new List<(Vector3[], float)>();
+        if (anchorById == null) return;
+        foreach (var edge in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
+        {
+            if (edge == null || edge.routeType == MapRouteType.Water) continue;
+            // 所有陆路都建窄路堤：纯陆地段是空操作（那儿本就不挖），只在「跨河」处真正起作用 →
+            // 路踩在窄地堤上、河水从两边让开、不凭空架在河上。连水驿的端再由下面 trim 收到塘内一小截（短堤下水）。
+            Vector3[] world = ExistingEdgeWorldPath(edge);
+            if (world == null || world.Length < 2) continue;
+            // 把贴近水驿/码头的那段路堤去掉：堤止于岸边、不盖到水驿脚下（水驿留在水里、不再造沙台）
+            var keep = new List<Vector3>();
+            foreach (var p in world)
+            {
+                bool nearWs = false;
+                foreach (var kv in anchorById)
+                {
+                    var a = kv.Value;
+                    if (!IsWaterStation(a)) continue;
+                    if (edge.fromStationId != kv.Key && edge.toStationId != kv.Key) continue;
+                    float gap = WaterStationPondRadius(a) + WaterStationRoadGap;
+                    var ap = new Vector2(a.transform.position.x, a.transform.position.z);
+                    if ((new Vector2(p.x, p.z) - ap).magnitude < gap) { nearWs = true; break; }
+                }
+                if (!nearWs) keep.Add(p);
+            }
+            if (keep.Count < 2) continue;
+            _roadCauseways.Add((keep.ToArray(), RoadCausewayHalfWidth));
+        }
+    }
+
     static void AddStationDryCore(string id, Dictionary<string, MapStationAnchor> anchorById)
     {
         if (string.IsNullOrEmpty(id) || anchorById == null || !anchorById.TryGetValue(id, out var a) || a == null) return;
-        if (a.stationType != MapStationType.WaterStation && a.stationType != MapStationType.Dock) return;
+        if (!IsWaterStationOrDock(a)) return;
+        _riverDryCores.Add((new Vector2(a.transform.position.x, a.transform.position.z), WaterStationPondRadius(a), IsWaterStation(a)));
+    }
+
+    /// <summary>水驿「水塘半径」：建筑/码头几何（排除标签/旗/占位/车辆点）包围盒 XZ 半宽 + StationWaterPad。
+    /// 用半宽（不是到四角的距离）→ 塘只比建筑大一圈、贴身；四角略出水也接受。统一供「挖圆水塘 / 铺圆水面 / 退路堤」用。</summary>
+    static float WaterStationPondRadius(MapStationAnchor a)
+    {
+        if (a == null) return 2.2f;
         Bounds bb = default; bool has = false;
-        foreach (var mr in a.GetComponentsInChildren<MeshRenderer>(true))
-        { if (!has) { bb = mr.bounds; has = true; } else bb.Encapsulate(mr.bounds); }
-        float r = has ? Mathf.Max(bb.extents.x, bb.extents.z) + 0.4f : 2.2f;
-        _riverDryCores.Add((new Vector2(a.transform.position.x, a.transform.position.z), r));
+        foreach (Transform ch in a.transform)
+        {
+            string n = ch.name;
+            if (n.Contains("Name") || n.Contains("Label") || n.Contains("Flag") || n.Contains("Beacon")
+                || n.Contains("Placeholder") || n.Contains("EventFX") || n.Contains("Obstacle") || n.Contains("VehicleStop")) continue;
+            foreach (var mr in ch.GetComponentsInChildren<MeshRenderer>(true))
+            { if (!has) { bb = mr.bounds; has = true; } else bb.Encapsulate(mr.bounds); }
+        }
+        return has ? Mathf.Max(bb.extents.x, bb.extents.z) + StationWaterPad : 2.2f;
+    }
+
+    /// <summary>站点干核内压低染砂权重：核心中央=0（硬岸/草，不再大沙坑），到干核边缘 0.9m 内渐升回 1
+    /// （只在贴水线一圈留窄沙）。让临水驿站坐在规整硬岸上、只有薄沙滩，而非被一大片沙包住。</summary>
+    static float StationSandDamp(float x, float z)
+    {
+        if (_riverDryCores == null || _riverDryCores.Count == 0) return 1f;
+        var p = new Vector2(x, z);
+        float mul = 1f;
+        foreach (var (c, r, _isPond) in _riverDryCores)
+        {
+            float d = Vector2.Distance(p, c);
+            // 核心(r-0.5 内)=0 硬岸无沙；向外渐隐到 r+StationSandFadeExtra 恢复满沙 → 站点周围沙三角收成规整小沙滩
+            mul = Mathf.Min(mul, Mathf.SmoothStep(r - 0.5f, r + StationSandFadeExtra, d));
+        }
+        return mul;
     }
 
     static float SampleOrigTop(SceneContext ctx, float x, float z, float fallback)
@@ -2751,11 +3088,19 @@ public static class LycheeMapLayoutGenerator_20260613
         List<(MapRouteEdge edge, Vector3[] world)> waters, out float newY)
     {
         newY = origY; bool any = false;
+        // 陆路堤优先：连到水驿的陆路走廊内保留实地、不挖 → 路下有地、避开水、不悬空（优先于站点核心满深）
+        if (_roadCauseways != null)
+        {
+            foreach (var (path, rr) in _roadCauseways)
+                if (NearestOnPolylineXZ(x, z, path, out _, out _) < rr) return false;
+        }
+        // 水驿/码头核心：端点不收口让水到脚下；水驿(isPond)再额外挖整圆塘、码头只临河那侧进水
+        bool inStationCore = false, inPondCore = false;
         if (_riverDryCores != null)
         {
             var p2 = new Vector2(x, z);
-            foreach (var (c, r) in _riverDryCores)
-                if ((p2 - c).sqrMagnitude < r * r) return false; // 站点干核：保住建筑落地，不挖此处地形
+            foreach (var (c, r, isPond) in _riverDryCores)
+                if ((p2 - c).sqrMagnitude < r * r) { inStationCore = true; if (isPond) inPondCore = true; }
         }
         foreach (var (edge, w) in waters)
         {
@@ -2764,12 +3109,24 @@ public static class LycheeMapLayoutGenerator_20260613
             float centerY = (_riverBaseY != null && edge != null && _riverBaseY.TryGetValue(edge, out float by))
                 ? by
                 : (ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(nearest.x, nearest.y, out float cy) ? cy : origY);
-            float endP = RiverEndFade(along);
+            float endP = inStationCore ? 1f : RiverEndFade(along);   // 站点核心：满深、不收口 → 水进脚下
             float s = d / CarveHalfWidth;           // 0 中心 .. 1 岸
             const float flatFrac = 0.65f;            // 宽平底占比，其余是陡直壁 → 水填满大部、岸薄、河谷凹得明显
             float shape = s <= flatFrac ? 1f : Mathf.Clamp01(1f - (s - flatFrac) / (1f - flatFrac));
             float carved = centerY - CarveDepth * endP * shape;
             if (carved < newY) { newY = carved; any = true; }
+        }
+        if (inPondCore)
+        {
+            // 水驿核心整片挖成平底圆水塘（不止水道附近）→ 背水侧也坐进水里、整个水驿在水中（码头不走这里、只临河侧进水）
+            float poolBase = origY, bestD = float.MaxValue;
+            foreach (var (edge, w) in waters)
+            {
+                float dd = NearestOnPolylineXZ(x, z, w, out _, out _);
+                if (dd < bestD && _riverBaseY != null && edge != null && _riverBaseY.TryGetValue(edge, out float by)) { bestD = dd; poolBase = by; }
+            }
+            float coreCarved = poolBase - CarveDepth;
+            if (coreCarved < newY) { newY = coreCarved; any = true; }
         }
         return any;
     }
