@@ -1684,6 +1684,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (type == "PROCESS_PROGRESS" && !ShouldShowProcessProgressCard(payload, round))
             return;
 
+        // 用户(点9)：右侧事件卡片只保留这几类，其余(到达/天气/处理/小分队/强制通行/交付/冲刺/
+        // 资源使用/任务过期/悬赏出现 等)不再弹中央卡；左侧事件流仍有文字、不丢信息。
+        // 窗口争夺(WINDOW_*)走对抗演出系统、已在上面 return，单独设计展示。
+        if (type != "TASK_SPAWN" && type != "TASK_REFRESH" &&
+            type != "TASK_COMPLETE" &&
+            type != "BOUNTY_COMPLETE" && type != "BOUNTY_CLAIM" &&
+            type != "RESOURCE_CLAIM" &&
+            type != "GUARD_SET" && type != "GUARD_BREAK" &&
+            type != "VERIFY_GATE_COMPLETE")
+            return;
+
         payload = payload ?? new LycheeReplayPayload();
         if (type.StartsWith("SQUAD_", StringComparison.Ordinal))
             BackfillSquadPayloadPlayer(payload);
@@ -1693,8 +1704,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         string right = "";
         string center = "R" + round;
         int imageIndex = 1;
-        // 默认 2.6 秒：3.8 秒在 0.22 秒/回合的节奏下弹窗几乎常驻，压短后中央留白更多
-        float seconds = 2.6f;
+        // 用户(点9)：保留的几类卡片要"久一些"→ 默认 4.5 秒(原 2.6)；事件已收窄到 8 类、不会连环刷屏。
+        float seconds = 4.5f;
         string target = DisplayNode(!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
         string team = TeamName(payload.playerId);
         bool priorityCard = IsPriorityEventCard(type);
@@ -1719,7 +1730,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "TASK_COMPLETE")
         {
             title = "皇榜任务完成";
-            subtitle = team + " 获得任务分";
+            subtitle = team + " 完成 " + ShortId(payload.taskId, "任务");
             left = ShortId(payload.taskId, "任务");
             right = ScoreText(payload.score);
             center = "+" + Mathf.Max(0, payload.score);
@@ -1742,7 +1753,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "RESOURCE_CLAIM")
         {
             title = "资源获取";
-            subtitle = team + " 在 " + target + " 取得补给";
+            subtitle = team + " 获取 " + target + " " + ResourceName(payload.resourceType);
             left = ResourceName(payload.resourceType);
             right = "库存更新";
         }
@@ -1837,15 +1848,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "GUARD_SET")
         {
             title = "设卡布防";
-            subtitle = team + " 在 " + target + " 设置阻拦";
+            subtitle = team + " 在 " + target + " 设卡";
             left = "防御";
             right = payload.defense > 0 ? payload.defense.ToString() : "已部署";
             imageIndex = 0;
         }
         else if (type == "GUARD_BREAK")
         {
-            title = "攻破设卡";
-            subtitle = team + " 攻破 " + target;
+            title = "攻坚破卡";
+            subtitle = team + " 在攻击 " + target + " 防守";
             left = "攻坚 " + payload.attackValue;
             right = payload.defenseBefore + " → " + payload.defenseAfter;
             imageIndex = 2;
@@ -1861,7 +1872,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM") // BOUNTY_CLAIM 为 V4.8.12 新名
         {
             title = "破关悬赏完成";
-            subtitle = team + " 获得悬赏奖励";
+            subtitle = team + " 完成破关悬赏";
             left = ScoreText(payload.score);
             right = ResourceName(payload.reward);
             imageIndex = 2;
@@ -1909,8 +1920,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         else if (type == "VERIFY_GATE_COMPLETE")
         {
-            title = "朱雀门验核完成";
-            subtitle = team + " 获得交付资格";
+            title = "宫门核验完成";
+            subtitle = team + " 完成宫门核验，获得交付资格";
             left = target;
             right = payload.verifiedEffectiveRound > 0 ? "R" + payload.verifiedEffectiveRound + " 生效" : "已生效";
             imageIndex = 2;
