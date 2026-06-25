@@ -2085,6 +2085,7 @@ public static class LycheeMapLayoutGenerator_20260613
             float frontA = toCenter.sqrMagnitude < 1e-4f ? 0f : Mathf.Atan2(toCenter.x, toCenter.y); // 朝地图中心的方向(Unity Y旋转式)
             int want = 3 + (int)(Hash01(mk, r, 50) * 4f);          // 目标 3-6 棵
             int tries = 0;
+            var treesPlacedHere = new List<Vector2>(want);          // 本座已放树位(最小间距判定用)
             while (treesPlacedHere.Count < want && tries < 30 && trees.Count > 0)
             {
                 int h = r * 37 + tries; tries++;
