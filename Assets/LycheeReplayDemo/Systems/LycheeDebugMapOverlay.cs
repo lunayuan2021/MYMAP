@@ -97,7 +97,8 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         float margin = 16f * ui;
         float bw = 104f * ui, bh = 34f * ui;
         float minimapBottom = 276f * ui;
-        float top = minimapBottom + 10f * ui;
+        // 小地图与按钮之间留出小分队状态条(HUD 顶右锚, -288 起、高 44)的位置，避免互相遮挡(用户要求)。
+        float top = minimapBottom + 70f * ui;
         Rect btn = new Rect(Screen.width - bw - margin, top, bw, bh);
         if (GUI.Button(btn, show ? "调测:开" : "调测地图", buttonStyle))
         {

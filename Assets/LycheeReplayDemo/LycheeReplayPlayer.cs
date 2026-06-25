@@ -3098,7 +3098,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         int count = payload.memberCount > 0 ? payload.memberCount : payload.count;
         if (count <= 0) count = payload.squadCount;
         if (count <= 0) count = defaultDispatchMemberCount;
-        return Mathf.Clamp(count, 1, 24);
+        return Mathf.Clamp(count, 1, 8);   // 小分队总人手 8，最多 8 名（队员数上限）
     }
 
     static int PayloadArrivalRound(LycheeReplayPayload payload, int currentRound)

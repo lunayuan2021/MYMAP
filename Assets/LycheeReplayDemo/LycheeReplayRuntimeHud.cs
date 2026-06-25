@@ -1033,7 +1033,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     void BuildToast(Transform parent)
     {
-        RectTransform panel = Rect("DispatchToast", parent, new Vector2(0.5f, BottomHudAnchorY), new Vector2(0f, BottomHeight * 0.5f + 34f), new Vector2(700f, 50f), new Vector2(0.5f, 0.5f));
+        // 小分队状态条挪到右上角小地图(参考 1920×1080，顶右锚 -16/-16、260 大)正下方：
+        // 小地图底 ≈ -276，这里放在 -288 起、右对齐，宽 380；调测按钮已下移到本条之下，互不遮挡。
+        RectTransform panel = Rect("DispatchToast", parent, new Vector2(1f, 1f), new Vector2(-16f, -288f), new Vector2(380f, 44f), new Vector2(1f, 1f));
         toastRect = panel;
         toastBasePos = panel.anchoredPosition;
         toastGroup = panel.gameObject.AddComponent<CanvasGroup>();
@@ -1043,8 +1045,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         toastBg.raycastTarget = false;
         // 矮条用更大的 border 缩放：512px 贴图的 18% 边在 50 高的条上必须压薄才不挤爆四角
         ApplyPanelFrame(panel, 6f);
-        toastText = Text("ToastText", panel, 17, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(666f, 34f), new Vector2(0.5f, 0.5f));
+        toastText = Text("ToastText", panel, 15, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(360f, 30f), new Vector2(0.5f, 0.5f));
         SetGroup(toastGroup, false, 0f);
     }
 
