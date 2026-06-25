@@ -2002,10 +2002,19 @@ public static class LycheeMapLayoutGenerator_20260613
         return false;
     }
 
-    /// <summary>S5 背景山川散布：图外留白处沿边环抱成链摆背景山脉(mountain_terrain_02) + 山脚岩堆/树丛，
-    /// 补"古地图味"（用户记得"以前有山、现在没了"）。确定性哈希(StableHash)决策、禁无种子 Random；keep-out 距路/河
-    /// 中心线 ≥BackgroundKeepout 不挡玩法区；幂等(先删上轮容器再布)；落地用挖河后 ctx.terrainSurface.TrySampleTop。
-    /// 复用已有 prefab、零自造模型。容器名避开既有清理词(Exclude/Grass/BankTrim/ShoreTrim/RiverBed/EntranceBlend)。</summary>
+    /// <summary>用户 2026-06-25 手调并验收的背景山布局：13 座 mountain_terrain_02，全靠地图边缘、对各图中央玩法区都安全。
+    /// 每行 = x, y, z, scale, rotY。ScatterBackgroundScenery 直接按此摆（替代程序随机），并对会压路的做离心外推兜底。</summary>
+    static readonly float[,] BgMountainLayout = {
+        {19.5f,-1.00f,29.1f,0.724f,71f},  {112.0f,-1.00f,24.9f,2.013f,75f}, {-44.3f,-1.00f,4.2f,0.737f,78f},
+        {-0.8f,-1.00f,18.8f,2.031f,82f},  {-37.1f,-1.00f,10.0f,0.751f,85f}, {-56.2f,-1.20f,-12.7f,1.246f,89f},
+        {-13.7f,-1.00f,-61.7f,0.764f,92f},{71.6f,-1.00f,22.7f,2.068f,96f},  {-42.7f,-1.00f,-64.9f,0.778f,99f},
+        {-50.9f,-0.70f,-60.8f,1.561f,103f},{28.7f,-1.00f,-78.4f,1.355f,110f},{88.4f,-0.40f,-83.8f,2.115f,113f},
+        {43.9f,-1.00f,-61.2f,0.811f,117f},
+    };
+
+    /// <summary>S5 背景山川：按用户手调烧死的 BgMountainLayout 摆背景山脉(mountain_terrain_02) + 山旁加树。
+    /// 会压路的山沿离心方向外推兜底（绝不挡路）；幂等(先删上轮容器再布)；复用已有 prefab、零自造。
+    /// 容器名避开既有清理词(Exclude/Grass/BankTrim/ShoreTrim/RiverBed/EntranceBlend)。</summary>
     static void ScatterBackgroundScenery(SceneContext ctx, Dictionary<string, MapStationAnchor> anchorById, List<string> report)
     {
         if (ctx == null) return;
@@ -2038,67 +2047,50 @@ public static class LycheeMapLayoutGenerator_20260613
             { var b = mr.bounds; mapHalfX = b.extents.x; mapHalfZ = b.extents.z; mapC = new Vector2(b.center.x, b.center.z); break; }
 
         string mk = ctx.mapKey ?? "map";
-        int placedM = 0, placedFeet = 0, gi = 0;
-        for (int ch = 0; ch < BackgroundChainCount; ch++)
+        // 用户 2026-06-25 手调并验收的背景山布局（13 座、靠边、对各图玩法区都安全）→ 烧死成固定布局，替代程序随机摆放。
+        // 兜底：万一某座会压到路/河，沿「离地图中心」方向把它往外推到不挡路（保住方位、绝不挡路）；推不开才跳过。山旁加树(避开路)。
+        int placedM = 0, treeN = 0, nudged = 0;
+        for (int r = 0; r < BgMountainLayout.GetLength(0); r++)
         {
-            // 链中心：分扇区(保证环抱全图四周)+强抖动(±0.65 扇区→不规律、链间有疏有密) + 随机深度 → 既环绕又错落乱排；radius keep-out 兜底不挡路
-            float ca = ((ch + 0.5f + (Hash01(mk, ch, 20) - 0.5f) * 1.3f) / BackgroundChainCount) * Mathf.PI * 2f;
-            float crf = BackgroundRingFracInner + Hash01(mk, ch, 21) * (BackgroundRingFracOuter - BackgroundRingFracInner);
-            float ccx = mapC.x + Mathf.Cos(ca) * crf * mapHalfX;
-            float ccz = mapC.y + Mathf.Sin(ca) * crf * mapHalfZ;
-            float cdir = Hash01(mk, ch, 26) * Mathf.PI * 2f;       // 链延伸方向（脉走向）
-            int members = 2 + (ch % 3) + (int)(Hash01(mk, ch, 22) * 1.99f); // 每链 2-5 座、ch%3 保证链长错落(不会偶然同长)、成真正的脉
-            for (int k = 0; k < members; k++, gi++)
+            float x = BgMountainLayout[r, 0], y = BgMountainLayout[r, 1], z = BgMountainLayout[r, 2];
+            float sc = BgMountainLayout[r, 3], rot = BgMountainLayout[r, 4];
+            float rad = 15f * sc;                                  // mountain_terrain_02 半宽 ≈15×scale(树环用)
+            float radSafe = rad + 6f;                              // 避让半径：山体实际略超 15×scale + 肉眼余量 → 保证离路看得出空当
+            // 兜底外推：整座山(radSafe)+keep-out 都得离路；不够就沿离心方向每次外推 4m，最多 24 步
+            Vector2 outDir = (new Vector2(x, z) - mapC); outDir = outDir.sqrMagnitude < 1e-4f ? Vector2.right : outDir.normalized;
+            int step = 0;
+            while (NearAnyPath(x, z, paths, radSafe + BackgroundKeepout) && step < 24)
+            { x += outDir.x * 4f; z += outDir.y * 4f; step++; }
+            x = Mathf.Clamp(x, -mapHalfX * 0.99f, mapHalfX * 0.99f);
+            z = Mathf.Clamp(z, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
+            if (NearAnyPath(x, z, paths, radSafe)) { report.Add($"[背景山] 推不开、跳过(会压路) @({x:F0},{z:F0})"); continue; }
+            if (step > 0) { nudged++; }
+            var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
+            m.transform.SetParent(root, true);
+            m.transform.position = new Vector3(x, y, z);
+            m.transform.rotation = Quaternion.Euler(0f, rot, 0f);
+            m.transform.localScale = Vector3.one * sc;
+            placedM++;
+            // 山旁加树（山基外圈一圈、避开路；用户要求）
+            int nt = 3 + (int)(Hash01(mk, r, 50) * 4f);           // 每座 3-6 棵
+            for (int j = 0; j < nt; j++)
             {
-                float along = (k - (members - 1) * 0.5f) * BackgroundChainStep;       // 沿链方向排开
-                float jit = (Hash01(mk, ch * 13 + k, 27) - 0.5f) * 2f * BackgroundChainJitter; // 垂直抖动（脉不成直线）
-                float x = Mathf.Clamp(ccx + Mathf.Cos(cdir) * along + Mathf.Cos(cdir + 1.5708f) * jit, -mapHalfX * 0.99f, mapHalfX * 0.99f);
-                float z = Mathf.Clamp(ccz + Mathf.Sin(cdir) * along + Mathf.Sin(cdir + 1.5708f) * jit, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
-                // 每链中段一座主峰(大)、其余小丘 → 大小错落、成"主峰+群丘"的真山脉感
-                bool isMain = (k == members / 2);
-                float sizeF = isMain ? (1.7f + Hash01(mk, gi, 2) * 0.9f) : (0.55f + Hash01(mk, gi, 2) * 0.65f);
-                float targetW = BackgroundMountainBaseWidth * sizeF;   // 目标世界宽：主峰~60-90m、小丘~18-38m
-                // ★★ 山绝不能挡路：按「整座山半径(targetW/2)+余量」做 keep-out —— 不只测山心、测整座山都离路/河够远，
-                //    否则中心避开了、40m 半径照样盖住路(用户多次强调的真 bug)。同时离节点(站点)也留出半径。
-                if (NearAnyPath(x, z, paths, targetW * 0.5f + BackgroundKeepout + 3f)) continue;
-                bool nearNode = false;
-                if (anchorById != null) foreach (var kv2 in anchorById) { var aa = kv2.Value; if (aa == null) continue; if ((new Vector2(aa.transform.position.x, aa.transform.position.z) - new Vector2(x, z)).magnitude < targetW * 0.5f + 6f) { nearNode = true; break; } }
-                if (nearNode) continue;
-                float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
-                bool useB = !isMain && mtnB != null && Hash01(mk, gi, 12) > 0.55f; // 小丘 45% 用第二种(宽缓山)、主峰用 craggy 峰
-                GameObject pfM = useB ? mtnB : mtn;
-                float nativeW = useB ? 488f : 30f, baseToPivot = useB ? 45.73f : 0f; // 两种 prefab 各自归一+落地(枢轴不同)
-                float sc = targetW / nativeW;
-                var m = (GameObject)PrefabUtility.InstantiatePrefab(pfM);
-                m.transform.SetParent(root, true);
-                m.transform.position = new Vector3(x, y - 1.0f + baseToPivot * sc, z);  // 按各 prefab 枢轴落地、基座埋 1m
-                m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, gi, 3) * 360f, 0f);
-                m.transform.localScale = Vector3.one * sc;
-                placedM++;
-                // 山脚：1~2 个岩堆/树丛（按山宽散布）
-                int feet = 1 + (int)(Hash01(mk, gi, 4) * 2f);
-                for (int j = 0; j < feet; j++)
-                {
-                    float fa = Hash01(mk, gi * 11 + j, 5) * Mathf.PI * 2f;
-                    float fr = targetW * (0.4f + Hash01(mk, gi * 11 + j, 6) * 0.25f);
-                    float fx = x + Mathf.Cos(fa) * fr, fz = z + Mathf.Sin(fa) * fr;
-                    if (NearAnyPath(fx, fz, paths, BackgroundKeepout)) continue;
-                    bool isTree = Hash01(mk, gi * 11 + j, 8) > 0.45f;
-                    var pool = isTree ? trees : rocks;
-                    if (pool.Count == 0) continue;
-                    var pf = pool[(int)(Hash01(mk, gi * 11 + j, 9) * pool.Count) % pool.Count];
-                    float fy = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(fx, fz, out float fty) ? fty : 0f;
-                    var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf);
-                    inst.transform.SetParent(root, true);
-                    inst.transform.position = new Vector3(fx, fy, fz);
-                    inst.transform.rotation = Quaternion.Euler(0f, Hash01(mk, gi * 11 + j, 10) * 360f, 0f);
-                    float s2 = 0.8f + Hash01(mk, gi * 11 + j, 11) * 0.8f;
-                    inst.transform.localScale = Vector3.one * (isTree ? s2 : s2 * 1.3f);
-                    placedFeet++;
-                }
+                if (trees.Count == 0) break;
+                float ta = Hash01(mk, r * 9 + j, 51) * Mathf.PI * 2f;
+                float td = rad * (1.0f + Hash01(mk, r * 9 + j, 52) * 0.45f); // 山基外圈、不压山体
+                float tx = x + Mathf.Cos(ta) * td, tz = z + Mathf.Sin(ta) * td;
+                if (NearAnyPath(tx, tz, paths, BackgroundKeepout + 1f)) continue; // 树也不挡路
+                var pf = trees[(int)(Hash01(mk, r * 9 + j, 53) * trees.Count) % trees.Count];
+                float tyv = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(tx, tz, out float tts) ? tts : 0f;
+                var ti = (GameObject)PrefabUtility.InstantiatePrefab(pf);
+                ti.transform.SetParent(root, true);
+                ti.transform.position = new Vector3(tx, tyv, tz);
+                ti.transform.rotation = Quaternion.Euler(0f, Hash01(mk, r * 9 + j, 54) * 360f, 0f);
+                ti.transform.localScale = Vector3.one * (0.9f + Hash01(mk, r * 9 + j, 55) * 0.8f);
+                treeN++;
             }
         }
-        report.Add($"[背景山川] 成链散布 {placedM} 座背景山脉({BackgroundChainCount} 链、错落) + 山脚岩树丛 {placedFeet}（确定性哈希、keep-out {BackgroundKeepout:F1}，幂等容器 {rootName}）");
+        report.Add($"[背景山·固定布局] 摆 {placedM} 座(用户手调烧死、外推兜底 {nudged} 座) + 山旁树 {treeN}（绝不挡路、幂等 {rootName}）");
     }
 
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
