@@ -74,8 +74,9 @@ public static class LycheeMapLayoutGenerator_20260613
     const float CarveHalfWidth = 1.4f;     // 河谷半宽：大幅收窄河道（2.4→1.4，碗形截面）
     const float CarveDepth = 1.50f;        // 河谷深度 1.5：容下 -1.26 的水面、谷壁高出水面 ~1.26
     // S3 山路抬脊（镜像挖河、只抬不降）：沿山路中心线把平面抬成倒U山脊，山路自然贴脊
-    const float RidgeCrest = 0.6f;         // 山脊中心抬高（用户锁定"微微"）；山口 N3 再叠 RidgePassExtra
-    const float RidgeHalfWidth = 2.5f;     // 山脊半宽：中心最高、到此宽渐降回平地（用户锁定）
+    const float RidgeCrest = 1.2f;         // 山脊中心抬高（2026-06-25 用户：0.6 太不明显、不像真山路 → 提到 1.2）；山口 N3 再叠 RidgePassExtra
+    const float RidgeHalfWidth = 3.2f;     // 山脊半宽：中心最高、到此宽渐降回平地（加宽 2.5→3.2 配合平顶）
+    const float RidgeFlatFrac = 0.45f;     // 山脊平顶占比：内侧这比例宽度保持满高（平顶）→ 路坐平顶上不颠，外侧才渐降（修路面坑洼）
     const float RidgeEndTaperFrac = 0.22f; // 端点收口占比：山路两端这一段把脊高渐隐到 0，别顶飞驿站
     const float RidgeWaterKeepout = 2.0f;  // 到水中心线 <此距离 不抬脊（防把河填平）
     const float RidgePassExtra = 0.35f;    // N3 山口/关隘：≥2 条山路汇聚的节点处脊顶再叠这么高（全图制高点，S4 用）
@@ -83,9 +84,9 @@ public static class LycheeMapLayoutGenerator_20260613
     const float NodeBusyLift = 0.10f;      // N1 忙站(>2 路/河汇聚)：建筑+脚下抬这么高的夯土小广场（用户锁定）
     const float NodePlazaPad = 1.4f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（台子比建筑大一圈、留集散地）
     // S5 背景山川散布（图外留白处成链摆山脉+山脚岩树，"古地图味"；确定性哈希、禁无种子 Random）
-    const int   BackgroundMountainCount = 22; // 沿边环抱的背景山脉座数（角落更密更大）
-    const float BackgroundMountainScale = 1.0f; // 山脉基准缩放（×0.7~1.5 哈希抖动 + 角落更大）
-    const float BackgroundRingMargin = 14f;   // 山脉环内沿 = 玩法区半径 + 这个余量（再往外按哈希散开）
+    const int   BackgroundMountainCount = 14; // 背景山脉座数（2026-06-25 用户：太多了 → 22→14 星星点点）
+    const float BackgroundMountainScale = 1.1f; // 山脉基准缩放（推远了略放大补距离感）
+    const float BackgroundRingFrac = 0.80f;   // 山脉环半径 = 大地图(背景地形)半幅 × 此比例（2026-06-25 用户：推到地图边界红线、远离路网不压路）
     const float BackgroundKeepout = 3.5f;     // 背景景物距路/河中心线最小距离（不挡玩法可读区）
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
@@ -1898,7 +1899,8 @@ public static class LycheeMapLayoutGenerator_20260613
             float baseY = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(nearest.x, nearest.y, out float cy) ? cy : origY;
             float endFade = RidgeEndFade(along);
             float s = d / RidgeHalfWidth;
-            float shape = Mathf.SmoothStep(1f, 0f, s); // 1 中心 → 0 边缘：倒U山脊
+            // 平顶山脊：内 RidgeFlatFrac 比例满高(平顶，路坐其上不颠)、外侧 SmoothStep 渐降回平地
+            float shape = s < RidgeFlatFrac ? 1f : Mathf.SmoothStep(1f, 0f, (s - RidgeFlatFrac) / (1f - RidgeFlatFrac));
             float crest = RidgeCrest;
             if (passNodes != null)                      // N3 山口：节点半径内额外叠高 → 全图制高点
                 foreach (var (pc, pr) in passNodes)
@@ -2023,28 +2025,33 @@ public static class LycheeMapLayoutGenerator_20260613
         var paths = new List<Vector3[]>();
         foreach (var e in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
             if (e != null) { var w = ExistingEdgeWorldPath(e); if (w != null) paths.Add(w); }
+        // 大地图(背景地形)范围 → 山脉环推到它的边界（用户红线、远离玩法路网，不再压路）
+        float mapHalfX = 105f, mapHalfZ = 85f; Vector2 mapC = c;
+        foreach (var mr in UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            if (mr != null && mr.name.Contains("Extended_Ground"))
+            { var b = mr.bounds; mapHalfX = b.extents.x; mapHalfZ = b.extents.z; mapC = new Vector2(b.center.x, b.center.z); break; }
 
         string mk = ctx.mapKey ?? "map";
         int placedM = 0, placedFeet = 0;
         for (int i = 0; i < BackgroundMountainCount; i++)
         {
-            float ang = (i + Hash01(mk, i, 70) * 0.7f - 0.35f) / BackgroundMountainCount * Mathf.PI * 2f;
-            float corner = Mathf.Abs(Mathf.Cos(2f * ang));                 // 0 边中、1 角落 → 角落更外更大更密
-            float rx = (hx + BackgroundRingMargin) + Hash01(mk, i, 1) * 40f + corner * 18f;
-            float rz = (hz + BackgroundRingMargin) + Hash01(mk, i, 1) * 32f + corner * 14f;
-            float x = Mathf.Clamp(c.x + Mathf.Cos(ang) * rx, -104f, 104f);
-            float z = Mathf.Clamp(c.y + Mathf.Sin(ang) * rz, -84f, 84f);
+            float ang = (i + Hash01(mk, i, 70) * 0.6f - 0.3f) / BackgroundMountainCount * Mathf.PI * 2f;
+            // 环半径 = 大地图半幅 × BackgroundRingFrac(+小抖动) → 山脉坐在地图边界、星星点点（不在小玩法区周围）
+            float rx = mapHalfX * (BackgroundRingFrac + Hash01(mk, i, 1) * 0.12f);
+            float rz = mapHalfZ * (BackgroundRingFrac + Hash01(mk, i, 1) * 0.12f);
+            float x = Mathf.Clamp(mapC.x + Mathf.Cos(ang) * rx, -mapHalfX * 0.99f, mapHalfX * 0.99f);
+            float z = Mathf.Clamp(mapC.y + Mathf.Sin(ang) * rz, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
             if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;  // 山脉大、多留余量
             float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
             var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
             m.transform.SetParent(root, true);
-            float sc = BackgroundMountainScale * (0.7f + Hash01(mk, i, 2) * 0.7f + corner * 0.45f);
+            float sc = BackgroundMountainScale * (0.8f + Hash01(mk, i, 2) * 0.6f);
             m.transform.position = new Vector3(x, y - 1.0f, z);             // 基座埋一点、无缝接地
             m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, i, 3) * 360f, 0f);
             m.transform.localScale = Vector3.one * sc;
             placedM++;
-            // 山脚：2~4 个岩堆/树丛
-            int feet = 2 + (int)(Hash01(mk, i, 4) * 3f);
+            // 山脚：1~2 个岩堆/树丛（减量，避免太满）
+            int feet = 1 + (int)(Hash01(mk, i, 4) * 2f);
             for (int j = 0; j < feet; j++)
             {
                 float fa = Hash01(mk, i * 11 + j, 5) * Mathf.PI * 2f;
