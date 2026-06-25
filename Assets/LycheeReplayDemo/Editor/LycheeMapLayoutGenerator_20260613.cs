@@ -109,7 +109,8 @@ public static class LycheeMapLayoutGenerator_20260613
     const float BoatAcrossRiverOffset = -0.30f; // 船心相对站点锚点：垂直河方向偏移(m)（基本压在中心线、略偏一侧）
     const float CarveEndTaperFrac = 0.18f; // 沿河两端更长收口到 0（端点是驿站/码头，不能挖坑淹建筑）
     const float WaterDepthFrac = 0.3f;     // 水位（0.55→0.3 水面更靠近岸顶、河道水更满，露出的沙岸更薄）
-    const float WaterDrapeWidth = 4.2f;    // 水面宽：半宽2.1 几乎填满河槽(半宽2.4)，消掉裸沙浴缸、水贴岸→水与河谷一体（S1 一体化）
+    const float WaterDrapeWidth = 2.6f;    // 水面宽：半宽1.3 < 河槽半宽 CarveHalfWidth1.4 → 水面只在河槽内、边缘被陡壁遮住，
+                                           // 不再外溢到近平岸面(Y≈0)上随地形起伏穿帮成"格子"(用户反馈)。原4.2(半宽2.1)注释里的2.4是旧河槽、已收窄到1.4。
     const float WaterDrapeLift = 0f;       // 水位不再额外抬（碗形：水面=岸顶-WaterDepthBelowBank；行船点/交汇共用）
     const float WaterDepthBelowBank = 1.26f; // 网格顶点几何高度（注意：这个 WaterShader 渲染时不看顶点Y，只看物体 transform.Y → 见 WaterRenderHeight）
     const float WaterRenderHeight = -0.15f;  // ★★ 真正生效的水面高度 = 水路物体 transform.Y。WaterShader 按物体位置渲染水面、无视网格顶点Y。用户验收值 -0.15
