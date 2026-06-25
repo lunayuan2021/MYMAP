@@ -2079,26 +2079,34 @@ public static class LycheeMapLayoutGenerator_20260613
             m.transform.rotation = Quaternion.Euler(0f, rot, 0f);
             m.transform.localScale = Vector3.one * psc;
             placedM++;
-            // 山旁加树：山「前面」(朝地图中心一侧)散开成一小林——不在山后、不排排坐、不挡路(用户反馈)
+            // 山旁加树：山前方半区「真·散点」——随机角 + 随机远近(从山脚一直撒到旷野) + 最小间距剔除，
+            // 彻底避免"排排坐/挤成篱笆"；不在山后、不挡路(用户两次反馈树太规整)
             Vector2 toCenter = mapC - new Vector2(x, z);
             float frontA = toCenter.sqrMagnitude < 1e-4f ? 0f : Mathf.Atan2(toCenter.x, toCenter.y); // 朝地图中心的方向(Unity Y旋转式)
-            int nt = 4 + (int)(Hash01(mk, r, 50) * 5f);           // 每座 4-8 棵成一小林
-            for (int j = 0; j < nt; j++)
+            int want = 3 + (int)(Hash01(mk, r, 50) * 4f);          // 目标 3-6 棵
+            int tries = 0;
+            while (treesPlacedHere.Count < want && tries < 30 && trees.Count > 0)
             {
-                if (trees.Count == 0) break;
-                float ta = frontA + (Hash01(mk, r * 9 + j, 51) - 0.5f) * 2.4f;       // 前方 ±~70° 扇区(只在山前)
-                float td = rad * (0.85f + Hash01(mk, r * 9 + j, 52) * 0.95f);        // 距离 0.85~1.8×半径(散开、非一圈、不排排坐)
+                int h = r * 37 + tries; tries++;
+                float ta = frontA + (Hash01(mk, h, 51) - 0.5f) * 3.0f;              // 前方 ±~86° 随机角
+                float td = rad * (0.9f + Hash01(mk, h, 52) * 1.7f);                 // 0.9~2.6×半径：拉开远近、不贴同一条base弧线
                 float tx = x + Mathf.Sin(ta) * td, tz = z + Mathf.Cos(ta) * td;
-                if (NearAnyPath(tx, tz, paths, BackgroundKeepout + 1f)) continue;    // 树也不挡路
-                var pf2 = trees[(int)(Hash01(mk, r * 9 + j, 53) * trees.Count) % trees.Count];
+                if (NearAnyPath(tx, tz, paths, BackgroundKeepout + 1f)) continue;   // 树也不挡路
+                bool tooClose = false;                                              // 与本座已放的树保持 ≥7m，防排成行/挤成篱笆
+                var here = new Vector2(tx, tz);
+                foreach (var pt in treesPlacedHere) if ((pt - here).sqrMagnitude < 49f) { tooClose = true; break; }
+                if (tooClose) continue;
+                treesPlacedHere.Add(here);
+                var pf2 = trees[(int)(Hash01(mk, h, 53) * trees.Count) % trees.Count];
                 float tyv = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(tx, tz, out float tts) ? tts : 0f;
                 var ti = (GameObject)PrefabUtility.InstantiatePrefab(pf2);
                 ti.transform.SetParent(root, true);
                 ti.transform.position = new Vector3(tx, tyv, tz);
-                ti.transform.rotation = Quaternion.Euler(0f, Hash01(mk, r * 9 + j, 54) * 360f, 0f);
-                ti.transform.localScale = Vector3.one * (0.9f + Hash01(mk, r * 9 + j, 55) * 0.8f);
+                ti.transform.rotation = Quaternion.Euler(0f, Hash01(mk, h, 54) * 360f, 0f);
+                ti.transform.localScale = Vector3.one * (0.7f + Hash01(mk, h, 55) * 1.1f);  // 0.7~1.8 大小差异更大
                 treeN++;
             }
+            treesPlacedHere.Clear();
         }
         report.Add($"[背景山·固定布局] 摆 {placedM} 座(用户手调烧死、外推兜底 {nudged} 座) + 山旁树 {treeN}（绝不挡路、幂等 {rootName}）");
     }
