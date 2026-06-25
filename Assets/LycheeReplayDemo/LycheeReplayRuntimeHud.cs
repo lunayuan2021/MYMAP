@@ -28,6 +28,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         public Image avatar;
     }
 
+    // 底部维度对比行：一行一个维度，中央金色标签，红值居左、蓝值居右。
+    sealed class StatRow
+    {
+        public Text label;
+        public Text redValue;
+        public Text blueValue;
+    }
+
     sealed class DualBar
     {
         public Image redFill;
@@ -53,6 +61,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         public string flipCard;       // 原始牌名（映射正面贴图用，与显示文字分离）
         public bool flipFrontShown;   // 是否已过中点换到正面
         public float glowStart = float.NegativeInfinity; // 脉冲开始时刻（可设未来值=延迟启动）
+        // 正/背面牌图相对牌块的锚点偏移：右侧小卡牌名在牌面右侧(正面 -55 给牌名让位)；
+        // 中央大卡牌面居中、牌名另设在卡下方，故两态都用 0。由 Build*Card 按版式设定。
+        public Vector2 frontFaceOffset = new Vector2(-55f, 0f);
+        public Vector2 backFaceOffset = Vector2.zero;
     }
 
     const string CanvasName = "LycheeReplayRuntimeHUD_20260612";
@@ -63,9 +75,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     const float BottomHudAnchorY = 0f;
     // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
     const float BarTrackWidth = 190f;
-    // 事件弹窗单条时长硬上限。原 3f 把上游 4.5s 的事件卡也压成 3s→用户嫌"停留太短"。放到 5.5f：
-    // 事件卡按上游 4.5s 完整展示;对抗逐拍(2.6s)由回放减速保证看清,不靠这里堆时长。
-    const float CombatMaxSeconds = 5.5f;
+    // 右侧事件卡单条时长硬上限。用户要"保留时长久一些"→放到 8.0f，让上游 7.5s 的事件卡完整展示。
+    // (窗口争夺出牌已移到中央 contestGroup 大窗口、自有节奏，不再受这里约束。)
+    const float CombatMaxSeconds = 8.0f;
     // 弹窗淡入淡出时长：取代原 alpha 1↔0 硬切，观赏性显著提升。
     const float CombatFadeSeconds = 0.25f;
     // 两条普通弹窗之间的最小喘息间隔（上一条隐藏后再等这么久才弹队首）。
@@ -110,10 +122,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Text phaseText;
     // 原中央“最新事件”文本（EventText）已删除：它与四条进度条的中央标签文字重叠，
     // 且左侧事件流（LycheeHudExtensions）已承担最新事件展示职责。
-    DualBar freshBar;
-    DualBar fruitBar;
-    DualBar progressBar; // 原 squadBar：squadAvailable 在本回放数据里恒为 0（静态条），改绑 progress（每回合随车队推进变化）
-    DualBar scoreBar;
+    // 底部 9 维度对比行(鲜度/好果/坏果/任务数/总分/任务分/惩罚分/状态/整体进度)，取代原 4 条进度条。
+    StatRow[] statRows;
+    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "总分", "任务分", "惩罚分", "状态", "整体进度" };
     CanvasGroup combatGroup;
     RectTransform combatRect;
     Vector2 combatBasePos;
@@ -127,6 +138,20 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Text combatScore;
     CardFx redCardFx;
     CardFx blueCardFx;
+    // 窗口争夺「出牌」专用中央大窗口：与右侧 400x252 事件卡面板(combatGroup)彻底解耦，
+    // 让逐拍出牌/验牌在画面正中央放大展示、看得一清二楚。仅 WINDOW_CONTEST_* 走这里。
+    CanvasGroup contestGroup;
+    RectTransform contestRect;
+    Vector2 contestBasePos;
+    Image contestImage;          // 对抗类型插画（缺图自动隐藏）
+    Text contestTitle;
+    Text contestSubtitle;        // 「谁得势 · 谁克谁」/「本拍平手」
+    Text contestScore;
+    Text contestVs;              // 中央 VS
+    CardFx contestRedFx;
+    CardFx contestBlueFx;
+    float contestUntil;
+    float contestShowStart = float.NegativeInfinity;
     CanvasGroup openingGroup;
     Text openingTitle;
     Text openingRed;
@@ -256,10 +281,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         rollTargetBlueScore = 0;
         redScorePopStart = float.NegativeInfinity;
         blueScorePopStart = float.NegativeInfinity;
-        UpdateBar(freshBar, 92f, 88f, "92%", "88%", 0f, 0f, "%");
-        UpdateBar(fruitBar, 36f, 32f, "36", "32", 0f, 0f, "");
-        UpdateBar(progressBar, 42f, 38f, "42%", "38%", 0f, 0f, "%");
-        UpdateBar(scoreBar, 0f, 0f, "0", "0", 0f, 0f, "");
+        // 维度对比预览样例(鲜度/好果/坏果/任务数/总分/任务分/惩罚分/状态/整体进度)
+        SetStatRow(0, "92%", "88%");
+        SetStatRow(1, "36", "32");
+        SetStatRow(2, "4", "6");
+        SetStatRow(3, "3", "2");
+        SetStatRow(4, "420", "390");
+        SetStatRow(5, "120", "100");
+        SetStatRow(6, "-15", "-8");
+        SetStatRow(7, "在线", "在线");
+        SetStatRow(8, "42.0%", "38.0%");
         SetGroup(combatGroup, false, 0f);
         SetGroup(openingGroup, false, 0f);
         SetGroup(toastGroup, false, 0f);
@@ -298,11 +329,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         }
     }
 
+    // 窗口争夺三连击（开始/逐拍亮牌/结算）全部走画面正中央的「出牌」大窗口(contestGroup)，
+    // 不再挤进右侧 400x252 事件卡面板——出牌/验牌在中央放大、逐拍看清。每拍时长略大于回放
+    // 逐拍减速(2.6s)，使大窗口在整场对抗内连续可见、不闪断。
     public void ShowCombatStart(int round, string nodeId, int totalRounds, string contestType)
     {
         contestTypeLabel = ContestTypeLabel(contestType);
-        ShowCombat(0, null, contestTypeLabel + "开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true, "battle");
-        // 对抗暗角聚焦：压暗四周把视线收到战场与弹窗上，CONTEST_END 时淡出
+        DisplayContest(0, contestTypeLabel + "  第" + round + "回合",
+            "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + " 拍定胜负",
+            "红队", "蓝队", "0 : 0", 3.2f);
+        // 对抗暗角聚焦：压暗四周把视线收到战场与中央出牌窗口上，CONTEST_END 时淡出
         SetVignette(true);
     }
 
@@ -317,21 +353,23 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             sub = WinnerText(winner) + " 本拍得势 · " + CardText(winCard) + " 克 " + CardText(loseCard);
         }
         else sub = "本拍平手";
-        ShowCombat(1, null, contestTypeLabel + " 第" + Mathf.Max(1, roundIndex) + "拍  第" + round + "回合", sub, CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.6f, true, "battle");
+        DisplayContest(1, contestTypeLabel + "  第" + Mathf.Max(1, roundIndex) + "拍 / 第" + round + "回合",
+            sub, CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 3.0f);
         // 亮牌瞬间双方卡片同时翻面：先露牌背、过中点换正面贴图（传原始牌名做映射）
-        StartCardFlip(redCardFx, redCard);
-        StartCardFlip(blueCardFx, blueCard);
+        StartCardFlip(contestRedFx, redCard);
+        StartCardFlip(contestBlueFx, blueCard);
         // 单局得势方的金色脉冲延迟到翻面落定后再亮，节拍上不与翻面抢戏
-        if (winner == "RED") StartWinnerGlow(redCardFx, CardFlipSeconds);
-        else if (winner == "BLUE") StartWinnerGlow(blueCardFx, CardFlipSeconds);
+        if (winner == "RED") StartWinnerGlow(contestRedFx, CardFlipSeconds);
+        else if (winner == "BLUE") StartWinnerGlow(contestBlueFx, CardFlipSeconds);
     }
 
     public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
     {
-        ShowCombat(2, null, contestTypeLabel + "结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
+        DisplayContest(2, contestTypeLabel + "结束  第" + round + "回合", WinnerText(winner) + " 胜出",
+            "红队 " + redPoint + " 分", "蓝队 " + bluePoint + " 分", redPoint + " : " + bluePoint, 4.5f);
         // 胜者演出：判出胜负的这一拍给胜方卡片两次金色脉冲，并配一记短促震屏强化打击感
-        if (winner == "RED") StartWinnerGlow(redCardFx, 0f);
-        else if (winner == "BLUE") StartWinnerGlow(blueCardFx, 0f);
+        if (winner == "RED") StartWinnerGlow(contestRedFx, 0f);
+        else if (winner == "BLUE") StartWinnerGlow(contestBlueFx, 0f);
         if (winner == "RED" || winner == "BLUE") ShakeCamera(0.18f, 0.35f);
         // 对抗收束：暗角 0.6s 缓缓放开
         SetVignette(false);
@@ -340,9 +378,40 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // 窗口平局（WINDOW_CONTEST_DRAW）：三拍胜点相同、无胜方。中性收束，不给任一方金光/震屏。
     public void ShowCombatDraw(int round, int redPoint, int bluePoint)
     {
-        ShowCombat(2, null, contestTypeLabel + "平局  第" + round + "回合", "双方胜点相同 · 无人得手，各自休整",
-            "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
+        DisplayContest(2, contestTypeLabel + "平局  第" + round + "回合", "双方胜点相同 · 无人得手，各自休整",
+            "红队 " + redPoint + " 分", "蓝队 " + bluePoint + " 分", redPoint + " : " + bluePoint, 4.5f);
         SetVignette(false);
+    }
+
+    // 中央出牌窗口的统一上屏：设标题/副标题/比分与双方牌块文字，重置翻面状态，并续期可见。
+    // priority 路径——对抗三连击是连续叙事，实时覆盖、不排队。
+    void DisplayContest(int imageIndex, string title, string subtitle, string redLabel, string blueLabel, string score, float seconds)
+    {
+        EnsureBuilt();
+        if (contestImage != null)
+        {
+            if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
+                contestImage.enabled = false;
+            else
+            {
+                contestImage.enabled = true;
+                contestImage.sprite = combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)];
+            }
+        }
+        contestTitle.text = title;
+        contestSubtitle.text = subtitle;
+        contestRedFx.label.text = redLabel;
+        contestBlueFx.label.text = blueLabel;
+        contestScore.text = score;
+        // 新内容上屏先清掉上一拍的翻面/脉冲残留；亮牌路径随后会重启翻面
+        ResetCardFx(contestRedFx);
+        ResetCardFx(contestBlueFx);
+        // 进场滑入只在从隐藏态弹出时触发：三连击连换内容不反复跳位
+        if (contestGroup.alpha <= 0.05f)
+            contestShowStart = Time.unscaledTime;
+        contestUntil = Time.unscaledTime + seconds;
+        contestGroup.interactable = false;
+        contestGroup.blocksRaycasts = false;
     }
 
     public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
@@ -379,6 +448,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 对抗演出同步作废：翻面/脉冲指向跳转前的旧对抗，暗角立即熄灭避免残留压暗画面
         ResetCardFx(redCardFx);
         ResetCardFx(blueCardFx);
+        // 中央出牌大窗口同样作废：否则跳转后 contestUntil 仍是旧未来值，面板会一直挂着不消
+        contestUntil = 0f;
+        contestShowStart = float.NegativeInfinity;
+        ResetCardFx(contestRedFx);
+        ResetCardFx(contestBlueFx);
         vignetteTarget = 0f;
         if (vignetteImage != null) vignetteImage.color = new Color(1f, 1f, 1f, 0f);
         // 比分滚动同步贴齐：跳转后不该花几秒"追"一个旧进度的中间值
@@ -397,12 +471,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         int blueCount,
         LycheeReplayScores scores,
         float redRouteProgress,
-        float blueRouteProgress)
+        float blueRouteProgress,
+        int redTaskCount = 0,
+        int blueTaskCount = 0)
     {
         EnsureBuilt();
 
-        int redScore = scores == null ? (red == null ? 0 : red.score) : scores.RED;
-        int blueScore = scores == null ? (blue == null ? 0 : blue.score) : scores.BLUE;
+        int redScore = TotalScoreOf(red, scores, true);
+        int blueScore = TotalScoreOf(blue, scores, false);
         bool newRound = round != lastRound;
 
         roundText.text = "第 " + round + " / " + lastReplayRound + " 回合";
@@ -437,10 +513,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float redProgress = Mathf.Clamp01(redRouteProgress) * 100f;
         float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
 
-        UpdateBar(freshBar, redFresh, blueFresh, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%", newRound ? redFresh - lastRedFresh : 0f, newRound ? blueFresh - lastBlueFresh : 0f, "%");
-        UpdateBar(fruitBar, redFruit, blueFruit, redFruit.ToString(), blueFruit.ToString(), newRound ? redFruit - lastRedFruit : 0, newRound ? blueFruit - lastBlueFruit : 0, "");
-        UpdateBar(progressBar, redProgress, blueProgress, redProgress.ToString("0") + "%", blueProgress.ToString("0") + "%", newRound ? redProgress - lastRedProgress : 0f, newRound ? blueProgress - lastBlueProgress : 0f, "%");
-        UpdateBar(scoreBar, redScore, blueScore, redScore.ToString(), blueScore.ToString(), newRound ? redScore - lastRedScore : 0, newRound ? blueScore - lastBlueScore : 0, "");
+        // 9 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。
+        SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%");
+        SetStatRow(1, redFruit.ToString(), blueFruit.ToString());
+        SetStatRow(2, (red == null ? 0 : red.badFruit).ToString(), (blue == null ? 0 : blue.badFruit).ToString());
+        SetStatRow(3, redTaskCount.ToString(), blueTaskCount.ToString());
+        SetStatRow(4, redScore.ToString(), blueScore.ToString());
+        SetStatRow(5, TaskScoreOf(red).ToString(), TaskScoreOf(blue).ToString());
+        SetStatRow(6, PenaltyScoreOf(red).ToString(), PenaltyScoreOf(blue).ToString());
+        SetStatRow(7, StatusTextOf(red), StatusTextOf(blue));
+        SetStatRow(8, (Mathf.Clamp01(redRouteProgress) * 100f).ToString("0.0") + "%", (Mathf.Clamp01(blueRouteProgress) * 100f).ToString("0.0") + "%");
 
         if (newRound)
         {
@@ -473,6 +555,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float combatSlide = (1f - EaseOutCubic((now - combatShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
         combatRect.anchoredPosition = combatBasePos + new Vector2(combatSlide, 0f);
 
+        // 中央出牌大窗口：同款 0.25s 淡入淡出 + 自下方 +24px 滑入；纯展示永不拦截点击。
+        contestGroup.alpha = Mathf.MoveTowards(contestGroup.alpha, now < contestUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
+        contestGroup.interactable = false;
+        contestGroup.blocksRaycasts = false;
+        float contestSlide = (1f - EaseOutCubic((now - contestShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
+        contestRect.anchoredPosition = contestBasePos + new Vector2(0f, -contestSlide);
+
         SetGroup(openingGroup, now < openingUntil && round <= 24, now < openingUntil && round <= 24 ? 1f : 0f);
 
         // 调度提示同样改为淡入淡出（原 alpha 硬切）+ 自上方 24px 滑入；
@@ -483,11 +572,15 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float toastSlide = (1f - EaseOutCubic((now - toastShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
         toastRect.anchoredPosition = toastBasePos + new Vector2(0f, toastSlide);
 
-        // 对抗演出每帧驱动：出牌翻面状态机 + 胜方金色脉冲
+        // 对抗演出每帧驱动：出牌翻面状态机 + 胜方金色脉冲（右侧事件卡 + 中央出牌窗口两套牌块）
         UpdateCardFlip(redCardFx, now);
         UpdateCardFlip(blueCardFx, now);
         UpdateWinnerGlow(redCardFx, now);
         UpdateWinnerGlow(blueCardFx, now);
+        UpdateCardFlip(contestRedFx, now);
+        UpdateCardFlip(contestBlueFx, now);
+        UpdateWinnerGlow(contestRedFx, now);
+        UpdateWinnerGlow(contestBlueFx, now);
 
         // 对抗暗角：朝目标透明度淡变（淡入 0.4s / 淡出 0.6s 不同速）
         if (vignetteImage != null)
@@ -625,7 +718,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         {
             fx.face.enabled = true;
             fx.face.sprite = back;
-            fx.face.rectTransform.anchoredPosition = Vector2.zero; // 背面牌图居中
+            fx.face.rectTransform.anchoredPosition = fx.backFaceOffset; // 背面牌图（默认居中）
             fx.backMark.enabled = false;
         }
         else
@@ -647,7 +740,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         {
             fx.face.enabled = true;
             fx.face.sprite = front;
-            fx.face.rectTransform.anchoredPosition = new Vector2(-55f, 0f); // 牌面靠左给牌名让位
+            fx.face.rectTransform.anchoredPosition = fx.frontFaceOffset; // 牌面偏移（右侧小卡靠左给牌名让位；中央大卡居中）
         }
         else
         {
@@ -743,13 +836,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         BuildVignette(root);
         BuildBottomHud(root);
         BuildCombat(root);
+        BuildContest(root);
         BuildOpening(root);
         BuildToast(root);
     }
 
     void EnsureBuilt()
     {
-        if (canvas != null && redTeam != null && blueTeam != null && roundText != null && freshBar != null && combatGroup != null && openingGroup != null && toastGroup != null && vignetteImage != null && redCardFx != null)
+        if (canvas != null && redTeam != null && blueTeam != null && roundText != null && statRows != null && combatGroup != null && contestGroup != null && openingGroup != null && toastGroup != null && vignetteImage != null && redCardFx != null && contestRedFx != null && contestScore != null)
             return;
         Build();
     }
@@ -769,13 +863,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         blueTeam = null;
         roundText = null;
         phaseText = null;
-        freshBar = null;
-        fruitBar = null;
-        progressBar = null;
-        scoreBar = null;
+        statRows = null;
         combatGroup = null;
         combatRect = null;
         combatImage = null;
+        combatCategoryFrame = null;
+        combatGenericFrame = null;
         combatTitle = null;
         combatSubtitle = null;
         combatRedCard = null;
@@ -783,6 +876,15 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatScore = null;
         redCardFx = null;
         blueCardFx = null;
+        contestGroup = null;
+        contestRect = null;
+        contestImage = null;
+        contestTitle = null;
+        contestSubtitle = null;
+        contestScore = null;
+        contestVs = null;
+        contestRedFx = null;
+        contestBlueFx = null;
         openingGroup = null;
         openingTitle = null;
         openingRed = null;
@@ -796,6 +898,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatNextAllowed = 0f;
         // 演出状态同步归零（displayed 比分保留：重建画布不应让比分重新从 0 滚起）
         combatShowStart = float.NegativeInfinity;
+        contestShowStart = float.NegativeInfinity;
+        contestUntil = 0f;
         toastShowStart = float.NegativeInfinity;
         vignetteTarget = 0f;
 
@@ -827,32 +931,40 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 其余（头像/队名/比分）直接浮在画面上。
         RectTransform panel = Rect("BottomStatus_Runtime", parent, new Vector2(0.5f, BottomHudAnchorY), Vector2.zero, new Vector2(BottomWidth, BottomHeight), new Vector2(0.5f, 0f));
 
-        RectTransform barsBackdrop = Rect("BarsBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 8f), new Vector2(730f, 134f), new Vector2(0.5f, 0f));
-        Image barsBg = barsBackdrop.gameObject.AddComponent<Image>();
-        barsBg.color = InkColor;
-        barsBg.raycastTarget = false;
-        // 顶部分隔线换暗金：原亮金黄过于刺眼，与唐风描边统一
-        Rect("BarsTopLine", barsBackdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(730f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = DarkGoldColor;
+        // 中央维度背板(墨底 + 顶部暗金分隔线)：容纳回合标题 + 9 行维度对比。宽 500，落在左右队伍块之间。
+        RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(500f, 192f), new Vector2(0.5f, 0f));
+        Image statBg = backdrop.gameObject.AddComponent<Image>();
+        statBg.color = InkColor;
+        statBg.raycastTarget = false;
+        Rect("StatTopLine", backdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(500f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = DarkGoldColor;
 
-        RectTransform titleChip = Rect("TitleChip", panel, new Vector2(0.5f, 1f), new Vector2(0f, -6f), new Vector2(340f, 70f), new Vector2(0.5f, 1f));
-        Image titleBg = titleChip.gameObject.AddComponent<Image>();
-        titleBg.color = InkColor;
-        titleBg.raycastTarget = false;
-
-        roundText = Text("RoundText", panel, 22, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(roundText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(320f, 28f), new Vector2(0.5f, 1f));
-        phaseText = Text("PhaseText", panel, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
-        SetRect(phaseText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -50f), new Vector2(180f, 20f), new Vector2(0.5f, 1f));
-        // 此处原有的 EventText（最新事件一行）已删除：与进度条中央标签重叠，
-        // 左侧事件流（LycheeHudExtensions）已完整承担最新事件展示。
+        roundText = Text("RoundText", panel, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(roundText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 186f), new Vector2(380f, 24f), new Vector2(0.5f, 0.5f));
+        phaseText = Text("PhaseText", panel, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        SetRect(phaseText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 167f), new Vector2(220f, 16f), new Vector2(0.5f, 0.5f));
 
         redTeam = BuildTeam(panel, true);
         blueTeam = BuildTeam(panel, false);
 
-        freshBar = BuildDualBar(panel, "鲜度", 100f, 120f);
-        fruitBar = BuildDualBar(panel, "好果", 100f, 90f);
-        progressBar = BuildDualBar(panel, "送达进度", 100f, 60f);
-        scoreBar = BuildDualBar(panel, "得分", 800f, 30f); // 得分可达 ~700，旧 max=60 会让条瞬间填满；放宽到 800
+        // 9 行维度对比(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
+        statRows = new StatRow[StatLabels.Length];
+        const float rowTop = 146f, rowStep = 15f;
+        for (int i = 0; i < StatLabels.Length; i++)
+            statRows[i] = BuildStatRow(panel, StatLabels[i], rowTop - i * rowStep);
+    }
+
+    // 一行维度对比：中央金色标签 + 红值(右对齐居左)/蓝值(左对齐居右)。
+    StatRow BuildStatRow(Transform parent, string label, float y)
+    {
+        StatRow r = new StatRow();
+        r.label = Text(label + "StatLabel", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        r.label.text = label;   // Text() 帮手不写 .text，必须显式赋值，否则中央标签列全空白
+        SetRect(r.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(92f, 16f), new Vector2(0.5f, 0.5f));
+        r.redValue = Text(label + "StatRed", parent, 13, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
+        SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(150f, 16f), new Vector2(1f, 0.5f));
+        r.blueValue = Text(label + "StatBlue", parent, 13, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
+        SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(150f, 16f), new Vector2(0f, 0.5f));
+        return r;
     }
 
     // 队伍 ID 标签：优先用数值 playerId（红 1002 / 蓝 2002，全局唯一），缺省回退 teamId 字符串。
@@ -862,6 +974,58 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (s.playerId > 0) return "#" + s.playerId;
         if (!string.IsNullOrEmpty(s.teamId)) return "#" + s.teamId;
         return "#?";
+    }
+
+    void SetStatRow(int index, string redVal, string blueVal)
+    {
+        if (statRows == null || index < 0 || index >= statRows.Length) return;
+        StatRow r = statRows[index];
+        if (r == null) return;
+        if (r.redValue != null) r.redValue.text = redVal;
+        if (r.blueValue != null) r.blueValue.text = blueVal;
+    }
+
+    // 总分：首选 player.totalScore；为 0 回退 scoreDetail 各分项之和；再回退顶层分项(任务+悬赏+惩罚)
+    // ——本回放 totalScore/scoreDetail/frame.scores 整局恒为 0，只有 taskScore 真在累加，故顶层分项求和才有意义；
+    // 最后才回退 frame.scores[camp] / player.score。
+    static int TotalScoreOf(LycheeReplayPlayerState s, LycheeReplayScores scores, bool isRed)
+    {
+        if (s != null && s.totalScore != 0) return s.totalScore;
+        if (s != null && s.scoreDetail != null)
+        {
+            LycheeReplayScoreDetail d = s.scoreDetail;
+            int sum = d.delivery + d.goodFruit + d.freshness + d.time + d.tasks + d.bounty + d.penalty;
+            if (sum != 0) return sum;
+        }
+        if (s != null)
+        {
+            int derived = s.taskScore + s.bountyScore + s.penaltyScore;
+            if (derived != 0) return derived;
+        }
+        if (scores != null && (scores.RED != 0 || scores.BLUE != 0)) return isRed ? scores.RED : scores.BLUE;
+        return s == null ? 0 : s.score;
+    }
+
+    static int TaskScoreOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0;
+        if (s.taskScore != 0) return s.taskScore;
+        return s.scoreDetail != null ? s.scoreDetail.tasks : 0;
+    }
+
+    static int PenaltyScoreOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0;
+        if (s.penaltyScore != 0) return s.penaltyScore;
+        return s.scoreDetail != null ? s.scoreDetail.penalty : 0;
+    }
+
+    // 状态：退赛 > 离线 > 在线(replay.txt 每回合都带 online，缺省 false 才显示离线)。
+    static string StatusTextOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return "—";
+        if (s.retired) return "退赛";
+        return s.online ? "在线" : "离线";
     }
 
     TeamWidgets BuildTeam(Transform parent, bool red)
@@ -1023,6 +1187,91 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         fx.label = Text("Text", box, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
         SetRect(fx.label.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(138f, 24f), new Vector2(0.5f, 0.5f));
+        return fx;
+    }
+
+    // 画面正中央的「出牌」大窗口：窗口争夺逐拍出牌/验牌专用，与右侧事件卡面板互不干扰。
+    // 红左蓝右两张大牌（翻面/胜方金光复用既有 CardFx 状态机）+ 中央 VS + 顶部标题/克制副标题 + 底部比分。
+    void BuildContest(Transform parent)
+    {
+        // 略偏屏幕中心上方(+60)，让出底部 HUD 控制条；700x380 给标题/副标题/双大牌/比分各留净空。
+        RectTransform panel = Rect("ContestOverlay", parent, new Vector2(0.5f, 0.5f), new Vector2(0f, 60f), new Vector2(700f, 380f), new Vector2(0.5f, 0.5f));
+        contestRect = panel;
+        contestBasePos = panel.anchoredPosition;
+        contestGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        Image bg = panel.gameObject.AddComponent<Image>();
+        bg.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.94f); // 中央更聚焦，底色比右侧面板更实
+        bg.raycastTarget = false;
+        ApplyPanelFrame(panel, 3f);
+
+        // 顶部标题 + 克制副标题（自顶边排，与下方卡片留净空）
+        contestTitle = Text("ContestTitle", panel, 30, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(contestTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(664f, 36f), new Vector2(0.5f, 1f));
+        contestSubtitle = Text("ContestSubtitle", panel, 19, FontStyle.Bold, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.96f), TextAnchor.MiddleCenter);
+        SetRect(contestSubtitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -56f), new Vector2(664f, 26f), new Vector2(0.5f, 1f));
+
+        // 对抗插画淡淡铺底（缺图自动隐藏）：在卡片之前创建 → 画在卡片下层
+        contestImage = Rect("ContestIllustration", panel, new Vector2(0.5f, 0.5f), new Vector2(0f, -8f), new Vector2(300f, 170f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<Image>();
+        contestImage.color = new Color(1f, 1f, 1f, 0.16f);
+        contestImage.preserveAspect = true;
+        contestImage.raycastTarget = false;
+        contestImage.enabled = false;
+
+        // 双方大牌（红左蓝右，竖卡居中带 y=-8）+ 中央 VS
+        contestRedFx = BuildContestCard(panel, true, -176f);
+        contestBlueFx = BuildContestCard(panel, false, 176f);
+        contestVs = Text("ContestVs", panel, 40, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        contestVs.text = "VS";
+        SetRect(contestVs.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -8f), new Vector2(120f, 54f), new Vector2(0.5f, 0.5f));
+
+        // 底部比分
+        contestScore = Text("ContestScore", panel, 30, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(contestScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 16f), new Vector2(240f, 38f), new Vector2(0.5f, 0f));
+
+        SetGroup(contestGroup, false, 0f);
+    }
+
+    // 中央大牌：唐风底色 + 居中牌面 + 背面兜底层 + 卡底牌名，下层垫金色脉冲。pivot.x=0.5 绕中轴翻面。
+    CardFx BuildContestCard(Transform parent, bool red, float x)
+    {
+        Color color = red ? new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.95f) : new Color(0.16f, 0.42f, 1f, 0.95f);
+        CardFx fx = new CardFx();
+        // 中央大卡：牌面居中略上(给卡底牌名让位)，正/背面同偏移；不同于右侧小卡的 -55 让位。
+        fx.frontFaceOffset = new Vector2(0f, 12f);
+        fx.backFaceOffset = new Vector2(0f, 12f);
+
+        RectTransform glowRt = Rect(red ? "ContestRedGlow" : "ContestBlueGlow", parent, new Vector2(0.5f, 0.5f), new Vector2(x, -8f), new Vector2(184f, 230f), new Vector2(0.5f, 0.5f));
+        fx.glow = glowRt.gameObject.AddComponent<Image>();
+        fx.glow.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0f);
+        fx.glow.raycastTarget = false;
+
+        RectTransform box = Rect(red ? "ContestRedCard" : "ContestBlueCard", parent, new Vector2(0.5f, 0.5f), new Vector2(x, -8f), new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.block = box;
+        Image boxImage = box.gameObject.AddComponent<Image>();
+        boxImage.color = color;
+        boxImage.raycastTarget = false;
+
+        RectTransform plateRt = Rect("CardBackPlate", box, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.backPlate = plateRt.gameObject.AddComponent<Image>();
+        fx.backPlate.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.96f);
+        fx.backPlate.raycastTarget = false;
+        fx.backPlate.enabled = false;
+
+        RectTransform faceRt = Rect("CardFace", box, new Vector2(0.5f, 0.5f), new Vector2(0f, 12f), new Vector2(146f, 166f), new Vector2(0.5f, 0.5f));
+        fx.face = faceRt.gameObject.AddComponent<Image>();
+        fx.face.color = Color.white;
+        fx.face.preserveAspect = true;
+        fx.face.raycastTarget = false;
+        fx.face.enabled = false;
+
+        fx.backMark = Text("CardBackMark", box, 40, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(fx.backMark.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.backMark.text = "?";
+        fx.backMark.enabled = false;
+
+        // 牌名（卡底，翻到正面后显示）；START 阶段显示「红队/蓝队」标识左右方。
+        fx.label = Text("CardName", box, 22, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        SetRect(fx.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(150f, 28f), new Vector2(0.5f, 0f));
         return fx;
     }
 

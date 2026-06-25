@@ -2,9 +2,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
 
 /// <summary>
 /// 右上角 260x260 小地图系统（运行时自举，挂到 LycheeReplayPlayer 所在物体）。
@@ -355,7 +359,10 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
 
     void BuildUi()
     {
-        GameObject canvasObject = new GameObject("LycheeMinimapCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        // 必须带 GraphicRaycaster，否则小地图的"点击展开大图"按钮收不到点击(用户：点了没反应)；
+        // 同时确保场景里有 EventSystem，否则任何 UI 点击都不触发。
+        EnsureEventSystem();
+        GameObject canvasObject = new GameObject("LycheeMinimapCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasObject.transform.SetParent(transform, false);
         canvas = canvasObject.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -453,6 +460,19 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             panel.anchoredPosition = new Vector2(-16f, -16f);
             panel.localScale = Vector3.one;          // 收回右上角小图
         }
+    }
+
+    // 场景缺 EventSystem 时补一个，否则小地图(及一切 UI)点击都不触发。与 LycheeVideoInterlude 同款。
+    static void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>() != null) return;
+        GameObject es = new GameObject("LycheeMinimapEventSystem");
+        es.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+        es.AddComponent<InputSystemUIInputModule>();
+#else
+        es.AddComponent<StandaloneInputModule>();
+#endif
     }
 
     void AddBorder(string borderName, Vector2 anchor, Vector2 pivot, Vector2 size)

@@ -483,7 +483,9 @@ public class LycheeCharacterMotion : MonoBehaviour
                     // AlignCombinedCarriage 会改 Carriage wrapper 的局部旋转；必须同步 baseRotation，
                     // 否则 UpdateWrappers 下一帧的车身颠簸会用旧基准把转正结果覆盖掉。
                     rig.carriage.baseRotation = child.localRotation;
-                    CreateCarriageWheels(rig.carriage, true, combinedRoot);
+                    // 用户反馈：horse_new 自带车厢+车轮(完整网格)，按包围盒角再补 4 个程序化假车轮，会落在
+                    // 马身/车尾外侧 → 即"马车后面两个不知道哪来的悬浮轮子"。该模型自带车轮，这里不再补假车轮。
+                    // (真要让自带车轮滚动需给 horse_new 配 horseWalkClip/带轮骨骼，属资产工作。)
                     if (player == null || player.horseWalkClip == null)
                     {
                         CaptureHorseLegs(rig.carriage, child);

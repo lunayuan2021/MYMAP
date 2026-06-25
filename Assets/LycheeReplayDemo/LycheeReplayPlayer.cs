@@ -781,13 +781,14 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (string.IsNullOrEmpty(text))
         {
-            if (replayFile == null)
-            {
-                Debug.LogError("Replay file is not assigned.", this);
-                return;
-            }
-            text = replayFile.text;
-            ReplaySource = "内置样例";
+            // 用户：replay.txt 路径找不到就明确报错，不要回落去读内置样例/烘焙样例回放。
+            string full = System.IO.Path.Combine(Application.streamingAssetsPath, ReplayRelative);
+            startupError =
+                "回放加载失败：找不到回放文件 " + ReplayRelative + "。\n" +
+                "查找路径：" + full + "\n" +
+                "请确认该文件存在且可读。已按要求不再回落到内置样例回放。";
+            Debug.LogError("Replay not found at " + full + "; not falling back to bundled sample (per design).", this);
+            return;
         }
 
         string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -1170,7 +1171,19 @@ public class LycheeReplayPlayer : MonoBehaviour
             blue == null ? defaultTeamSize : TeamSize(blue.playerId),
             frame.scores,
             RouteProgressOf(red),
-            RouteProgressOf(blue));
+            RouteProgressOf(blue),
+            CompletedTaskCount(frame, red),
+            CompletedTaskCount(frame, blue));
+    }
+
+    // 某队已完成的任务数：frame.tasks 里 completed 且 ownerPlayerId == 该队 playerId。
+    static int CompletedTaskCount(LycheeReplayFrame frame, LycheeReplayPlayerState player)
+    {
+        if (frame == null || frame.tasks == null || player == null) return 0;
+        int n = 0;
+        foreach (LycheeReplayTaskState t in frame.tasks)
+            if (t != null && t.completed && t.ownerPlayerId == player.playerId) n++;
+        return n;
     }
 
     int TeamSize(int playerId)
@@ -1716,9 +1729,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         string right = "";
         string center = "R" + round;
         int imageIndex = 1;
-        // 用户：卡片"停留太短"。真因是 HUD 端 CombatMaxSeconds=3f 把 4.5s 压成 3s(已放到 5.5f)；
-        // 这里默认再提到 5.0 秒、更从容。事件已收窄到 8 类、不会连环刷屏。
-        float seconds = 5.0f;
+        // 用户：卡片"停留太短"，要"保留时长久一些"。事件已收窄到 8 类、不会连环刷屏，
+        // 默认提到 7.5 秒更从容(HUD 端 CombatMaxSeconds 同步放到 8.0f 不再压回)。
+        float seconds = 7.5f;
         string target = DisplayNode(!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
         string team = TeamName(payload.playerId);
         bool priorityCard = IsPriorityEventCard(type);

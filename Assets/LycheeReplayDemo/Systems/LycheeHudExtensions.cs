@@ -577,20 +577,22 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         string type = message.type;
         if (type == "MOVE_PROGRESS" || type == "ROUND_STATE") return;
-        if (type == "FRESHNESS_DROP" && !ShouldSurfaceFreshnessDrop(message.payload, round, lastFeedFreshRoundByPlayer, 24, 0.22f))
-            return;
-        string node = ResolveNodeName(message.payload);
+        if (type == "FRESHNESS_DROP") return;   // 用户(点7)：鲜度骤减不再进左侧消息列表(底部维度面板已能看出)
+        LycheeReplayPayload payload = message.payload;
+        string node = ResolveNodeName(payload);
+        // 用户(点6/点8)：跟队伍绑定的事件要写明是哪队(谁的好果变坏/谁进入XX节点…)，队名按队色(红/蓝)上色，白字不明显。
+        string actor = FeedTeamPrefix(payload != null ? payload.playerId : 0);
         // 类别符号不再拼进文本：交给 CreateFeedEntry 用专属 PNG 图标呈现（缺图才回退文字符号）。
-        string label = "回合 " + round + "  " +
+        string label = "回合 " + round + "  " + actor +
             (string.IsNullOrEmpty(node) ? "" : node + " ") + EventNameCn(type);
         Color color = FeedColor(type);
         if (feedPaused)
         {
-            pendingFeed.Add(new PendingFeed { label = label, color = color, eventType = type, iconPath = FeedIconPath(type, message.payload) });
+            pendingFeed.Add(new PendingFeed { label = label, color = color, eventType = type, iconPath = FeedIconPath(type, payload) });
             while (pendingFeed.Count > 8) pendingFeed.RemoveAt(0);
             return;
         }
-        CreateFeedEntry(label, color, type, FeedIconPath(type, message.payload));
+        CreateFeedEntry(label, color, type, FeedIconPath(type, payload));
     }
 
     void CreateFeedEntry(string label, Color barColor, string eventType, string iconPath)
@@ -637,6 +639,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         }
 
         Text text = MakeText("Label", rt, 15, FontStyle.Bold, SoftText, TextAnchor.MiddleLeft);
+        text.supportRichText = true;   // 队伍前缀用 <color> 富文本上色(点6/点8)，需开启
         SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
             new Vector2((textLeft - 12f) * 0.5f, 0f), new Vector2(-(textLeft + 12f), 0f));
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -804,15 +807,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         string node = ResolveNodeName(payload);
         string reward = RewardHint(payload);
 
-        if (type == "FRESHNESS_DROP")
-        {
-            if (!ShouldSurfaceFreshnessDrop(payload, round, lastTickerFreshRoundByPlayer, 28, 0.25f)) return false;
-            string before = payload.before > 0f ? payload.before.ToString("0.#") : "?";
-            string after = payload.after > 0f ? payload.after.ToString("0.#") : (payload.freshness > 0f ? payload.freshness.ToString("0.#") : "?");
-            string loss = payload.loss > 0f ? " -" + payload.loss.ToString("0.##") : "";
-            text = "回合 " + round + " " + team + " 鲜度 " + before + " → " + after + loss + "：鲜度会折算最终分，天气、长距离和等待处理都会持续消耗。";
-            return true;
-        }
+        if (type == "FRESHNESS_DROP") return false;   // 用户(点7)：鲜度骤减不再上提示条，底部维度面板已能看出
         if (type == "GOOD_TO_BAD")
         {
             string fruit = payload.badFruit > 0 ? "，坏果 " + payload.badFruit : "";
@@ -974,6 +969,17 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             }
         }
         return "队伍 " + playerId;
+    }
+
+    // 左侧消息列表的队伍前缀(富文本按队色上色)：红队朱红 / 蓝队队蓝，让「谁」一眼可辨且不再是白字。
+    // playerId==0(无归属的节点/全局事件)返回空串、不加前缀。
+    string FeedTeamPrefix(int playerId)
+    {
+        if (playerId == 0) return string.Empty;
+        int camp = FindCamp(playerId);
+        string name = camp == 0 ? "红队" : camp == 1 ? "蓝队" : "队伍" + playerId;
+        string hex = camp == 0 ? "E0604C" : camp == 1 ? "5AA0FF" : "D4AF5C";
+        return "<color=#" + hex + ">" + name + "</color> ";
     }
 
     static string FormatTeamDisplayName(LycheeReplayPlayerState state)
@@ -1535,23 +1541,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     void HandleFreshnessEvent(LycheeReplayMessage message, int round)
     {
+        // 用户(点7)：最上面的「鲜度骤减」顶部提示(toast + 描边闪)取消——底部维度面板的鲜度已能看出下降。
+        // 仅保留「好果转坏」这种不可逆损失的顶部提示(它在底部看不出来)。
+        if (message.type != "GOOD_TO_BAD") return;
         LycheeReplayPayload payload = message.payload;
         int playerId = payload == null ? 0 : payload.playerId;
         int camp = FindCamp(playerId);
         string team = player != null ? player.TeamDisplayName(playerId) : "队伍";
-        string text;
-        if (message.type == "GOOD_TO_BAD")
-        {
-            text = team + " 好果转坏 · 坏果 +1";
-        }
-        else
-        {
-            string detail = payload != null && payload.freshness > 0f
-                ? " · 鲜度 " + payload.freshness.ToString("0")
-                : "";
-            text = team + " 鲜度骤降" + detail;
-        }
-        RaiseFreshnessAlert(camp, round, text);
+        RaiseFreshnessAlert(camp, round, team + " 好果转坏 · 坏果 +1");
     }
 
     void RaiseFreshnessAlert(int camp, int round, string text)
@@ -1842,9 +1839,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 动态字体需先请求字形，否则 GetCharacterInfo 取不到 advance。
         textFont.RequestCharactersInTexture(label + ellipsis, size, style);
 
+        // 富文本标签 <…>(如 <color=#E0604C>红队</color>)不计入可见宽度，否则会把宽度算爆、提前截断可见文字。
         float total = 0f;
         for (int i = 0; i < label.Length; i++)
+        {
+            if (label[i] == '<') { int e = label.IndexOf('>', i); if (e >= 0) { i = e; continue; } }
             total += CharAdvance(textFont, label[i], size, style);
+        }
         if (total <= maxWidth) return label;
 
         float budget = Mathf.Max(0f, maxWidth - CharAdvance(textFont, ellipsis, size, style));
@@ -1852,6 +1853,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         int keep = 0;
         while (keep < label.Length)
         {
+            if (label[keep] == '<')
+            {
+                int e = label.IndexOf('>', keep);
+                if (e >= 0) { keep = e + 1; continue; }   // 整段标签计 0 宽、整体保留，截断不会把标签切碎
+            }
             float advance = CharAdvance(textFont, label[keep], size, style);
             if (used + advance > budget) break;
             used += advance;

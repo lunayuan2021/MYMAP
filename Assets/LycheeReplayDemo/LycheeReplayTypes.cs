@@ -44,6 +44,15 @@ public class LycheeReplayPlayerState
     public bool verified;
     public bool delivered;
     public int score;
+    // 下面这些字段 replay.txt 每回合 players[] 里都带，但旧的类没声明 → JsonUtility 静默丢弃。
+    // 底部维度面板要用(总分/任务分/惩罚分/状态)，补声明即可解析。
+    public int totalScore;     // 总分(首选)；缺省回退 scoreDetail.total 概念上由各分项求和、再回退 frame.scores[camp]
+    public int taskScore;      // 任务分
+    public int penaltyScore;   // 惩罚分(通常为负)
+    public int bountyScore;    // 破关悬赏分
+    public bool online;        // 在线
+    public bool retired;       // 退赛
+    public LycheeReplayScoreDetail scoreDetail; // 分项明细(delivery/goodFruit/freshness/time/tasks/bounty/penalty)
 }
 
 [Serializable]
