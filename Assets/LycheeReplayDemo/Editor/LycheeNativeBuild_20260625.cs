@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
@@ -60,6 +61,9 @@ static class LycheeNativeBuild_20260625
         // 性能取向的播放器设置（原生包同样适用）
         PlayerSettings.runInBackground = true;
         PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed; // 允许 ?path=http://... 读回放
+        // 从 macOS 跨平台打 Windows/Linux 必须用 Mono 后端（IL2CPP 不支持在 Mac 上跨编到 Win/Linux）。
+        try { PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x); }
+        catch (Exception e) { Debug.LogWarning("[原生构建] 设 Mono 后端失败(可忽略，若用 IL2CPP 跨编会报错): " + e.Message); }
 
         Debug.Log($"[原生构建] 开始 {target} → {location}（{scenes.Length} 个场景，切平台可能触发资源重导入，请稍候）");
         var options = new BuildPlayerOptions
