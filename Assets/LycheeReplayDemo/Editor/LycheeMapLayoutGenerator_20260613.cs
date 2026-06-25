@@ -2225,7 +2225,15 @@ public static class LycheeMapLayoutGenerator_20260613
                 Material _flowMat = FindWaterMaterial();
                 if (_routeMR != null && _flowMat != null) { _routeMR.sharedMaterial = _flowMat; EditorUtility.SetDirty(_routeMR); }
                 // ★ 真正控制水面高度的地方：设水路物体 transform.Y（WaterShader 按它渲染水面、不看网格顶点Y）。
-                if (_routeT != null) { var _wp = _routeT.position; _routeT.position = new Vector3(_wp.x, WaterRenderHeight, _wp.z); EditorUtility.SetDirty(_routeT); }
+                // 每段水路按 edgeId 取一个稳定的微小高差（-0.15 起 6 档×0.015，最低 -0.225），
+                // 让相邻/重叠的两段水面不再共面 → 消除透明水面 z-fighting 的「格子」（洛阳驿↔洞庭一带重灾区）。
+                // 几厘米高差俯视看不出，但足以拉开深度；水塘另在更低层（见 BuildWaterStationPonds）。
+                if (_routeT != null)
+                {
+                    int _h = 23; foreach (char _c in edge.edgeId) _h = _h * 31 + _c;
+                    float _wy = WaterRenderHeight - (Mathf.Abs(_h) % 6) * 0.015f;
+                    var _wp = _routeT.position; _routeT.position = new Vector3(_wp.x, _wy, _wp.z); EditorUtility.SetDirty(_routeT);
+                }
             }
             // S1 河道压一层：去掉浮在主面上方 +0.045 的 _WaterHighlight 独立薄层（旧子物体由 CleanLegacyWaterChildren 删）。
             // ReplaceCarvedWater(edge.gameObject, edge.edgeId + "_WaterHighlight", waterVisual, WaterDrapeWidth * 0.22f,
@@ -2430,7 +2438,9 @@ public static class LycheeMapLayoutGenerator_20260613
             Vector3 ap = a.transform.position;
             var go = new GameObject(kv.Key + "_WaterPond");
             go.transform.SetParent(root, false);
-            go.transform.position = new Vector3(ap.x, WaterRenderHeight - 0.02f, ap.z);
+            // 水塘比河道水面下沉 0.10（原 0.02 太小：两片透明水面几乎同高 → 重叠处 z-fighting 成「格子」，
+            // 见洞庭水驿一带。0.10 俯视看不出高差，但足够拉开深度、消除 z-fight；河道仍在上层）。
+            go.transform.position = new Vector3(ap.x, WaterRenderHeight - 0.10f, ap.z);
             go.AddComponent<MeshFilter>().sharedMesh = CreateDiscMesh(r, 32, kv.Key + "_WaterPond", ctx);
             go.AddComponent<MeshRenderer>().sharedMaterial = waterMat;
             n++;

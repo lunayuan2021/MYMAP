@@ -581,7 +581,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             return;
         string node = ResolveNodeName(message.payload);
         // 类别符号不再拼进文本：交给 CreateFeedEntry 用专属 PNG 图标呈现（缺图才回退文字符号）。
-        string label = "R" + round + "  " +
+        string label = "回合 " + round + "  " +
             (string.IsNullOrEmpty(node) ? "" : node + " ") + EventNameCn(type);
         Color color = FeedColor(type);
         if (feedPaused)
@@ -810,41 +810,41 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             string before = payload.before > 0f ? payload.before.ToString("0.#") : "?";
             string after = payload.after > 0f ? payload.after.ToString("0.#") : (payload.freshness > 0f ? payload.freshness.ToString("0.#") : "?");
             string loss = payload.loss > 0f ? " -" + payload.loss.ToString("0.##") : "";
-            text = "R" + round + " " + team + " 鲜度 " + before + " → " + after + loss + "：鲜度会折算最终分，天气、长距离和等待处理都会持续消耗。";
+            text = "回合 " + round + " " + team + " 鲜度 " + before + " → " + after + loss + "：鲜度会折算最终分，天气、长距离和等待处理都会持续消耗。";
             return true;
         }
         if (type == "GOOD_TO_BAD")
         {
             string fruit = payload.badFruit > 0 ? "，坏果 " + payload.badFruit : "";
-            text = "R" + round + " " + team + " 出现好果转坏" + fruit + "：好果数和鲜度都会影响最终分，低鲜度会拖低结算。";
+            text = "回合 " + round + " " + team + " 出现好果转坏" + fruit + "：好果数和鲜度都会影响最终分，低鲜度会拖低结算。";
             return true;
         }
         if (type == "PROCESS_PROGRESS")
         {
             string left = payload.remainingRound >= 0 ? "，剩余 " + payload.remainingRound + " 回合" : "";
-            text = "R" + round + " " + team + " 停留在 " + SafeNode(node) + "：" + ProcessName(payload.processType) + left + reward + "；该行动完成后会恢复推进。";
+            text = "回合 " + round + " " + team + " 停留在 " + SafeNode(node) + "：" + ProcessName(payload.processType) + left + reward + "；该行动完成后会恢复推进。";
             return true;
         }
         if (type == "PROCESS_START")
         {
             string cost = payload.processRound > 0 ? "，预计 " + payload.processRound + " 回合" : "";
-            text = "R" + round + " " + team + " 开始" + ProcessName(payload.processType) + " " + SafeNode(node) + cost + reward + "。";
+            text = "回合 " + round + " " + team + " 开始" + ProcessName(payload.processType) + " " + SafeNode(node) + cost + reward + "。";
             return true;
         }
         if (type == "PROCESS_COMPLETE")
         {
-            text = "R" + round + " " + team + " 完成" + ProcessName(payload.processType) + " " + SafeNode(node) + "，路线/资源/通行条件已更新。";
+            text = "回合 " + round + " " + team + " 完成" + ProcessName(payload.processType) + " " + SafeNode(node) + "，路线/资源/通行条件已更新。";
             return true;
         }
         if (type == "SQUAD_DISPATCH")
         {
             string eta = payload.completeRound > round ? "，预计 R" + payload.completeRound + " 完成" : "";
-            text = "R" + round + " " + team + " 派出小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
+            text = "回合 " + round + " " + team + " 派出小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
             return true;
         }
         if (type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS" || type == "OBSTACLE_CLEAR")
         {
-            text = "R" + round + " " + team + " 清掉 " + SafeNode(node) + " 的障碍：路线恢复；若对方随后仍 +6s，通常是登船、转运、验核等站点处理时间。";
+            text = "回合 " + round + " " + team + " 清掉 " + SafeNode(node) + " 的障碍：路线恢复；若对方随后仍 +6s，通常是登船、转运、验核等站点处理时间。";
             return true;
         }
         if (type == "TASK_REFRESH" || type == "TASK_SPAWN")
@@ -852,72 +852,73 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             int score = FindTaskScore(payload);
             string scoreText = score > 0 ? " +" + score + " 分" : " 任务分";
             string expire = payload.expireRound > round ? "，R" + payload.expireRound + " 前有效" : "";
-            text = "R" + round + " 任务刷新 " + SafeNode(node) + "：完成可获得" + scoreText + expire + "；被抢先或过期就不会到账。";
+            text = "回合 " + round + " 任务刷新 " + SafeNode(node) + "：完成可获得" + scoreText + expire + "；被抢先或过期就不会到账。";
             return true;
         }
         if (type == "TASK_COMPLETE")
         {
             int score = payload.score > 0 ? payload.score : FindTaskScore(payload);
-            text = "R" + round + " " + team + " 完成 " + SafeNode(node) + " 任务" + (score > 0 ? "，得分 +" + score : "") + "。";
+            text = "回合 " + round + " " + team + " 完成 " + SafeNode(node) + " 任务" + (score > 0 ? "，得分 +" + score : "") + "。";
             return true;
         }
         if (type == "TASK_EXPIRE")
         {
-            text = "R" + round + " " + SafeNode(node) + " 任务过期：没有队伍在窗口内完成，所以这部分收益不会计入得分。";
+            text = "回合 " + round + " " + SafeNode(node) + " 任务过期：没有队伍在窗口内完成，所以这部分收益不会计入得分。";
             return true;
         }
         if (type == "BOUNTY_SPAWN" || type == "BOUNTY_CREATE")   // BOUNTY_CREATE 为 V4.8.12 新名
         {
             string score = payload.score > 0 ? " +" + payload.score + " 分" : " 额外奖励";
-            text = "R" + round + " " + SafeNode(node) + " 出现" + BountyName(payload.bountyType) + "：先满足破关/清障条件的队伍才能拿到" + score + "。";
+            text = "回合 " + round + " " + SafeNode(node) + " 出现" + BountyName(payload.bountyType) + "：先满足破关/清障条件的队伍才能拿到" + score + "。";
             return true;
         }
         if (type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM") // BOUNTY_CLAIM 为 V4.8.12 新名
         {
             string score = payload.score > 0 ? " +" + payload.score : "";
-            text = "R" + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，奖励 " + ResourceName(payload.reward) + " 已生效。";
+            text = "回合 " + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，奖励 " + ResourceName(payload.reward) + " 已生效。";
             return true;
         }
         if (type == "INVALID_ACTION" || type == "ACTION_REJECTED")
         {
-            string reason = !string.IsNullOrEmpty(payload.message) ? payload.message : (!string.IsNullOrEmpty(payload.errorCode) ? payload.errorCode : "条件未满足");
-            text = "R" + round + " 行动未生效：" + reason + "。未满足节点、资源或时机条件时，不会获得任务/悬赏收益。";
+            // 一律走 errorCode/message→中文，避免英文错误码/英文 message 上屏
+            string reason = LycheeReplayPlayer.ErrorCodeName(!string.IsNullOrEmpty(payload.errorCode) ? payload.errorCode : payload.message);
+            text = "回合 " + round + " 行动未生效：" + reason + "。未满足节点、资源或时机条件时，不会获得任务/悬赏收益。";
             return true;
         }
         if (type == "RESOURCE_CLAIM")
         {
-            text = "R" + round + " " + team + " 在 " + SafeNode(node) + " 获取 " + ResourceName(payload.resourceType) + "：资源会影响后续通行、验核或抢时间能力。";
+            text = "回合 " + round + " " + team + " 在 " + SafeNode(node) + " 获取 " + ResourceName(payload.resourceType) + "：资源会影响后续通行、验核或抢时间能力。";
             return true;
         }
         if (type == "RESOURCE_USE")
         {
-            text = "R" + round + " " + team + " 使用 " + ResourceName(payload.resourceType) + "：这是为了降低后续路线成本或满足通行条件。";
+            text = "回合 " + round + " " + team + " 使用 " + ResourceName(payload.resourceType) + "：这是为了降低后续路线成本或满足通行条件。";
             return true;
         }
         if (type == "FORCED_PASS_START")
         {
             string tax = payload.timeTax > 0 ? "，时间税 +" + payload.timeTax + " 回合" : "";
-            text = "R" + round + " " + team + " 强制通行 " + SafeNode(node) + tax + "：能绕过阻拦，但会用时间换进度。";
+            text = "回合 " + round + " " + team + " 强制通行 " + SafeNode(node) + tax + "：能绕过阻拦，但会用时间换进度。";
             return true;
         }
         if (type == "RUSH_START" || type == "RUSH_PHASE_START")
         {
-            text = "R" + round + " 宫宴冲刺开启：最后阶段更看重验核、交付时机、好果数和鲜度保留。";
+            text = "回合 " + round + " 宫宴冲刺开启：最后阶段更看重验核、交付时机、好果数和鲜度保留。";
             return true;
         }
         if (type == "VERIFY_GATE_START")
         {
-            text = "R" + round + " " + team + " 开始朱雀门验核：验核完成后才具备进宫交付资格。";
+            text = "回合 " + round + " " + team + " 开始朱雀门验核：验核完成后才具备进宫交付资格。";
             return true;
         }
         if (type == "VERIFY_GATE_COMPLETE")
         {
-            text = "R" + round + " " + team + " 朱雀门验核通过：已获得交付资格，接下来拼交付速度与保鲜结果。";
+            text = "回合 " + round + " " + team + " 朱雀门验核通过：已获得交付资格，接下来拼交付速度与保鲜结果。";
             return true;
         }
         if (type == "DELIVER_SUCCESS")
         {
-            text = "R" + round + " " + team + " 完成交付：好果 " + payload.goodFruit + "，鲜度 " + payload.freshness.ToString("0.#") + "%，本次交付分 " + payload.score + "。";
+            text = "回合 " + round + " " + team + " 完成交付：好果 " + payload.goodFruit + "，鲜度 " + payload.freshness.ToString("0.#") + "%，本次交付分 " + payload.score + "。";
             return true;
         }
         return false;
@@ -1070,7 +1071,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "WIN_HORSE_WINDOW") return "争马换乘";
         if (value == "WIN_DOCK_WINDOW") return "码头争船";
         if (value == "BREAK_GUARD") return "破关";
-        return string.IsNullOrEmpty(value) ? "站点处理" : value.Replace("_", " ");
+        return "站点处理";   // 兜底改中文
     }
 
     static string ActionName(string value)
@@ -1092,13 +1093,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "OFFICIAL_PERMIT") return "官牒";
         if (value == "INTEL") return "情报";
         if (value == "BOAT_RIGHT") return "船班权益";
-        return string.IsNullOrEmpty(value) ? "资源" : value.Replace("_", " ");
+        return "资源";   // 兜底改中文
     }
 
     static string BountyName(string value)
     {
         if (value == "KEY_BOUNTY") return "关隘悬赏";
-        return string.IsNullOrEmpty(value) ? "悬赏" : value.Replace("_", " ");
+        return "悬赏";   // 兜底改中文
     }
 
     // ================= 天气横幅 =================
@@ -1219,7 +1220,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type == "HEAVY_RAIN") return "暴雨";
         if (type == "MOUNTAIN_FOG") return "山雾";
         if (type == "NIGHT_WIND") return "夜风";
-        return string.IsNullOrEmpty(type) ? "天气" : type.Replace("_", " ");
+        return "天气";   // 兜底改中文
     }
 
     static string RegionNameCn(string region)
@@ -1228,7 +1229,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (region == "WATER") return "水路";
         if (region == "MOUNTAIN") return "山路";
         if (region == "PLAIN") return "平原";
-        return string.IsNullOrEmpty(region) ? "区域" : region.Replace("_", " ");
+        return "区域";   // 兜底改中文
     }
 
     // ================= 回放控制条 =================
@@ -1721,7 +1722,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         return sprite;
     }
 
-    static string EventNameCn(string type)
+    public static string EventNameCn(string type)
     {
         switch (type)
         {
@@ -1777,9 +1778,38 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "WINDOW_CARD_REVEAL": return "对抗出牌";
             case "WINDOW_CONTEST_END": return "对抗结束";
             case "WINDOW_CONTEST_DRAW": return "窗口平局";   // V4.8.12 三拍胜点相同、无胜方
+            // ↓ V4.8.12 补全（原先落英文兜底）
+            case "WAIT": return "等待";
+            case "MOVE_PROGRESS": return "移动推进";
+            case "COST_BANKRUPT": return "冻结好果清算";
+            case "GOOD_FRUIT_SCRAP": return "好果报废";
+            case "BUFF_OVERWRITE": return "增益覆盖";
+            case "DISCONNECT_WARNING": return "断线警告";
+            case "PLAYER_RETIRED": return "玩家退赛";
+            case "RETIREMENT_CLEANUP": return "退赛清理";
+            case "VERIFY_GATE_ALREADY_DONE": return "宫门已验核";
+            case "OBSTACLE_RESIDUAL_TAX": return "清障残留税";
+            case "WINDOW_EFFECTIVE_COMBAT": return "有效对抗";
+            case "WINDOW_CONTEST_REPEAT_SUPPRESSED": return "重复窗口抑制";
+            case "GATE_CONTEST_WIN": return "宫门争夺胜出";
+            case "TASK_CONTEST_WIN": return "任务争夺胜出";
+            case "OBSTACLE_CONTEST_WIN": return "障碍争夺胜出";
+            case "DOCK_CONTEST_WIN": return "处理点争夺胜出";
+            case "PASS_CONTEST_WIN": return "强制通行胜出";
+            case "PASS_CONTEST_DEFENDED": return "守卡成功";
+            case "SCOUT_MARKER_ADD": return "探路标记添加";
+            case "SCOUT_MARKER_APPLY": return "探路减时生效";
+            case "SCOUT_MARKER_CONSUME": return "探路标记消耗";
+            case "SCOUT_MARKER_EXPIRE": return "探路标记过期";
+            case "TASK_TARGET_LOST": return "任务目标丢失";
+            case "TASK_PROTECTION_START": return "任务保护开始";
+            case "BOUNTY_EXPIRE": return "悬赏失效";
+            case "BREAK_ORDER_BIND": return "破关令绑定";
+            case "POST_DELIVER_PENALTY": return "交付后扣分";
         }
         if (!string.IsNullOrEmpty(type) && type.StartsWith("SQUAD_", StringComparison.Ordinal)) return "小队行动";
-        return string.IsNullOrEmpty(type) ? "事件" : type.Replace('_', ' ');
+        if (!string.IsNullOrEmpty(type) && type.StartsWith("SCOUT_", StringComparison.Ordinal)) return "探路标记";
+        return "事件";   // 兜底改中文：未知事件不再显英文裸名
     }
 
     // ================= 通用工具 =================

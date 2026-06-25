@@ -239,7 +239,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (blueTeam.avatar != null) blueTeam.avatar.sprite = previewBlueAvatar;
 
         roundText.text = "第 1 / 600 回合";
-        phaseText.text = "Replay 预览";
+        phaseText.text = "回放预览";
         redTeam.name.text = "红队";
         redTeam.roster.text = "16人  队长1 / 队员15";
         redTeam.score.text = "0";
@@ -1289,7 +1289,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (card == "BING_ZHENG") return "兵争";
         if (card == "XIAN_GONG") return "献贡";
         if (card == "QIANG_XING") return "抢行";
-        return card.Replace("_", " ");
+        return "窗口牌";   // 未知牌名兜底中文，不显英文
     }
 
     static string WinnerText(string winner)

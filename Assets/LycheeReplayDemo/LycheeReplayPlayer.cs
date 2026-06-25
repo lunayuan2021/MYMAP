@@ -88,7 +88,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     readonly List<LycheeReplayMessage> pendingOpeningDispatches = new List<LycheeReplayMessage>();
     LycheeReplayFrame lastAppliedFrame;
     bool matchOverRaised;
-    string latestEvent = "READY";
+    string latestEvent = "就绪";
     Vector3 eventFocusPosition;
     Transform eventFocusTarget;
     float eventFocusUntil;
@@ -116,6 +116,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         public GameObject root;
         public GameObject carriage;
         public GameObject boat;
+        public GameObject boatFlag;   // 水路时船上的红蓝队旗（懒创建）
         public GameObject captain;
         public readonly List<GameObject> members = new List<GameObject>();
         public TextMesh label;
@@ -1252,13 +1253,20 @@ public class LycheeReplayPlayer : MonoBehaviour
 
             bool water = IsWaterEdge(player.routeEdgeId);
             if (visual.carriage != null) visual.carriage.SetActive(!water);
-            if (visual.boat != null) visual.boat.SetActive(water);
-            if (visual.captain != null) visual.captain.SetActive(true);
+            if (visual.boat != null)
+            {
+                visual.boat.SetActive(water);
+                if (water) EnsureConvoyBoatFlag(visual, player.camp);
+            }
+            // 水路只保留船（带红蓝队旗），将军与队员藏起来——否则像在水面上走路
+            if (visual.captain != null) visual.captain.SetActive(!water);
+            for (int mi = 0; mi < visual.members.Count; mi++)
+                if (visual.members[mi] != null) visual.members[mi].SetActive(!water);
             if (visual.label != null)
-                visual.label.text = TeamDisplayName(player) + "  " + player.state +
-                    "\nFresh " + player.freshness.ToString("0") +
-                    "  Fruit " + player.goodFruit +
-                    "  Score " + player.score;
+                visual.label.text = TeamDisplayName(player) +
+                    "\n鲜度 " + player.freshness.ToString("0") +
+                    "  好果 " + player.goodFruit +
+                    "  得分 " + player.score;
         }
     }
 
@@ -1503,7 +1511,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         ReplayEventRaised?.Invoke(message, round);
         if (message == null) return;
-        latestEvent = "R" + round + "  " + message.type;
+        latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
         LycheeReplayPayload payload = message.payload ?? new LycheeReplayPayload();
 
         if (message.type == "WINDOW_CONTEST_START")
@@ -1877,7 +1885,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             title = "行动被拒绝";
             subtitle = ActionName(payload.action);
-            left = string.IsNullOrEmpty(payload.errorCode) ? "规则拒绝" : payload.errorCode;
+            left = ErrorCodeName(payload.errorCode);
             right = string.IsNullOrEmpty(payload.message) ? "无效试探" : ShortDetail(payload.message, 16);
             imageIndex = 0;
         }
@@ -1885,7 +1893,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             title = "宫宴冲刺开启";
             subtitle = "终局阶段开始，车队向长安冲刺";
-            left = string.IsNullOrEmpty(payload.trigger) ? "RUSH" : payload.trigger;
+            left = "冲刺";
             right = "争分夺秒";
             imageIndex = 2;
             seconds = 3.2f;
@@ -1920,7 +1928,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             title = "比赛结束";
             subtitle = TeamName(payload.winnerPlayerId) + " 胜出";
-            left = "Replay 完成";
+            left = "回放完成";
             right = "最终结算";
             imageIndex = 2;
             seconds = 3.5f;
@@ -2842,6 +2850,43 @@ public class LycheeReplayPlayer : MonoBehaviour
             squad.boat.transform.localPosition = new Vector3(0f, -0.08f, 0f);
     }
 
+    /// <summary>水路时给主车队的船插一面红/蓝队旗（懒创建一次）：旗杆 + 队色自发光旗面，远景俯视也分得清红蓝。</summary>
+    void EnsureConvoyBoatFlag(ConvoyVisual visual, int camp)
+    {
+        if (visual.boatFlag != null || visual.boat == null) return;
+        Color teamColor = camp == 0 ? new Color(1f, 0.22f, 0.14f) : new Color(0.16f, 0.46f, 1f);
+        GameObject flag = new GameObject("BoatFlag");
+        flag.transform.SetParent(visual.boat.transform, false);
+        flag.transform.localPosition = new Vector3(0f, 1.5f, 0f);   // 船桅高度
+        GameObject pole = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        pole.name = "Pole";
+        pole.transform.SetParent(flag.transform, false);
+        pole.transform.localScale = new Vector3(0.04f, 0.8f, 0.04f);
+        Destroy(pole.GetComponent<Collider>());
+        ApplyEmissive(pole, new Color(0.22f, 0.17f, 0.12f));
+        GameObject cloth = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cloth.name = "Cloth";
+        cloth.transform.SetParent(flag.transform, false);
+        cloth.transform.localPosition = new Vector3(0.36f, 0.5f, 0f);
+        cloth.transform.localScale = new Vector3(0.66f, 0.4f, 0.03f);
+        Destroy(cloth.GetComponent<Collider>());
+        ApplyEmissive(cloth, teamColor);
+        visual.boatFlag = flag;
+    }
+
+    /// <summary>给基本几何体套 URP/Lit 自发光材质（队旗/旗杆用，俯视远景也不被压暗）。</summary>
+    static void ApplyEmissive(GameObject obj, Color color)
+    {
+        MeshRenderer renderer = obj.GetComponent<MeshRenderer>();
+        if (renderer == null) return;
+        Material material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+        material.SetColor("_BaseColor", color);
+        material.EnableKeyword("_EMISSION");
+        material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+        material.SetColor("_EmissionColor", color * 1.4f);
+        renderer.material = material;
+    }
+
     /// <summary>采样 (x,z) 处河面高度。XZ 重心插值，多层取最上层；不在水面返回 false。</summary>
     bool TrySampleWaterSurface(float x, float z, out float waterY)
     {
@@ -3143,11 +3188,12 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static string WeatherName(string value)
     {
-        if (value == "HOT") return "酷热";
+        if (value == "HOT") return "酷暑";
         if (value == "HEAVY_RAIN") return "暴雨";
         if (value == "MOUNTAIN_FOG") return "山雾";
+        if (value == "CLEAR") return "晴朗";
         if (value == "NIGHT_WIND") return "夜风";
-        return string.IsNullOrEmpty(value) ? "天气" : value.Replace("_", " ");
+        return "天气";   // 兜底改中文
     }
 
     static string RegionName(string value)
@@ -3156,7 +3202,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (value == "WATER") return "水路";
         if (value == "MOUNTAIN") return "山路";
         if (value == "PLAIN") return "平原";
-        return string.IsNullOrEmpty(value) ? "区域" : value.Replace("_", " ");
+        return "区域";   // 兜底改中文
     }
 
     static string ResourceName(string value)
@@ -3168,28 +3214,42 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (value == "OFFICIAL_PERMIT") return "官牒";
         if (value == "INTEL") return "情报";
         if (value == "BOAT_RIGHT") return "船班权益";
-        return string.IsNullOrEmpty(value) ? "资源" : value.Replace("_", " ");
+        return "资源";   // 兜底改中文
     }
 
     static string ActionName(string value)
     {
+        if (value == "MOVE") return "移动";
+        if (value == "DELIVER") return "交付";
+        if (value == "WAIT") return "等待";
         if (value == "BOARD") return "登船";
+        if (value == "TRANSFER") return "前段交接";
         if (value == "WATER_TRANSFER") return "水路换运";
-        if (value == "BREAK_GUARD") return "破关";
+        if (value == "PASS_TRANSFER") return "入关交接";
+        if (value == "PALACE_TRANSFER") return "宫前交接";
+        if (value == "PROCESS") return "站点处理";
+        if (value == "SET_GUARD") return "设卡";
+        if (value == "BREAK_GUARD") return "攻坚破卡";
+        if (value == "FORCED_PASS") return "强制通行";
         if (value == "CLEAR_OBSTACLE" || value == "SQUAD_CLEAR" || value == "SQUAD_CLEAR_SUCCESS" || value == "CLEAR") return "清障";
         if (value == "CLAIM_RESOURCE") return "领取资源";
-        if (value == "VERIFY_GATE") return "宫门验核";
-        if (value == "BREAK_ORDER") return "破令验核";
+        if (value == "USE_RESOURCE") return "使用资源";
+        if (value == "CLAIM_TASK") return "处理皇榜任务";
+        if (value == "USE_RUSH_TACTIC") return "使用急策";
+        if (value == "RUSH_SPEED") return "疾行令";
+        if (value == "RUSH_PROTECT") return "护果令";
+        if (value == "VERIFY" || value == "VERIFY_GATE" || value == "RUSH_VERIFY_GATE") return "宫门验核";
+        if (value == "BREAK_ORDER") return "破关令";
         if (value == "PASS_NODE") return "限时过关";
         if (value == "STATION_PROCESS") return "驿站催运";
-        if (value == "RUSH_VERIFY_GATE") return "宫门验核";
-        return string.IsNullOrEmpty(value) ? "行动" : value.Replace("_", " ");
+        return "行动";   // 兜底改中文
     }
 
     static string BountyName(string value)
     {
         if (value == "KEY_BOUNTY") return "关隘悬赏";
-        return string.IsNullOrEmpty(value) ? "悬赏" : value.Replace("_", " ");
+        if (value == "NORMAL_BOUNTY") return "普通悬赏";
+        return "悬赏";   // 兜底改中文
     }
 
     static string ObstacleName(string value)
@@ -3197,7 +3257,42 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (value == "ROCKFALL") return "落石阻路";
         if (value == "BROKEN_BRIDGE") return "断桥阻路";
         if (value == "DOCK_BLOCK") return "码头堵塞";
-        return string.IsNullOrEmpty(value) ? "道路障碍" : value.Replace("_", " ");
+        if (value == "FLOOD") return "洪水阻路";
+        if (value == "MUD") return "泥泞阻路";
+        if (value == "PASS_CROWD") return "关口拥堵";
+        if (value == "LANDSLIDE") return "山体滑坡";
+        return "道路障碍";   // 兜底改中文
+    }
+
+    /// <summary>动作被拒/非法动作的 errorCode（及个别英文 message）→ 中文，全部兜底中文，绝不上屏英文。</summary>
+    public static string ErrorCodeName(string code)
+    {
+        if (string.IsNullOrEmpty(code)) return "规则拒绝";
+        switch (code)
+        {
+            case "ACTION_REJECTED": return "业务拒绝";
+            case "OBJECT_BUSY": return "对象忙";
+            case "TASK_PROTECTED": return "任务保护中";
+            case "TASK_NOT_FOUND": return "任务不存在";
+            case "ALREADY_VERIFIED": return "已验核";
+            case "ALREADY_DELIVERED": return "已交付";
+            case "DELIVER_NOT_VERIFIED": return "未验核不可交付";
+            case "DELIVER_REQUIREMENT_NOT_MET": return "交付条件不满足";
+            case "RESOURCE_NOT_ENOUGH":
+            case "RESOURCE_INSUFFICIENT": return "资源不足";
+            case "RESOURCE_NOT_USABLE": return "资源不可使用";
+            case "NOT_AT_TARGET_NODE": return "不在目标节点";
+            case "TARGET_NOT_REACHABLE": return "目标不可达";
+            case "MOVE_BLOCKED_BY_GUARD": return "设卡阻挡";
+            case "PARAM_OUT_OF_RANGE": return "参数越界";
+            case "WINDOW_DRAW_RETRY_LIMIT": return "平局冷却中";
+            case "WINDOW_CONTEST_REPEAT_SUPPRESSED": return "重复窗口已抑制";
+            case "RESTING_ACTION_FORBIDDEN": return "休整中禁此动作";
+            case "INVALID_ACTION_TYPE": return "非法动作类型";
+            case "INVALID_ACTION_CONFLICT": return "同类动作冲突";
+            case "hidden resource probe rejected": return "试探隐藏信息被拒";
+            default: return "规则拒绝";   // 未知一律中文兜底，不上屏英文
+        }
     }
 
     static int StableHash(string value)
@@ -3357,7 +3452,8 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static string ShortEventName(string eventType)
     {
-        return eventType.Replace("_", " ");
+        // 统一走 EventNameCn 中文映射（含全部 V4.8.12 事件 + 中文兜底"事件"），不再显英文裸名
+        return LycheeHudExtensions.EventNameCn(eventType);
     }
 
     string WorldEventLabel(string eventType, LycheeReplayPayload payload)
@@ -3605,17 +3701,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         float width = Mathf.Min(610f, Screen.width - 32f);
         Rect panel = new Rect(16f, 16f, width, 126f);
         GUI.Box(panel, GUIContent.none);
-        GUI.Label(new Rect(30f, 24f, width - 28f, 28f), "LYCHEE ROUTE REPLAY", titleStyle);
+        GUI.Label(new Rect(30f, 24f, width - 28f, 28f), "荔枝运送回放", titleStyle);
         GUI.Label(
             new Rect(30f, 52f, width - 28f, 24f),
-            "Round " + CurrentRound + " / " + frames[frames.Count - 1].round +
-            "   Phase " + frames[frameIndex].phase +
+            "回合 " + CurrentRound + " / " + frames[frames.Count - 1].round +
+            "   阶段 " + (frames[frameIndex].phase == "RUSH" ? "冲刺" : "常规") +
             "   " + latestEvent,
             hudStyle);
 
-        if (GUI.Button(new Rect(30f, 82f, 74f, 30f), playing ? "Pause" : "Play", buttonStyle))
+        if (GUI.Button(new Rect(30f, 82f, 74f, 30f), playing ? "暂停" : "播放", buttonStyle))
             playing = !playing;
-        if (GUI.Button(new Rect(112f, 82f, 58f, 30f), "Reset", buttonStyle))
+        if (GUI.Button(new Rect(112f, 82f, 58f, 30f), "重播", buttonStyle))
             SeekFrame(0);
 
         float speed = 1.00f / secondsPerRound;

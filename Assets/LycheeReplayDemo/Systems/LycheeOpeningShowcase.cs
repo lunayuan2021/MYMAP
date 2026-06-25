@@ -204,7 +204,9 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
     IEnumerator RunShowcase()
     {
-        if (rootGroup != null) rootGroup.alpha = 0f;
+        // 从第 0 帧就不透明：视频 Prepare 缓冲(原生/WebGL 约 7-8s)期间用红蓝背景+"正在加载…"盖住游戏预览，
+        // 否则那几秒会露出定格在第 1 回合的游戏画面，显得很突兀（用户反馈）。
+        if (rootGroup != null) rootGroup.alpha = 1f;
         SetProgress(1f);
         if (versusLayer != null) versusLayer.SetActive(false);
 
@@ -229,7 +231,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
             {
                 prepareWait += Time.unscaledDeltaTime;
                 EnforcePause();
-                if (rootGroup != null) rootGroup.alpha = Mathf.Clamp01(prepareWait / FadeInSeconds);
+                if (rootGroup != null) rootGroup.alpha = 1f;   // 缓冲期保持不透明加载页，不再从透明淡入（否则露出游戏预览）
                 yield return null;
             }
             if (videoPlayer != null && videoPlayer.isPrepared && !videoFailed && !skipRequested && !Disabled)

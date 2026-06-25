@@ -659,19 +659,20 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         main.loop = true;
         main.prewarm = true;
         main.simulationSpace = ParticleSystemSimulationSpace.World; // 发射器跟随事件焦点移动
-        main.startLifetime = new ParticleSystem.MinMaxCurve(1.25f, 1.9f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.28f, 0.55f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.55f, 1.05f);
-        main.startColor = new Color(1f, 0.9f, 0.78f, 0.10f);
-        main.maxParticles = 24;
-        main.gravityModifier = 0f;
+        // 热气蒸腾增强(2026-06-25 用户：原效果太弱)：升得更高更快、更密、覆盖更宽、扭动更明显——但保持通透不"蒙一层"。
+        main.startLifetime = new ParticleSystem.MinMaxCurve(1.8f, 2.8f);   // 活得更久→升得更高
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.62f, 1.10f);     // 上升更快 = 更"蒸腾"
+        main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 0.95f);
+        main.startColor = new Color(1f, 0.9f, 0.78f, 0.14f);               // 略增可见度但仍通透
+        main.maxParticles = 80;
+        main.gravityModifier = -0.04f;                                      // 轻浮力：热气往上飘
 
         ParticleSystem.EmissionModule emission = system.emission;
-        emission.rateOverTime = 7f;
+        emission.rateOverTime = 22f;                                        // 7→22 更密
 
         ParticleSystem.ShapeModule shape = system.shape;
         shape.shapeType = ParticleSystemShapeType.Box;
-        shape.scale = new Vector3(6f, 6f, 0.4f);
+        shape.scale = new Vector3(11f, 11f, 0.5f);                          // 6→11 覆盖更宽地面，热浪成片
 
         ParticleSystem.ColorOverLifetimeModule colorOverLifetime = system.colorOverLifetime;
         colorOverLifetime.enabled = true;
@@ -679,12 +680,13 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
 
         ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = system.sizeOverLifetime;
         sizeOverLifetime.enabled = true;
-        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.6f, 1f, 1.8f));
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.5f, 1f, 2.1f));  // 升空越变越宽=蒸腾扩散
 
         ParticleSystem.NoiseModule noise = system.noise;
         noise.enabled = true;
-        noise.strength = 0.35f;
-        noise.frequency = 0.6f;
+        noise.strength = 0.7f;                                              // 0.35→0.7 扭曲更明显(热浪扭动)
+        noise.frequency = 0.95f;
+        noise.scrollSpeed = 0.35f;                                          // 噪声滚动→持续起伏，不是静止糊层
 
         ParticleSystemRenderer renderer = system.GetComponent<ParticleSystemRenderer>();
         if (renderer != null)

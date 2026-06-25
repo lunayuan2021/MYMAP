@@ -15,12 +15,12 @@ public sealed class LycheeMapSelectController : MonoBehaviour
 
     public MapEntry[] maps =
     {
-        new MapEntry { key = "demo", label = "Demo", sceneName = "LycheeReplayDemo" },
-        new MapEntry { key = "map_1", label = "map_1", sceneName = "Map_medium" },
-        new MapEntry { key = "map_2", label = "map_2", sceneName = "Map_map2" },
-        new MapEntry { key = "map_3", label = "map_3", sceneName = "Map_map3" },
-        new MapEntry { key = "map_4", label = "map_4", sceneName = "Map_map4" },
-        new MapEntry { key = "map_5", label = "map_5", sceneName = "Map_map5" },
+        new MapEntry { key = "demo", label = "演示图", sceneName = "LycheeReplayDemo" },
+        new MapEntry { key = "map_1", label = "地图一", sceneName = "Map_medium" },
+        new MapEntry { key = "map_2", label = "地图二", sceneName = "Map_map2" },
+        new MapEntry { key = "map_3", label = "地图三", sceneName = "Map_map3" },
+        new MapEntry { key = "map_4", label = "地图四", sceneName = "Map_map4" },
+        new MapEntry { key = "map_5", label = "地图五", sceneName = "Map_map5" },
     };
 
     public bool allowUrlSelection = true;
@@ -99,7 +99,7 @@ public sealed class LycheeMapSelectController : MonoBehaviour
             }
         }
 
-        status = "Map not found: " + requested;
+        status = "未找到地图：" + requested;
     }
 
     static string QueryValue(string url, string key)
@@ -126,11 +126,11 @@ public sealed class LycheeMapSelectController : MonoBehaviour
     {
         if (!Application.CanStreamedLevelBeLoaded(entry.sceneName))
         {
-            status = "Scene not in build: " + entry.sceneName;
+            status = "场景未打入构建包：" + entry.sceneName;
             return;
         }
 
-        status = "Loading " + entry.label + "...";
+        status = "正在加载 " + entry.label + "…";
         SceneManager.LoadScene(entry.sceneName);
     }
 

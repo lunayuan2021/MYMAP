@@ -225,8 +225,8 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             case "DELIVER_SUCCESS": return "sfx_deliver";
             case "RUSH_START":                                    // 真实回放发的是 RUSH_START
             case "RUSH_PHASE_START": return "sfx_rush_horn";      // RUSH_PHASE_START 为旧名兼容
-            case "GOOD_TO_BAD":
-            case "FRESHNESS_DROP": return "sfx_fresh_warning";
+            // 只在「好果转坏」时响一声警示；FRESHNESS_DROP 每回合每队都发(本局 1012 次)，绑上去会从头响到尾，故不绑。
+            case "GOOD_TO_BAD": return "sfx_fresh_warning";
             default: return null;
         }
     }

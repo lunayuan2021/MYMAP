@@ -713,7 +713,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         if (bounty == null) return "悬赏·破关";
         string name = bounty.bountyType == "KEY_BOUNTY"
             ? "关隘破袭"
-            : string.IsNullOrEmpty(bounty.bountyType) ? "破关行动" : bounty.bountyType.Replace("_", " ");
+            : "破关行动";   // 兜底改中文，不显英文
         string text = "悬赏·" + name;
         if (bounty.score > 0) text += " +" + bounty.score + "分";
         return text;
