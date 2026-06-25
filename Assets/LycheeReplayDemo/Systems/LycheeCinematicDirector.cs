@@ -294,6 +294,7 @@ public class LycheeCinematicDirector : MonoBehaviour
                 cameraController.Shake(0.25f, 0.5f);
                 break;
             case "RUSH_PHASE_START":
+            case "RUSH_START": // 真实回放发的是 RUSH_START；RUSH_PHASE_START 为旧名兼容
                 cameraController.Shake(0.45f, 1.2f);
                 break;
             case "DELIVER_SUCCESS":

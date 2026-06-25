@@ -279,9 +279,28 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     // 对抗三连击（开始/亮牌/结算）是同一场叙事的连续镜头，priority=true 绕过队列实时覆盖；
     // 时长从 4.6/4.9/5.2 压到 2.8/2.8/3.0，避免叙事链拖到下一场对抗还没放完。
-    public void ShowCombatStart(int round, string nodeId, int totalRounds)
+    // 本场对抗类型标签（START 时按 contestType 设定，REVEAL/END 续用，使三连击文案一致）。
+    string contestTypeLabel = "对抗";
+
+    /// <summary>窗口争夺类型(contestType)→中文标签（设计 §4.7）；未知/空回退"对抗"，保持旧文案兼容。</summary>
+    public static string ContestTypeLabel(string contestType)
     {
-        ShowCombat(0, null, "对抗开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true, "battle");
+        switch (contestType)
+        {
+            case "GATE": return "宫门争夺";
+            case "PASS": return "通行争夺";
+            case "RESOURCE": return "资源争夺";
+            case "TASK": return "任务争夺";
+            case "DOCK": return "交接争夺";
+            case "OBSTACLE": return "清障争夺";
+            default: return "对抗";
+        }
+    }
+
+    public void ShowCombatStart(int round, string nodeId, int totalRounds, string contestType)
+    {
+        contestTypeLabel = ContestTypeLabel(contestType);
+        ShowCombat(0, null, contestTypeLabel + "开始  第" + round + "回合", "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + "局对抗", "红队准备", "蓝队准备", "0 : 0", 2.8f, true, "battle");
         // 对抗暗角聚焦：压暗四周把视线收到战场与弹窗上，CONTEST_END 时淡出
         SetVignette(true);
     }
@@ -289,7 +308,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
     {
         string winnerText = WinnerText(winner);
-        ShowCombat(1, null, "对抗第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true, "battle");
+        ShowCombat(1, null, contestTypeLabel + "第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true, "battle");
         // 亮牌瞬间双方卡片同时翻面：先露牌背、过中点换正面贴图（传原始牌名做映射）
         StartCardFlip(redCardFx, redCard);
         StartCardFlip(blueCardFx, blueCard);
@@ -300,7 +319,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
     {
-        ShowCombat(2, null, "对抗结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
+        ShowCombat(2, null, contestTypeLabel + "结束  第" + round + "回合", WinnerText(winner) + " 胜出", "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
         // 胜者演出：判出胜负的这一拍给胜方卡片两次金色脉冲，并配一记短促震屏强化打击感
         if (winner == "RED") StartWinnerGlow(redCardFx, 0f);
         else if (winner == "BLUE") StartWinnerGlow(blueCardFx, 0f);
@@ -359,7 +378,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         LycheeReplayPlayerState blue,
         int redCount,
         int blueCount,
-        LycheeReplayScores scores)
+        LycheeReplayScores scores,
+        float redRouteProgress,
+        float blueRouteProgress)
     {
         EnsureBuilt();
 
@@ -394,9 +415,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float blueFresh = blue == null ? 0f : blue.freshness;
         int redFruit = red == null ? 0 : red.goodFruit;
         int blueFruit = blue == null ? 0 : blue.goodFruit;
-        // progress = 当前路段行进比例(0..1)，随车队推进持续变化；squadAvailable 数据缺失恒 0 故弃用。
-        float redProgress = red == null ? 0f : Mathf.Clamp01(red.progress) * 100f;
-        float blueProgress = blue == null ? 0f : Mathf.Clamp01(blue.progress) * 100f;
+        // 送达进度 = 整段总进度(0..1，由 LycheeReplayPlayer.RouteProgressOf 按站号 S01→S15 推出，单调不抖)。
+        // 不再直接用 state.progress：replay.txt 里它是「当前路段」比例、每到站清零，会让进度条 0↔100 抖动。
+        float redProgress = Mathf.Clamp01(redRouteProgress) * 100f;
+        float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
 
         UpdateBar(freshBar, redFresh, blueFresh, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%", newRound ? redFresh - lastRedFresh : 0f, newRound ? blueFresh - lastBlueFresh : 0f, "%");
         UpdateBar(fruitBar, redFruit, blueFruit, redFruit.ToString(), blueFruit.ToString(), newRound ? redFruit - lastRedFruit : 0, newRound ? blueFruit - lastBlueFruit : 0, "");
@@ -812,7 +834,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         freshBar = BuildDualBar(panel, "鲜度", 100f, 120f);
         fruitBar = BuildDualBar(panel, "好果", 100f, 90f);
-        progressBar = BuildDualBar(panel, "进度", 100f, 60f);
+        progressBar = BuildDualBar(panel, "送达进度", 100f, 60f);
         scoreBar = BuildDualBar(panel, "得分", 800f, 30f); // 得分可达 ~700，旧 max=60 会让条瞬间填满；放宽到 800
     }
 

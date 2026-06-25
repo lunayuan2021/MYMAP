@@ -262,9 +262,11 @@ public class LycheeCombatPresentation : MonoBehaviour
             case "GUARD_BREAK":
                 HandleGuardBreak(payload);
                 break;
+            case "SQUAD_WEAKEN":            // V4.8.12 裸名
             case "SQUAD_WEAKEN_SUCCESS":
                 SpawnNodeFloat(payload, DefenseDeltaText(payload, -2), PurpleText, 34, 0.06f);
                 break;
+            case "SQUAD_REINFORCE":        // V4.8.12 裸名
             case "SQUAD_REINFORCE_SUCCESS":
                 SpawnNodeFloat(payload, DefenseDeltaText(payload, 2), GreenText, 34, 0.06f);
                 break;

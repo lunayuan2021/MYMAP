@@ -223,6 +223,26 @@ public class LycheeReplayPlayer : MonoBehaviour
             : null;
     }
 
+    /// <summary>收集当前有可视化车队的真实 playerId（回放里是 1002/2002 这类四位数，并非 0..15）。供调测叠层用。</summary>
+    public void CollectConvoyPlayerIds(List<int> buffer)
+    {
+        if (buffer == null) return;
+        buffer.Clear();
+        foreach (KeyValuePair<int, ConvoyVisual> kv in convoys)
+            if (kv.Value != null && kv.Value.root != null) buffer.Add(kv.Key);
+    }
+
+    /// <summary>收集当前在途小分队的（世界坐标, 队名·战术标签）。供调测叠层在脑袋顶贴坐标。</summary>
+    public void CollectSquadTags(List<KeyValuePair<Vector3, string>> buffer)
+    {
+        if (buffer == null) return;
+        buffer.Clear();
+        foreach (SquadVisual squad in squads)
+            if (squad != null && squad.root != null)
+                buffer.Add(new KeyValuePair<Vector3, string>(
+                    squad.root.transform.position, TeamName(squad.playerId) + "·小队"));
+    }
+
     public string TeamDisplayName(int playerId)
     {
         return TeamName(playerId);
@@ -892,7 +912,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (detail != null)
             {
                 int sum = detail.delivery + detail.goodFruit + detail.freshness +
-                          detail.time + detail.tasks - Mathf.Abs(detail.penalty);
+                          detail.time + detail.tasks + detail.bounty - Mathf.Abs(detail.penalty);
                 if (sum != overPlayer.totalScore)
                 {
                     Debug.LogWarning(string.Format(
@@ -1095,6 +1115,36 @@ public class LycheeReplayPlayer : MonoBehaviour
             blue == null ? defaultTeamSize : TeamSize(blue.playerId));
     }
 
+    int routeNodeMax = -1;   // 路网终点站序号(S15→15)，懒算缓存
+
+    static int StationNumber(string nodeId)
+    {
+        if (string.IsNullOrEmpty(nodeId) || nodeId.Length < 2 || (nodeId[0] != 'S' && nodeId[0] != 's')) return -1;
+        return int.TryParse(nodeId.Substring(1), out int n) ? n : -1;
+    }
+
+    int RouteNodeMax()
+    {
+        if (routeNodeMax > 0) return routeNodeMax;
+        int m = 2;
+        foreach (MapStationAnchor s in stations.Values)
+            if (s != null) { int n = StationNumber(s.stationId); if (n > m) m = n; }
+        routeNodeMax = m;
+        return routeNodeMax;
+    }
+
+    /// <summary>整段送达进度(0..1)：用节点序号(S01→S15)推总进度，<b>不</b>依赖各回放文件对 progress 字段的不同口径。
+    /// replay.txt 的 progress 是「当前路段」比例、每到站清零，直接用会 0↔100 抖动；这里改用站号+本段比例得到单调总进度。</summary>
+    float RouteProgressOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0f;
+        if (s.delivered) return 1f;
+        int cur = StationNumber(s.currentNodeId);
+        if (cur < 1) return Mathf.Clamp01(s.progress);                 // 拿不到站号时退回原字段
+        float edgeFrac = !string.IsNullOrEmpty(s.routeEdgeId) ? Mathf.Clamp01(s.edgeProgressPermille / 1000f) : 0f;
+        return Mathf.Clamp01((cur - 1 + edgeFrac) / (RouteNodeMax() - 1));
+    }
+
     void UpdateRuntimeHud()
     {
         if (runtimeHud == null || frames.Count == 0) return;
@@ -1110,7 +1160,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             blue,
             red == null ? defaultTeamSize : TeamSize(red.playerId),
             blue == null ? defaultTeamSize : TeamSize(blue.playerId),
-            frame.scores);
+            frame.scores,
+            RouteProgressOf(red),
+            RouteProgressOf(blue));
     }
 
     int TeamSize(int playerId)
@@ -1457,14 +1509,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (message.type == "WINDOW_CONTEST_START")
         {
             if (runtimeHud != null)
-                runtimeHud.ShowCombatStart(round, payload.targetNodeId, payload.totalRounds);
+                runtimeHud.ShowCombatStart(round, payload.targetNodeId, payload.totalRounds, payload.contestType);
             if (!string.IsNullOrEmpty(payload.targetNodeId) && stations.TryGetValue(payload.targetNodeId, out MapStationAnchor contestStation))
             {
                 // 缓存对抗节点位置：后续 WINDOW_CARD_REVEAL 没有 targetNodeId，靠它续期聚焦
                 contestFocusPosition = contestStation.transform.position;
                 hasContestFocus = true;
                 SetEventFocus(contestFocusPosition, 4.5f, 15f);
-                SpawnEventPulse(contestFocusPosition, "对抗开始", new Color(1f, 0.78f, 0.22f), ResolveEventIcon("WINDOW_CONTEST_START", payload));
+                // 世界脉冲标签也按窗口类型分流（宫门/通行/资源/任务/交接/清障）
+                SpawnEventPulse(contestFocusPosition, LycheeReplayRuntimeHud.ContestTypeLabel(payload.contestType) + "开始", new Color(1f, 0.78f, 0.22f), ResolveEventIcon("WINDOW_CONTEST_START", payload));
             }
             return;
         }
@@ -1608,6 +1661,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 左侧事件流（LycheeHudExtensions 自己订阅 ReplayEventRaised）仍会展示，不丢信息。
         if (type == "WEATHER_FORECAST" ||
             type == "GUARD_DECAY" ||
+            type == "GUARD_WEATHERING" ||   // V4.8.12 新名（旧 GUARD_DECAY），同样不进中央弹窗
             type.StartsWith("COST_", StringComparison.Ordinal))
             return;
         if (type == "PROCESS_PROGRESS" && !ShouldShowProcessProgressCard(payload, round))
@@ -1779,7 +1833,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = payload.defenseBefore + " → " + payload.defenseAfter;
             imageIndex = 2;
         }
-        else if (type == "BOUNTY_SPAWN")
+        else if (type == "BOUNTY_SPAWN" || type == "BOUNTY_CREATE")   // BOUNTY_CREATE 为 V4.8.12 新名
         {
             title = "破关悬赏出现";
             subtitle = target + " 进入悬赏窗口";
@@ -1787,7 +1841,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             right = ScoreText(payload.score);
             imageIndex = 0;
         }
-        else if (type == "BOUNTY_COMPLETE")
+        else if (type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM") // BOUNTY_CLAIM 为 V4.8.12 新名
         {
             title = "破关悬赏完成";
             subtitle = team + " 获得悬赏奖励";
@@ -3435,8 +3489,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t == "GUARD_SET") return "Illustrations/card_guard.png";
         if (t == "MATCH_END") return "Illustrations/card_finish.png";
         if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "Illustrations/card_action_invalid.png";
-        if (t == "BOUNTY_SPAWN") return "Illustrations/card_bounty.png";
-        if (t == "BOUNTY_COMPLETE") return "Illustrations/card_bounty_done.png";
+        if (t == "BOUNTY_SPAWN" || t == "BOUNTY_CREATE") return "Illustrations/card_bounty.png";
+        if (t == "BOUNTY_COMPLETE" || t == "BOUNTY_CLAIM") return "Illustrations/card_bounty_done.png";
         if (t == "VERIFY_GATE_START") return "Illustrations/card_verify.png";
         if (t == "VERIFY_GATE_COMPLETE") return "Illustrations/card_verify_done.png";
         if (t == "DELIVER_SUCCESS") return "Illustrations/card_deliver.png";

@@ -185,6 +185,7 @@ public class LycheeReplayScoreDetail
     public int freshness;
     public int time;
     public int tasks;
+    public int bounty;   // 破关悬赏分（设计 §1.4 / §10.5 scoreDetail.bounty），6 个正向分项之一
     public int penalty;
 }
 

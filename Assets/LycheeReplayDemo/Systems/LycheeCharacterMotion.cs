@@ -1237,7 +1237,7 @@ public class LycheeCharacterMotion : MonoBehaviour
             StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 4f, false);
             return;
         }
-        if (type == "TASK_COMPLETE" || type == "BOUNTY_COMPLETE" || type == "RESOURCE_CLAIM")
+        if (type == "TASK_COMPLETE" || type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM" || type == "RESOURCE_CLAIM")
         {
             StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 2.2f, false);
             return;

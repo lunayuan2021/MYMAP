@@ -174,7 +174,8 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         // ReplayEventRaised 在 HandleEvent 的 null 守卫之前触发，message 可能为 null。
         if (!initialized || message == null || string.IsNullOrEmpty(message.type)) return;
 
-        if (message.type == "RUSH_PHASE_START") desiredBgmKey = BgmRushKey;
+        // 真实回放发的是 RUSH_START；RUSH_PHASE_START 为旧名兼容。两者都要切冲刺 BGM。
+        if (message.type == "RUSH_START" || message.type == "RUSH_PHASE_START") desiredBgmKey = BgmRushKey;
 
         if (Disabled) return;
         string clipKey = SfxKeyFor(message.type);
@@ -215,12 +216,15 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             case "SQUAD_DISPATCH": return "sfx_squad_dispatch";
             case "SQUAD_ARRIVE": return "sfx_squad_arrive";
             case "TASK_SPAWN":
-            case "BOUNTY_SPAWN": return "sfx_task_spawn";
+            case "BOUNTY_SPAWN":
+            case "BOUNTY_CREATE": return "sfx_task_spawn";       // BOUNTY_CREATE 为 V4.8.12 新名
             case "TASK_COMPLETE":
-            case "BOUNTY_COMPLETE": return "sfx_task_complete";
+            case "BOUNTY_COMPLETE":
+            case "BOUNTY_CLAIM": return "sfx_task_complete";     // BOUNTY_CLAIM 为 V4.8.12 新名
             case "VERIFY_GATE_COMPLETE": return "sfx_verify_gate";
             case "DELIVER_SUCCESS": return "sfx_deliver";
-            case "RUSH_PHASE_START": return "sfx_rush_horn";
+            case "RUSH_START":                                    // 真实回放发的是 RUSH_START
+            case "RUSH_PHASE_START": return "sfx_rush_horn";      // RUSH_PHASE_START 为旧名兼容
             case "GOOD_TO_BAD":
             case "FRESHNESS_DROP": return "sfx_fresh_warning";
             default: return null;

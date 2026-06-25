@@ -27,6 +27,16 @@ static class LycheeWebGLBuild_20260612
     const string PreferredSingleMapScene = "Assets/Scenes/GeneratedMaps/Map_medium.unity";
     const string SelectorScene = "Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity";
 
+    // WebGL 重型贴图降采样:地形 PBR 贴图(Realistic Terrain Textures Lite)默认 4096,是 .data(~466MB)的大头。
+    // 回放为俯视远景,2048+Crunch 肉眼无损但体积砍数倍;仅加 WebGL 平台覆盖,Standalone/Server/原生包保持全质量。
+    // 想更极致(~30-40MB)可把此值改 1024。
+    const int WebGLTextureMaxSize = 2048;
+    static readonly string[] HeavyTextureFolders =
+    {
+        "Assets/ALP_Assets/Realistic Terrain Textures Lite/Textures",
+        "Assets/FreeMountain/Textures",
+    };
+
     static double nextPollTime;
     static bool running;
 
@@ -80,14 +90,16 @@ static class LycheeWebGLBuild_20260612
             FixReplayCameraControllers(scenes);
             GenerateThemeManifest();
             ValidateStreamingReplayFiles(scenes);
+            OptimizeWebGLTextures();
 
             // Gzip + 解压回退：任何静态文件服务器（python -m http.server 等）都能直接跑，无需配置 Content-Encoding
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
             PlayerSettings.WebGL.decompressionFallback = true;
             // 黄区浏览器环境不一定能稳定申请 4GB wasm heap；2GB 对当前包更稳。
             PlayerSettings.WebGL.maximumMemorySize = 2048;
-            // 多次同名发包时 IndexedDB Data Caching 容易拿到旧 data 文件，表现为进度条卡住或黑屏。
-            PlayerSettings.WebGL.dataCaching = false;
+            // Data Caching 开：data 文件名带时间戳(每次构建唯一) + index.html 的 ?v=buildStamp 双重破坏缓存，
+            // IndexedDB 不会再拿到旧 data；开启后重复访问/弱网刷新直接命中本地缓存，显著降低"加载卡住/白屏"复发。
+            PlayerSettings.WebGL.dataCaching = true;
             PlayerSettings.runInBackground = true;
             // 回放包需要支持 ?path=http://... 从黄区/内网 HTTP 地址读取 replay.txt。
             // Unity 6 默认禁止非 HTTPS 请求，Linux/Chrome 会直接抛 Insecure connection not allowed。
@@ -133,6 +145,26 @@ static class LycheeWebGLBuild_20260612
             File.WriteAllText(DoneMarker, "Exception");
             DeleteRequestMarker();
         }
+    }
+
+    /// <summary>
+    /// 命令行无头入口（纯新增，不改动 GUI 轮询路径）：
+    ///   Unity -batchmode -nographics -buildTarget WebGL \
+    ///         -executeMethod LycheeWebGLBuild_20260612.BuildFromCommandLine -quit
+    /// 直接同步跑一次既有 RunBuild()，不依赖 EditorApplication.update 轮询，也不被 MCP 驱动。
+    /// 失败时置非零退出码，方便脚本判定。
+    /// </summary>
+    public static void BuildFromCommandLine()
+    {
+        if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)
+            EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.WebGL, BuildTarget.WebGL);
+        if (File.Exists(DoneMarker)) File.Delete(DoneMarker);
+        running = true;
+        try { RunBuild(); }
+        finally { running = false; }
+        string result = File.Exists(DoneMarker) ? File.ReadAllText(DoneMarker).Trim() : "NoDone";
+        Append("CLI build finished with result: " + result);
+        if (result != "Succeeded") EditorApplication.Exit(1);
     }
 
     /// <summary>
@@ -330,6 +362,44 @@ static class LycheeWebGLBuild_20260612
     }
 
     /// <summary>
+    /// 把重型地形/山体贴图在 WebGL 平台降到 WebGLTextureMaxSize + Crunch 压缩——这是 .data(~466MB)的大头。
+    /// 仅加 WebGL 平台覆盖：Standalone/Server/原生包不受影响、保持 4K/2K 全质量。
+    /// 在构建前执行并 SaveAndReimport，确保烤进 .data 的是降采样后的版本。
+    /// </summary>
+    static void OptimizeWebGLTextures()
+    {
+        int changed = 0;
+        foreach (string folder in HeavyTextureFolders)
+        {
+            if (!Directory.Exists(folder)) continue;
+            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { folder }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+                if (importer == null) continue;
+
+                TextureImporterPlatformSettings ps = importer.GetPlatformTextureSettings("WebGL");
+                bool needsChange = !ps.overridden
+                    || ps.maxTextureSize != WebGLTextureMaxSize
+                    || !ps.crunchedCompression
+                    || ps.textureCompression != TextureImporterCompression.Compressed;
+                if (!needsChange) continue;
+
+                ps.overridden = true;
+                ps.maxTextureSize = WebGLTextureMaxSize;
+                ps.textureCompression = TextureImporterCompression.Compressed;
+                ps.crunchedCompression = true;   // Crunch：在 DXT 之上进一步缩“下载体积”，WebGL 首选
+                ps.compressionQuality = 50;
+                ps.format = TextureImporterFormat.Automatic;
+                importer.SetPlatformTextureSettings(ps);
+                importer.SaveAndReimport();
+                changed++;
+            }
+        }
+        Append("WebGL texture downscale: " + changed + " heavy textures -> " + WebGLTextureMaxSize + "px + Crunch (WebGL override only).");
+    }
+
+    /// <summary>
     /// 枚举 UITheme 运行时素材写入 uitheme_manifest.txt——WebGL 无法列目录，
     /// LycheeThemeCache 启动时按清单预载（素材增删后重新构建即自动生效）。
     /// </summary>
@@ -371,7 +441,7 @@ static class LycheeWebGLBuild_20260612
             "var buildStamp = \"" + stamp + "\";\n      var loaderUrl = buildUrl + ");
         // 标题用正则整体替换：旧补丁只匹配 "Unity Web Player | My project"，但 Unity 6 模板实际是
         // "Unity WebGL Player | My project"（多了 GL），导致替换静默失效、浏览器标签仍显示开发用标题。
-        html = Regex.Replace(html, "<title>.*?</title>", "<title>荔枝争霸赛 · 回放</title>", RegexOptions.Singleline);
+        html = Regex.Replace(html, "<title>.*?</title>", "<title>一骑红尘：荔枝争运战 · 回放</title>", RegexOptions.Singleline);
         html = html.Replace(
             "</head>",
             "    <style>\n" +
@@ -402,7 +472,7 @@ static class LycheeWebGLBuild_20260612
         html = html.Replace(
             "<div id=\"unity-container\"",
             "<div id=\"lychee-splash\"><div class=\"lychee-splash-card\">" +
-            "<div class=\"lychee-splash-title\">荔枝争霸赛</div>" +
+            "<div class=\"lychee-splash-title\">一骑红尘：荔枝争运战</div>" +
             "<div class=\"lychee-splash-sub\">正在加载游戏资源...</div>" +
             "<div class=\"lychee-splash-en\">Loading game assets...</div>" +
             "<div class=\"lychee-splash-hint\">正在准备地图、队伍与事件回放</div>" +
@@ -410,7 +480,7 @@ static class LycheeWebGLBuild_20260612
             "</div></div>\n    <div id=\"unity-container\"");
         html = html.Replace(
             "<div id=\"unity-logo\"></div>",
-            "<div id=\"unity-logo\"></div><div class=\"lychee-loading-title\">荔枝争霸赛</div><div class=\"lychee-loading-subtitle\">正在加载游戏资源...<br>Loading game assets...<br>正在准备地图、队伍与事件回放</div>");
+            "<div id=\"unity-logo\"></div><div class=\"lychee-loading-title\">一骑红尘：荔枝争运战</div><div class=\"lychee-loading-subtitle\">正在加载游戏资源...<br>Loading game assets...<br>正在准备地图、队伍与事件回放</div>");
         // Unity 实例就绪后移除加载封面（成功路径主钩子）。
         html = html.Replace(
             ".then((unityInstance) => {",
@@ -459,7 +529,7 @@ static class LycheeWebGLBuild_20260612
     {
         Directory.CreateDirectory(OutputDir);
         string text =
-            "荔枝争霸赛 WebGL 构建包使用说明\n" +
+            "一骑红尘：荔枝争运战 WebGL 构建包使用说明\n" +
             "==============================\n\n" +
             "不要直接双击 index.html，也不要只拷贝 Build 目录。请把整个文件夹原样放到黄区服务器或用本地 HTTP 服务打开。\n\n" +
             "目录必须包含：\n" +

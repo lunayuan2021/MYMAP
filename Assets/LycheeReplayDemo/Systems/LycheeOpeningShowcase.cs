@@ -681,7 +681,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
         // 上方主标题
         Text title = MakeText(
-            layer, "OpeningTitle", "一骑红尘 · 荔枝争运战",
+            layer, "OpeningTitle", "一骑红尘：荔枝争运战",
             40, new Color(1f, 0.92f, 0.78f, 1f), FontStyle.Bold,
             new Vector2(0f, 238f), new Vector2(1000f, 72f));
         if (title != null)

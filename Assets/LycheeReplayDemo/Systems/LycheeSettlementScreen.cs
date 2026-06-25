@@ -20,15 +20,15 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     /// <summary>全局开关：置 true 后不再弹出结算界面。</summary>
     public static bool Disabled;
 
-    const int RowCount = 6;
-    const float RowSpacing = 52f;
+    const int RowCount = 7;
+    const float RowSpacing = 44f;   // 7 行(含破关悬赏分)压进原 6 行(52f)的纵向带内，末行约 -668，不压到 -700 分隔线
     const float NumberRollSeconds = 1.2f;
     const float ColumnStaggerSeconds = 0.15f;
     const float RowStaggerSeconds = 0.12f;
 
     static readonly string[] RowLabels =
     {
-        "送达基础分", "好果数量分", "鲜度品质分", "用时分", "皇榜任务分", "惩罚"
+        "送达基础分", "好果数量分", "鲜度品质分", "用时分", "皇榜任务分", "破关悬赏分", "惩罚"
     };
 
     static readonly Color GoldColor = new Color(1f, 0.84f, 0.40f, 1f);
@@ -281,7 +281,8 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         targets[2] = detail.freshness;
         targets[3] = detail.time;
         targets[4] = detail.tasks;
-        targets[5] = -Mathf.Abs(detail.penalty);
+        targets[5] = detail.bounty;                 // 破关悬赏分（正向，与皇榜任务分并列）
+        targets[6] = -Mathf.Abs(detail.penalty);    // 惩罚恒为最后一行（penaltyRow = i == RowCount-1）
     }
 
     int ResolveTotal(LycheeReplayOverPlayer overPlayer, LycheeReplayScores scores, LycheeReplayPlayerState framePlayer, int camp)

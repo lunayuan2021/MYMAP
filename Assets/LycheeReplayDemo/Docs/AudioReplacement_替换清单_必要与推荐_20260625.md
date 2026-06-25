@@ -1,8 +1,9 @@
 # 荔枝回放 · 音频替换清单(必要 / 推荐 / 全覆盖)
 
 > 用途:全量替换工程音频时,回答「必要做几个、推荐做几个」。
-> 依据:`AudioManifest_音乐音效清单_20260623.md` + 对源码逐条核实(`LycheeAudioDirector.cs` 等 5 个子系统并行验证)。
-> 生成日期:2026-06-25。
+> 依据:`AudioManifest_音乐音效清单_20260623.md` + 对源码逐条核实(`LycheeAudioDirector.cs` 等 5 个子系统并行验证) + 对齐《游戏逻辑设计文档 V4.8.12》(2026-06-15)。
+> 生成日期:2026-06-25(对齐 V4.8.12 修订)。
+> **先读第 6 节**:与最新设计文档 V4.8.12 的三方对照、已修的 RUSH 事件名 bug、天气/窗口牌变化。
 
 ---
 
@@ -11,10 +12,13 @@
 | 档位 | 文件数 | 含义 |
 |---|---|---|
 | **必要(最少)** | **21** | 把现在会响的全部同名替换,零改代码、不新增静默 |
-| **推荐** | **31** | 21 + 10 个高优先级新文件(已逐条核实、已去重);另含 2 个「零文件」代码补丁 |
+| **推荐** | **31** | 21 + 10 个高优先级新文件(已逐条核实、已去重);另含「零文件」代码补丁 |
+| **推荐+(对齐设计高光)** | **≈ 38** | 31 + 窗口四牌音(验牒/强行/献贡/兵争,视觉全已实现)+ 判胜拍 + 天气预告 + 终局急策 |
 | **全覆盖(上限)** | **≈ 48–52** | 再补「锦上添花」项,收益递减 |
 
 **核心去重发现**:高优先级缺口里大半能复用现有音 / 合并 / 代码消化,真正要新做的远少于「一时刻一文件」。
+
+> ⚠️ **必要 21 里有 2 个曾经是哑的**:`bgm_rush`、`sfx_rush_horn` 原先只认旧事件名 `RUSH_PHASE_START`,真实回放发的是 `RUSH_START`,故不响。**已于本版修复**(见第 6.1 节),现两名都认。
 
 ---
 
@@ -86,12 +90,14 @@
 | `sfx_sparkles_burst` | MVP 金色星光闪散(0.85s,10 颗) | 同上 | `LycheeSettlementScreen.cs:462-520` |
 | `sfx_rush_transition` | 2.8s 全屏冲刺转场(暗角+红条带+大字震屏) | 2.8s 长 riser/whoosh 床 | `LycheeHudExtensions.cs:1454-1493` |
 
-### 2.1 附带 2 个「零新文件」代码补丁(顺手做,不计入文件数)
+### 2.1 附带「零新文件」代码补丁(顺手做,不计入文件数)
 
 | 项 | 处理 | 说明 |
 |---|---|---|
-| 夜风 `NIGHT_WIND` | **复用 `sfx_weather_wind`** | 第 4 种天气在 `UpdateWeatherTargets` 里完全没有分支,目前彻底静默;加一个判断分支即可 |
+| RUSH 事件名 | **已修(本版)** | `bgm_rush`/`sfx_rush_horn`/冲刺镜头震动原只认 `RUSH_PHASE_START`,真实回放发 `RUSH_START` 故全哑;现两名都认。详见第 6.1 节 |
 | UI 控制条接线 | **复用 `sfx_ui_click`** | `OnReplayClicked/OnPlayPauseClicked/OnSpeedClicked` 没调用 `PlayUiClick()`(全工程 0 调用点),核心交互无反馈;接线即可 |
+
+> ~~夜风 `NIGHT_WIND` 复用 `sfx_weather_wind`~~ —— **作废**:V4.8.12 天气池只剩 `HOT/HEAVY_RAIN/MOUNTAIN_FOG`,`NIGHT_WIND` 已不在设计内,不会触发,无需补分支。见第 6.2 节。
 
 ### 2.2 4 项可复用 / 合并,不必单做(省文件关键)
 
@@ -100,14 +106,15 @@
 | `sfx_obstacle_clear` | 用 `sfx_squad_clear` | 走同一条「清障成功」FX/卡/镜头路径 |
 | `sfx_bar_shatter` | 用 `sfx_guard_break` | 血条碎裂逐帧驱动、无事件钩子;且 GUARD_BREAK 通常同时发生 |
 | `sfx_rush_band_whoosh` | 烘进 `sfx_rush_transition` 开头 | 它就是转场前 0.45s 的子拍 |
-| `sfx_rush_impact` | 已有 `sfx_rush_horn` 覆盖 | 同一 `RUSH_PHASE_START` 事件,号角已是冲击重音,**其实不哑** |
+| `sfx_rush_impact` | 已有 `sfx_rush_horn` 覆盖 | 同一 `RUSH_START` 事件,号角已是冲击重音(本版修复后才真正会响) |
 
 ### 2.3 推荐落地顺序
 
-1. 2 个代码补丁(几乎免费):夜风分支 + UI 接线
+1. 代码补丁(几乎免费):**RUSH 事件名已修** + UI 接线
 2. 结算四件套(玩家停留最久):`banner_drop` / `total_pop` / `mvp_appear` / `sparkles_burst`
 3. 战斗 3 件 + 终局 2 件:`contest_start` / `squad_clear` / `squad_failed` / `forced_pass_start` / `verify_gate_start`
 4. 冲刺转场:`rush_transition`
+5. 推荐+(对齐 V4.8.12 高光,见第 6 节):窗口牌音 `card_yandie`/`card_qiangxing`/`card_xiangong` + `contest_beat_win` + `weather_forecast` + `rush_tactic`
 
 ---
 
@@ -147,4 +154,66 @@
 
 ## 5. 一句话总结
 
-全部替换的**必要 21 个**;想「该响的都响」做到**推荐 31 个**(+2 个免费代码补丁);追求全覆盖约 **50 个**,但后 ~19 个收益明显递减。
+全部替换的**必要 21 个**;想「该响的都响」做到**推荐 31 个**(含免费代码补丁);对齐 V4.8.12 高光做到**推荐+ ≈ 37**;追求全覆盖约 **50 个**,后段收益明显递减。
+
+---
+
+## 6. 对齐最新设计文档 V4.8.12(2026-06-15)
+
+> 来源:《一骑红尘:荔枝争运战 游戏逻辑设计文档》V4.8.12(覆盖回放格式与前端落地)。
+> 与 PDF 旧版 V2.4 相比改动很大;**数量大盘不变(必要 21 / 推荐 31)**,但有 1 个真 bug + 若干机制改写。
+
+### 6.1 已修:RUSH 冲刺音频曾全程哑(影响 2 个「必要」音)
+
+最新权威事件名是 **`RUSH_START`**(设计 §9.3),代码注释也已确认(`LycheeVideoInterlude.cs:30`「冲刺是 RUSH_START(非 RUSH_PHASE_START)」)。但音频/运镜原先只认旧名:
+
+| 文件/位置 | 原问题 | 本版修复 |
+|---|---|---|
+| `LycheeAudioDirector.cs:177`(bgm 切换) | 只认 `RUSH_PHASE_START` → `bgm_rush` 切不进来 | 两名都认 |
+| `LycheeAudioDirector.cs` `SfxKeyFor` | 只认 `RUSH_PHASE_START` → `sfx_rush_horn` 不响 | 两名都认 |
+| `LycheeCinematicDirector.cs:296` | 只认 `RUSH_PHASE_START` → 冲刺镜头震动不触发 | 两名都认 |
+
+HUD 转场/插播视频此前已兼容 `RUSH_START`,唯独音频和运镜漏了 —— 故"已接入"的两个冲刺音其实是死的。**现已修复**:换新素材后即可正常响。
+
+同时做了**防御性兼容**(同一 `SfxKeyFor`):`BOUNTY_CREATE`(=旧 `BOUNTY_SPAWN`)→ `sfx_task_spawn`;`BOUNTY_CLAIM`(=旧 `BOUNTY_COMPLETE`)→ `sfx_task_complete`。免得服务端把回放改成 V4.8.12 新名后这些音也集体哑。
+
+### 6.2 天气简化到 3 种 —— 音频已对齐,零新增
+
+V4.8.12 天气池只有 `HOT / HEAVY_RAIN / MOUNTAIN_FOG`(+晴朗 `CLEAR`),固定触发 4 次(设计 §2.11)。
+
+- 旧 PDF 的 **尘沙 / 顺风 / 山洪 / 夜风 全部不存在**,是过时设计。
+- 现有 3 个天气循环(`sfx_weather_rain` / `sfx_weather_heat` / `sfx_weather_wind`=山雾)**已全覆盖,无需任何新增或夜风分支**。
+
+### 6.3 窗口争夺升级到 4 张牌(新增「兵争」)
+
+V4.8.12 出牌为 **验牒(YAN_DIE)/ 强行(QIANG_XING)/ 献贡(XIAN_GONG)/ 兵争(BING_ZHENG)** + 弃权,3 拍制、4×4 克制表(设计 §4.8-4.9)。`BING_ZHENG` 已在工程数据中出现。
+
+| 项 | 现状 | 建议 |
+|---|---|---|
+| 牌面音 | 4 种牌共用一个 `sfx_card_reveal` | 拆成 `sfx_card_yandie`/`card_qiangxing`/`card_xiangong`/`card_bingzheng`,按 card 子类型分支播放(改动同事件名分支一样小) |
+| 招牌视觉 | **四张全已实现** | `LycheeCardFxSystem.cs` 已含 `BuildBingZheng`(:401-444 银白刀光+金属火花)→ **四张牌面音可一起做,无需 defer** |
+| 新增静音高光 | `WINDOW_CONTEST_DRAW`(平局)、`GATE_CONTEST_WIN`(宫门争夺胜出,终局最高潮) | 现数据里 `GATE_CONTEST_WIN` 暂未出现 → 待实现再补 |
+
+### 6.4 事件改名漂移(影响「会不会响」,不影响「做几个」)
+
+| 代码音频用的旧名 | V4.8.12 新名 | 现状 |
+|---|---|---|
+| `RUSH_PHASE_START` | `RUSH_START` | **已修**(6.1) |
+| `BOUNTY_SPAWN` / `BOUNTY_COMPLETE` | `BOUNTY_CREATE` / `BOUNTY_CLAIM` | **已加兼容**(6.1) |
+| `GUARD_DECAY` | `GUARD_WEATHERING` | 无音,无影响 |
+| `SQUAD_*_SUCCESS` | `SQUAD_*` | 现数据仍旧名;wired 集合里只有 `SQUAD_DISPATCH`/`SQUAD_ARRIVE` 用音,暂不受影响 |
+
+### 6.5 推荐+ ≈ 37(对齐 §7.13 高光,在推荐 31 基础上加)
+
+| 新文件 | 触发 | 备注 |
+|---|---|---|
+| `sfx_card_yandie` / `sfx_card_qiangxing` / `sfx_card_xiangong` | 窗口三牌亮牌 | +3;招牌视觉已存在 |
+| `sfx_contest_beat_win` | 判胜拍金色脉冲+震屏(`RuntimeHud.cs:304`) | +1 |
+| `sfx_weather_forecast` | `WEATHER_FORECAST` 天气预告(设计点名高光,HUD 预告条已实现) | +1 |
+| `sfx_rush_tactic` | `RUSH_TACTIC_USE` 终局急策(疾行/护果) | +1 |
+
+### 6.6 待实现再补(事件/视觉尚未落地,现在做也不会响)
+
+`GATE_CONTEST_WIN`(宫门争夺胜出,数据未出现)、`SQUAD_WEAKEN`/`SQUAD_REINFORCE`(数据未出现)、`GOOD_FRUIT_SCRAP`(好果报废)、`BREAK_ORDER_BIND`(破关令绑定)。
+
+> 更正:`sfx_card_bingzheng` 不在此列 —— 兵争视觉已实现(`LycheeCardFxSystem.cs:401-444`),四张牌面音可一起做。详见 `Conformance_设计V4.8.12对照报告_20260625.md` §4。

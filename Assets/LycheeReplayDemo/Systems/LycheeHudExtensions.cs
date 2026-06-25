@@ -866,13 +866,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             text = "R" + round + " " + SafeNode(node) + " 任务过期：没有队伍在窗口内完成，所以这部分收益不会计入得分。";
             return true;
         }
-        if (type == "BOUNTY_SPAWN")
+        if (type == "BOUNTY_SPAWN" || type == "BOUNTY_CREATE")   // BOUNTY_CREATE 为 V4.8.12 新名
         {
             string score = payload.score > 0 ? " +" + payload.score + " 分" : " 额外奖励";
             text = "R" + round + " " + SafeNode(node) + " 出现" + BountyName(payload.bountyType) + "：先满足破关/清障条件的队伍才能拿到" + score + "。";
             return true;
         }
-        if (type == "BOUNTY_COMPLETE")
+        if (type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM") // BOUNTY_CLAIM 为 V4.8.12 新名
         {
             string score = payload.score > 0 ? " +" + payload.score : "";
             text = "R" + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，奖励 " + ResourceName(payload.reward) + " 已生效。";
@@ -1743,16 +1743,22 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "SQUAD_DISPATCH": return "小队出发";
             case "SQUAD_ARRIVE": return "小队抵达";
             case "SQUAD_CLEAR": return "清障完成";
+            case "SQUAD_WEAKEN":                 // V4.8.12 裸名
             case "SQUAD_WEAKEN_SUCCESS": return "削弱奏效";
+            case "SQUAD_REINFORCE":             // V4.8.12 裸名
             case "SQUAD_REINFORCE_SUCCESS": return "增援奏效";
             case "SQUAD_CLEAR_SUCCESS": return "清障完成";
+            case "SQUAD_SCOUT":                  // V4.8.12 裸名
             case "SQUAD_SCOUT_SUCCESS": return "侦察完成";
             case "SQUAD_FAILED": return "小队失败";
             case "GUARD_SET": return "设卡布防";
+            case "GUARD_WEATHERING":             // V4.8.12 新名（旧 GUARD_DECAY）
             case "GUARD_DECAY": return "设卡风化";
             case "GUARD_BREAK": return "攻破设卡";
             case "OBSTACLE_CLEAR": return "障碍清除";
+            case "BOUNTY_CREATE":                // V4.8.12 新名（旧 BOUNTY_SPAWN）
             case "BOUNTY_SPAWN": return "悬赏出现";
+            case "BOUNTY_CLAIM":                 // V4.8.12 新名（旧 BOUNTY_COMPLETE）
             case "BOUNTY_COMPLETE": return "悬赏完成";
             case "COST_COMMIT": return "代价投入";
             case "FORCED_PASS_START": return "强制通行";
