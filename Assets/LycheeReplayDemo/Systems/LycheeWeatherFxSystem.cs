@@ -322,10 +322,10 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
                 sunMultiplier = 1f,
                 useVolume = true,
                 // 全屏：暖橙边缘暗角（中心留干净，别糊红蓝队色）+ 轻暖染色；暖调 + 提曝光，无雨丝
-                overlayTint = new Color(1.00f, 0.72f, 0.42f, 1f),   // 减红：偏黄一点、不那么橙红
-                overlayAlpha = 0.10f,                               // 减红：暖染色 0.16→0.10
-                vignetteColor = new Color(1.00f, 0.66f, 0.30f, 1f), // 减红：边缘暗角从橙红转琥珀
-                vignetteAlpha = 0.18f,                              // 减红：暗角 0.30→0.18
+                overlayTint = new Color(1.00f, 0.72f, 0.42f, 1f),
+                overlayAlpha = 0.00f,                               // 2026-06-25 用户：酷暑别"蒙一层"→去掉全屏暖染色蒙版、保持清晰一目了然
+                vignetteColor = new Color(1.00f, 0.66f, 0.30f, 1f),
+                vignetteAlpha = 0.08f,                              // 暗角减半 0.18→0.08：只留极轻边缘暖意、不糊画面
                 useRainOverlay = false,
                 rainScroll = 0f,
                 saturation = 3f,

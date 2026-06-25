@@ -374,7 +374,11 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             new Vector2(1f, 1f));
         Image background = panel.gameObject.AddComponent<Image>();
         background.color = PanelBackground;
-        background.raycastTarget = false;
+        background.raycastTarget = true;   // 2026-06-25 用户：小地图可点击展开看全图做策略分析
+        var expandBtn = panel.gameObject.AddComponent<UnityEngine.UI.Button>();
+        expandBtn.transition = UnityEngine.UI.Selectable.Transition.None;
+        expandBtn.targetGraphic = background;
+        expandBtn.onClick.AddListener(ToggleMinimapExpanded);
 
         RectTransform mapRect = CreateRect(
             "MapImage",
@@ -428,6 +432,27 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         themeFrameImage.raycastTarget = false;
         themeFrameImage.enabled = false;
         UpgradeThemeFrame();
+    }
+
+    bool minimapExpanded = false;
+    /// <summary>点击小地图：右上角小图 ↔ 居中放大全图 切换（用户：方便选手看全景做策略分析）。整体 localScale 缩放，
+    /// 地图与图标随之等比放大、无需重映射；再点收回角落。</summary>
+    void ToggleMinimapExpanded()
+    {
+        if (panel == null) return;
+        minimapExpanded = !minimapExpanded;
+        if (minimapExpanded)
+        {
+            panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(0.5f, 0.5f);
+            panel.anchoredPosition = Vector2.zero;
+            panel.localScale = Vector3.one * 3.2f;   // 放大居中、看全图
+        }
+        else
+        {
+            panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
+            panel.anchoredPosition = new Vector2(-16f, -16f);
+            panel.localScale = Vector3.one;          // 收回右上角小图
+        }
     }
 
     void AddBorder(string borderName, Vector2 anchor, Vector2 pivot, Vector2 size)
