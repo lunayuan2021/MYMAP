@@ -39,7 +39,9 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         "sfx_squad_dispatch", "sfx_squad_arrive", "sfx_task_spawn", "sfx_task_complete",
         "sfx_verify_gate", "sfx_deliver", "sfx_rush_horn", "sfx_fresh_warning",
         "sfx_ui_click", "sfx_weather_rain", "sfx_weather_wind", "sfx_weather_heat",
-        "sfx_hoofbeats", "sfx_water_row"
+        "sfx_hoofbeats", "sfx_water_row",
+        // 推荐新增(本批音效包带):需在 SfxKeyFor 里映射事件才会响
+        "sfx_contest_start", "sfx_squad_clear", "sfx_squad_failed", "sfx_verify_gate_start"
     };
 
     static LycheeAudioDirector instance;
@@ -209,12 +211,17 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     {
         switch (eventType)
         {
+            case "WINDOW_CONTEST_START": return "sfx_contest_start";   // 对抗开局(本批新增)
             case "WINDOW_CARD_REVEAL": return "sfx_card_reveal";
             case "WINDOW_CONTEST_END": return "sfx_contest_win";
             case "GUARD_SET": return "sfx_guard_set";
             case "GUARD_BREAK": return "sfx_guard_break";
             case "SQUAD_DISPATCH": return "sfx_squad_dispatch";
             case "SQUAD_ARRIVE": return "sfx_squad_arrive";
+            case "SQUAD_CLEAR":
+            case "SQUAD_CLEAR_SUCCESS": return "sfx_squad_clear";       // 小队清障成功(本批新增)
+            case "SQUAD_FAILED": return "sfx_squad_failed";            // 小队失败(本批新增)
+            case "VERIFY_GATE_START": return "sfx_verify_gate_start";  // 朱雀门验核开始(本批新增)
             case "TASK_SPAWN":
             case "BOUNTY_SPAWN":
             case "BOUNTY_CREATE": return "sfx_task_spawn";       // BOUNTY_CREATE 为 V4.8.12 新名

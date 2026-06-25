@@ -352,8 +352,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         EnsureBuilt();
         toastText.text = text;
-        // 4.2 秒压到 3.0 秒：调度提示信息量小，停留太久反而显得画面“糊”着一层字
-        toastUntil = Time.unscaledTime + 3.0f;
+        // 小分队状态条停留 6 秒：派出后玩家要看得清「正在/完成 XX节点 XX动作」(原 3 秒太短、感知不到)
+        toastUntil = Time.unscaledTime + 6.0f;
         // 进场滑入只在从隐藏态弹出时触发：连续调度提示只换文字、不反复跳位
         if (toastGroup.alpha <= 0.05f)
             toastShowStart = Time.unscaledTime;

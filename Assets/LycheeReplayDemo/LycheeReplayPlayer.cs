@@ -46,7 +46,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     public bool useRuntimeHud = true;
     public bool showLegacyTopHud;
     [Min(2)] public int defaultTeamSize = 16;
-    [Range(1, 12)] public int defaultDispatchMemberCount = 4;
+    // 回放数据不带每次派遣人数,默认按设计"清障消耗 2 名"出 2 人(原 4 人显得像一队、太多)。
+    [Range(1, 12)] public int defaultDispatchMemberCount = 2;
     public Sprite redCaptainAvatar;
     public Sprite blueCaptainAvatar;
     public Sprite[] combatIllustrations;
@@ -1569,8 +1570,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
-                string fromNode = string.IsNullOrEmpty(payload.fromNodeId) ? "本队" : CleanNode(payload.fromNodeId);
-                runtimeHud.ShowDispatch(teamName + "派出小分队 x" + SquadMemberCount(payload) + "  " + fromNode + " → " + CleanNode(payload.targetNodeId));
+                runtimeHud.ShowDispatch(teamName + "小分队正在 " + CleanNode(payload.targetNodeId) + " " + SquadActionCn(payload.action));
             }
             ShowKeyEventIllustration(message, payload, round);
             ShowObstacleCauseCue(payload.targetNodeId);
@@ -1593,10 +1593,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             BackfillSquadPayloadPlayer(payload);
             if (runtimeHud != null)
             {
-                string detail = ShortEventName(message.type);
-                if (message.type.Contains("WEAKEN") || message.type.Contains("REINFORCE"))
-                    detail += "  防御 " + payload.defenseBefore + " → " + payload.defenseAfter;
-                runtimeHud.ShowDispatch(detail + "  " + CleanNode(payload.targetNodeId));
+                string actCn = SquadActionCn(string.IsNullOrEmpty(payload.action) ? message.type : payload.action);
+                string verb = message.type == "SQUAD_FAILED" ? "失败" : "完成";
+                string extra = (message.type.Contains("WEAKEN") || message.type.Contains("REINFORCE"))
+                    ? "  防御 " + payload.defenseBefore + " → " + payload.defenseAfter : "";
+                runtimeHud.ShowDispatch(TeamName(payload.playerId) + "小分队" + verb + " " + CleanNode(payload.targetNodeId) + " " + actCn + extra);
             }
             if (message.type == "SQUAD_CLEAR" || message.type == "SQUAD_CLEAR_SUCCESS")
                 ResolveSquadResult(payload, round, true);
@@ -3077,6 +3078,18 @@ public class LycheeReplayPlayer : MonoBehaviour
         return !string.IsNullOrEmpty(edgeId) &&
             edges.TryGetValue(edgeId, out MapRouteEdge edge) &&
             edge.routeType == MapRouteType.Water;
+    }
+
+    /// <summary>小分队战术动作 → 中文(清障/增援/削弱/探路/破袭)，供「XX队小分队正在/完成 XX节点 XX动作」状态条用。</summary>
+    static string SquadActionCn(string action)
+    {
+        if (string.IsNullOrEmpty(action)) return "行动";
+        if (action.Contains("CLEAR")) return "清障";
+        if (action.Contains("REINFORCE")) return "增援";
+        if (action.Contains("WEAKEN")) return "削弱";
+        if (action.Contains("SCOUT")) return "探路";
+        if (action.Contains("RAID")) return "破袭";
+        return "行动";
     }
 
     int SquadMemberCount(LycheeReplayPayload payload)
