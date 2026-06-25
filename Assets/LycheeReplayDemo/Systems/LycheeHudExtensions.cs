@@ -1776,6 +1776,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "WINDOW_CONTEST_START": return "对抗开始";
             case "WINDOW_CARD_REVEAL": return "对抗出牌";
             case "WINDOW_CONTEST_END": return "对抗结束";
+            case "WINDOW_CONTEST_DRAW": return "窗口平局";   // V4.8.12 三拍胜点相同、无胜方
         }
         if (!string.IsNullOrEmpty(type) && type.StartsWith("SQUAD_", StringComparison.Ordinal)) return "小队行动";
         return string.IsNullOrEmpty(type) ? "事件" : type.Replace('_', ' ');

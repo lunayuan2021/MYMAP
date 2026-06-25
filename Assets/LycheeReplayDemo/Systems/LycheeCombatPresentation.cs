@@ -259,6 +259,9 @@ public class LycheeCombatPresentation : MonoBehaviour
             case "WINDOW_CONTEST_END":
                 HandleContestEnd(payload);
                 break;
+            case "WINDOW_CONTEST_DRAW":
+                HandleContestEnd(payload);   // 无 winner → 两侧置灰，平局收束（duel 条中性结束）
+                break;
             case "GUARD_BREAK":
                 HandleGuardBreak(payload);
                 break;

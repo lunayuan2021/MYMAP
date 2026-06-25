@@ -328,6 +328,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SetVignette(false);
     }
 
+    // 窗口平局（WINDOW_CONTEST_DRAW）：三拍胜点相同、无胜方。中性收束，不给任一方金光/震屏。
+    public void ShowCombatDraw(int round, int redPoint, int bluePoint)
+    {
+        ShowCombat(2, null, contestTypeLabel + "平局  第" + round + "回合", "双方胜点相同 · 无人得手，各自休整",
+            "红队积分 " + redPoint, "蓝队积分 " + bluePoint, redPoint + " : " + bluePoint, 3.0f, true, "battle");
+        SetVignette(false);
+    }
+
     public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
     {
         // 普通事件走排队路径：面板被占用或未到间隔时先入队，避免连弹覆盖

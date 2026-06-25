@@ -1541,6 +1541,14 @@ public class LycheeReplayPlayer : MonoBehaviour
             return;
         }
 
+        if (message.type == "WINDOW_CONTEST_DRAW")
+        {
+            if (runtimeHud != null)
+                runtimeHud.ShowCombatDraw(round, payload.redPoint, payload.bluePoint);
+            hasContestFocus = false;
+            return;
+        }
+
         if (message.type == "SQUAD_DISPATCH")
         {
             // 开局首帧（Awake 内 ApplyFrame(0,true)）派发的小队延迟到出发动画结束再生成，避免凭空出现/中途消失。
