@@ -1017,15 +1017,14 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (startFrame != null && startFrame.players != null)
             startPlayer = startFrame.players.FirstOrDefault(candidate => candidate.playerId == player.playerId);
 
+        // 回放真有单位数(objs)就用它，但封顶 8 —— 16 人跟车太挤(用户反馈)。
         if (startPlayer != null && startPlayer.objs != null && startPlayer.objs.Length > 1)
-            return Mathf.Max(1, startPlayer.objs.Length);
+            return Mathf.Clamp(startPlayer.objs.Length, 2, 8);
         if (player.objs != null && player.objs.Length > 1)
-            return Mathf.Max(1, player.objs.Length);
-        if (startPlayer != null && startPlayer.squadAvailable > 0)
-            return Mathf.Max(defaultTeamSize, startPlayer.squadAvailable * 2);
-        if (player.squadAvailable > 0)
-            return Mathf.Max(defaultTeamSize, player.squadAvailable * 2);
-        return Mathf.Max(2, defaultTeamSize);
+            return Mathf.Clamp(player.objs.Length, 2, 8);
+        // 回放没给单位数：固定 6(队长1+队员5)，不再 squadAvailable*2 膨胀到 16。
+        // 用 Min 兜底场景里序列化的旧值(16)，避免必须改场景。
+        return Mathf.Min(defaultTeamSize, 6);
     }
 
     void CreateTeamMembers(ConvoyVisual visual, int memberCount, int camp)
