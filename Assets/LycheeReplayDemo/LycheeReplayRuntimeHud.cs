@@ -63,14 +63,15 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     const float BottomHudAnchorY = 0f;
     // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
     const float BarTrackWidth = 190f;
-    // 事件弹窗单条时长硬上限：上游传入 3.8~5.5 秒，在 0.025~0.2 秒/回合的回放节奏下会长期霸屏。
-    const float CombatMaxSeconds = 3f;
+    // 事件弹窗单条时长硬上限。原 3f 把上游 4.5s 的事件卡也压成 3s→用户嫌"停留太短"。放到 5.5f：
+    // 事件卡按上游 4.5s 完整展示;对抗逐拍(2.6s)由回放减速保证看清,不靠这里堆时长。
+    const float CombatMaxSeconds = 5.5f;
     // 弹窗淡入淡出时长：取代原 alpha 1↔0 硬切，观赏性显著提升。
     const float CombatFadeSeconds = 0.25f;
     // 两条普通弹窗之间的最小喘息间隔（上一条隐藏后再等这么久才弹队首）。
     const float CombatGapSeconds = 0.9f;
-    // 排队上限：再多就丢最旧的，保证弹窗内容不会落后画面太久。
-    const int CombatQueueLimit = 4;
+    // 排队上限：再多就丢最旧的，保证弹窗内容不会落后画面太久。(4→6：卡片时长拉长后留多一点队列缓冲)
+    const int CombatQueueLimit = 6;
     // 出牌翻面总时长：前半程 x 1→0 收拢露牌背，过中点换正面，后半程 0→1 张开。
     const float CardFlipSeconds = 0.35f;
     // 胜方金色脉冲：单次 0.7→0 的衰减时长，连放两次。

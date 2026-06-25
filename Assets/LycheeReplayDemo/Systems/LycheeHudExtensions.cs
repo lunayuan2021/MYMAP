@@ -1154,7 +1154,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             Sprite icon = WeatherSprite(forecast.type);
             ApplyWeatherIcon(icon);
             string symbol = icon == null ? "☁ " : "";
-            string startText = forecast.startRound > 0 ? "将于 R" + forecast.startRound + " 起" : "即将来临";
+            // 倒计时(用户要求)：按"将在 N 回合内出现"逐回合递减(30→29→…)，N = 起效回合 − 当前回合。
+            // RefreshWeatherBanner 每回合(HandleRoundApplied)被调一次，故 N 自动倒数。
+            int remaining = frame != null && forecast.startRound > 0 ? forecast.startRound - frame.round : 0;
+            string startText = remaining > 0 ? "将在 " + remaining + " 回合内出现" : "即将来临";
             weatherText.text = symbol + "预告：" + WeatherNameCn(forecast.type) + " " + startText + " · " + RegionNameCn(forecast.region);
             return;
         }

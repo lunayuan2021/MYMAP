@@ -53,6 +53,9 @@ public class LycheeReplayPlayer : MonoBehaviour
     public Sprite[] combatIllustrations;
 
     const float MinRoundSeconds = 0.01f;
+    // 窗口争夺逐拍：对抗期间每回合至少 hold 这么久，让出牌(每拍 1 回合、原 0.2s 一闪而过)各自看清。
+    const float ContestRoundSeconds = 2.6f;
+    float contestSlowUntil = -999f;   // 最近一次对抗事件起算的减速截止时刻(unscaledTime)；每个对抗事件续期。
 
     LycheeReplayFrame startFrame;
     readonly List<LycheeReplayFrame> frames = new List<LycheeReplayFrame>();
@@ -682,7 +685,11 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     float EffectiveSecondsForFrame(LycheeReplayFrame frame)
     {
-        return Mathf.Max(MinRoundSeconds, secondsPerRound);
+        float baseSeconds = Mathf.Max(MinRoundSeconds, secondsPerRound);
+        // 对抗逐拍减速：对抗事件刚发生(含三拍)→每回合放慢到 ContestRoundSeconds，出牌按拍依次看清、镜头与世界同步不脱节。
+        if (Time.unscaledTime < contestSlowUntil)
+            return Mathf.Max(baseSeconds, ContestRoundSeconds);
+        return baseSeconds;
     }
 
     static bool FrameHasMovingPlayer(LycheeReplayFrame frame)
@@ -1514,6 +1521,12 @@ public class LycheeReplayPlayer : MonoBehaviour
         latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
         LycheeReplayPayload payload = message.payload ?? new LycheeReplayPayload();
 
+        // 任一对抗事件(开始/逐拍亮牌/结束/平局)都给回放减速续期：让每一拍出牌各占 ~2.6s、看得清；
+        // 末拍后再多撑一拍把结算卡也留住，之后自然恢复原速。
+        if (message.type == "WINDOW_CONTEST_START" || message.type == "WINDOW_CARD_REVEAL" ||
+            message.type == "WINDOW_CONTEST_END" || message.type == "WINDOW_CONTEST_DRAW")
+            contestSlowUntil = Time.unscaledTime + ContestRoundSeconds + 0.6f;
+
         if (message.type == "WINDOW_CONTEST_START")
         {
             if (runtimeHud != null)
@@ -1703,8 +1716,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         string right = "";
         string center = "R" + round;
         int imageIndex = 1;
-        // 用户(点9)：保留的几类卡片要"久一些"→ 默认 4.5 秒(原 2.6)；事件已收窄到 8 类、不会连环刷屏。
-        float seconds = 4.5f;
+        // 用户：卡片"停留太短"。真因是 HUD 端 CombatMaxSeconds=3f 把 4.5s 压成 3s(已放到 5.5f)；
+        // 这里默认再提到 5.0 秒、更从容。事件已收窄到 8 类、不会连环刷屏。
+        float seconds = 5.0f;
         string target = DisplayNode(!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
         string team = TeamName(payload.playerId);
         bool priorityCard = IsPriorityEventCard(type);

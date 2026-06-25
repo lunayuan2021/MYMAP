@@ -1258,6 +1258,15 @@ public class LycheeCharacterMotion : MonoBehaviour
         if (type == "VERIFY_GATE_COMPLETE")
         {
             StartAction(payloadPlayer, LycheeCharacterActionKind.Cheer, 2f, false);
+            return;
+        }
+        if (type == "PROCESS_COMPLETE" || type == "PROCESS_INTERRUPT" || type == "SQUAD_FAILED")
+        {
+            // 处理结束/被打断/小分队失败：立刻收掉队长的"做任务"(Build/Attack)叠加动作，
+            // 否则会出现"小分队都失败了，角色还埋头做任务"的穿帮(用户反馈)。不动对抗动作。
+            CharacterRig rig = FindRig(payloadPlayer);
+            if (rig != null && !rig.actionFromContest && Time.time < rig.actionEnd)
+                rig.actionEnd = Time.time;
         }
     }
 
