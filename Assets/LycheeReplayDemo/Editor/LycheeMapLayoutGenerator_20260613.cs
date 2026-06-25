@@ -84,9 +84,13 @@ public static class LycheeMapLayoutGenerator_20260613
     const float NodeBusyLift = 0.10f;      // N1 忙站(>2 路/河汇聚)：建筑+脚下抬这么高的夯土小广场（用户锁定）
     const float NodePlazaPad = 1.4f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（台子比建筑大一圈、留集散地）
     // S5 背景山川散布（图外留白处成链摆山脉+山脚岩树，"古地图味"；确定性哈希、禁无种子 Random）
-    const int   BackgroundMountainCount = 14; // 背景山脉座数（2026-06-25 用户：太多了 → 22→14 星星点点）
-    const float BackgroundMountainScale = 1.1f; // 山脉基准缩放（推远了略放大补距离感）
-    const float BackgroundRingFrac = 0.80f;   // 山脉环半径 = 大地图(背景地形)半幅 × 此比例（2026-06-25 用户：推到地图边界红线、远离路网不压路）
+    // 背景山脉成「链」散布（2026-06-25 用户：均匀环太假、要自然错落有致）——几条链、每链 2-4 座成脉、链间留空、大小远近随机
+    const int   BackgroundChainCount = 5;     // 山脉链数（链中心随机角、随机深度 → 不均匀）
+    const float BackgroundMountainScale = 1.1f; // 山脉基准缩放（×0.55~1.55 哈希抖动 → 大小错落）
+    const float BackgroundRingFracInner = 0.52f; // 链中心最近半径 = 大地图(背景地形)半幅 × 此（仍在玩法区外）
+    const float BackgroundRingFracOuter = 0.96f; // 链中心最远半径 = 半幅 × 此（到边界红线）；链中心在 [inner,outer] 随机 → 远近错落
+    const float BackgroundChainStep = 20f;    // 链内相邻山沿链方向间距（成脉互相搭叠）
+    const float BackgroundChainJitter = 9f;   // 链内垂直链方向抖动（脉不成直线）
     const float BackgroundKeepout = 3.5f;     // 背景景物距路/河中心线最小距离（不挡玩法可读区）
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
@@ -2032,47 +2036,55 @@ public static class LycheeMapLayoutGenerator_20260613
             { var b = mr.bounds; mapHalfX = b.extents.x; mapHalfZ = b.extents.z; mapC = new Vector2(b.center.x, b.center.z); break; }
 
         string mk = ctx.mapKey ?? "map";
-        int placedM = 0, placedFeet = 0;
-        for (int i = 0; i < BackgroundMountainCount; i++)
+        int placedM = 0, placedFeet = 0, gi = 0;
+        for (int ch = 0; ch < BackgroundChainCount; ch++)
         {
-            float ang = (i + Hash01(mk, i, 70) * 0.6f - 0.3f) / BackgroundMountainCount * Mathf.PI * 2f;
-            // 环半径 = 大地图半幅 × BackgroundRingFrac(+小抖动) → 山脉坐在地图边界、星星点点（不在小玩法区周围）
-            float rx = mapHalfX * (BackgroundRingFrac + Hash01(mk, i, 1) * 0.12f);
-            float rz = mapHalfZ * (BackgroundRingFrac + Hash01(mk, i, 1) * 0.12f);
-            float x = Mathf.Clamp(mapC.x + Mathf.Cos(ang) * rx, -mapHalfX * 0.99f, mapHalfX * 0.99f);
-            float z = Mathf.Clamp(mapC.y + Mathf.Sin(ang) * rz, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
-            if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;  // 山脉大、多留余量
-            float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
-            var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
-            m.transform.SetParent(root, true);
-            float sc = BackgroundMountainScale * (0.8f + Hash01(mk, i, 2) * 0.6f);
-            m.transform.position = new Vector3(x, y - 1.0f, z);             // 基座埋一点、无缝接地
-            m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, i, 3) * 360f, 0f);
-            m.transform.localScale = Vector3.one * sc;
-            placedM++;
-            // 山脚：1~2 个岩堆/树丛（减量，避免太满）
-            int feet = 1 + (int)(Hash01(mk, i, 4) * 2f);
-            for (int j = 0; j < feet; j++)
+            // 链中心：粗分扇区 + 大抖动(松散覆盖周长又不均匀)；深度在 [inner,outer] 随机 → 远近错落、链间留空
+            float ca = ((ch + Hash01(mk, ch, 20) * 1.55f - 0.27f) / BackgroundChainCount) * Mathf.PI * 2f;
+            float crf = BackgroundRingFracInner + Hash01(mk, ch, 21) * (BackgroundRingFracOuter - BackgroundRingFracInner);
+            float ccx = mapC.x + Mathf.Cos(ca) * crf * mapHalfX;
+            float ccz = mapC.y + Mathf.Sin(ca) * crf * mapHalfZ;
+            float cdir = Hash01(mk, ch, 26) * Mathf.PI * 2f;       // 链延伸方向（脉走向）
+            int members = 2 + (ch % 3) + (int)(Hash01(mk, ch, 22) * 1.99f); // 每链 2-5 座、ch%3 保证链长错落(不会偶然同长)、成真正的脉
+            for (int k = 0; k < members; k++, gi++)
             {
-                float fa = Hash01(mk, i * 11 + j, 5) * Mathf.PI * 2f;
-                float fr = (14f + Hash01(mk, i * 11 + j, 6) * 12f) * Mathf.Max(0.6f, sc);
-                float fx = x + Mathf.Cos(fa) * fr, fz = z + Mathf.Sin(fa) * fr;
-                if (NearAnyPath(fx, fz, paths, BackgroundKeepout)) continue;
-                bool isTree = Hash01(mk, i * 11 + j, 8) > 0.45f;
-                var pool = isTree ? trees : rocks;
-                if (pool.Count == 0) continue;
-                var pf = pool[(int)(Hash01(mk, i * 11 + j, 9) * pool.Count) % pool.Count];
-                float fy = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(fx, fz, out float fty) ? fty : 0f;
-                var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf);
-                inst.transform.SetParent(root, true);
-                inst.transform.position = new Vector3(fx, fy, fz);
-                inst.transform.rotation = Quaternion.Euler(0f, Hash01(mk, i * 11 + j, 10) * 360f, 0f);
-                float s2 = 0.8f + Hash01(mk, i * 11 + j, 11) * 0.8f;
-                inst.transform.localScale = Vector3.one * (isTree ? s2 : s2 * 1.3f);
-                placedFeet++;
+                float along = (k - (members - 1) * 0.5f) * BackgroundChainStep;       // 沿链方向排开
+                float jit = (Hash01(mk, ch * 13 + k, 27) - 0.5f) * 2f * BackgroundChainJitter; // 垂直抖动（脉不成直线）
+                float x = Mathf.Clamp(ccx + Mathf.Cos(cdir) * along + Mathf.Cos(cdir + 1.5708f) * jit, -mapHalfX * 0.99f, mapHalfX * 0.99f);
+                float z = Mathf.Clamp(ccz + Mathf.Sin(cdir) * along + Mathf.Sin(cdir + 1.5708f) * jit, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
+                if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;        // 山脉大、多留余量
+                float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
+                var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
+                m.transform.SetParent(root, true);
+                float sc = BackgroundMountainScale * (0.55f + Hash01(mk, gi, 2) * 1.0f); // 0.55~1.55 大小错落
+                m.transform.position = new Vector3(x, y - 1.0f, z);                      // 基座埋一点、无缝接地
+                m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, gi, 3) * 360f, 0f);
+                m.transform.localScale = Vector3.one * sc;
+                placedM++;
+                // 山脚：1~2 个岩堆/树丛
+                int feet = 1 + (int)(Hash01(mk, gi, 4) * 2f);
+                for (int j = 0; j < feet; j++)
+                {
+                    float fa = Hash01(mk, gi * 11 + j, 5) * Mathf.PI * 2f;
+                    float fr = (14f + Hash01(mk, gi * 11 + j, 6) * 12f) * Mathf.Max(0.6f, sc);
+                    float fx = x + Mathf.Cos(fa) * fr, fz = z + Mathf.Sin(fa) * fr;
+                    if (NearAnyPath(fx, fz, paths, BackgroundKeepout)) continue;
+                    bool isTree = Hash01(mk, gi * 11 + j, 8) > 0.45f;
+                    var pool = isTree ? trees : rocks;
+                    if (pool.Count == 0) continue;
+                    var pf = pool[(int)(Hash01(mk, gi * 11 + j, 9) * pool.Count) % pool.Count];
+                    float fy = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(fx, fz, out float fty) ? fty : 0f;
+                    var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf);
+                    inst.transform.SetParent(root, true);
+                    inst.transform.position = new Vector3(fx, fy, fz);
+                    inst.transform.rotation = Quaternion.Euler(0f, Hash01(mk, gi * 11 + j, 10) * 360f, 0f);
+                    float s2 = 0.8f + Hash01(mk, gi * 11 + j, 11) * 0.8f;
+                    inst.transform.localScale = Vector3.one * (isTree ? s2 : s2 * 1.3f);
+                    placedFeet++;
+                }
             }
         }
-        report.Add($"[背景山川] 沿边环抱布 {placedM} 座背景山脉 + 山脚岩树丛 {placedFeet}（确定性哈希、keep-out {BackgroundKeepout:F1}，幂等容器 {rootName}）");
+        report.Add($"[背景山川] 成链散布 {placedM} 座背景山脉({BackgroundChainCount} 链、错落) + 山脚岩树丛 {placedFeet}（确定性哈希、keep-out {BackgroundKeepout:F1}，幂等容器 {rootName}）");
     }
 
     static void CarveRivers(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
