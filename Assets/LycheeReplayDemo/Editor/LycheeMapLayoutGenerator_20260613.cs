@@ -2023,6 +2023,9 @@ public static class LycheeMapLayoutGenerator_20260613
         var mtn = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Hill Rock Mountain Terrain/Prefab/mountain_terrain_02.prefab");
         if (mtn == null) { report.Add("[背景山川] 缺 mountain_terrain_02，跳过"); return; }
         var mtnB = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/FreeMountain/Prefabs/Free_Mountain.prefab"); // 第二种：宽缓大山(488m/枢轴中心)，当小丘混入增加变化
+        var bgFree = new List<GameObject>(); // 第三类：BackgroundMountainFree 矮丘(10×2.4、底浮0.5)，混进部分坐标增加变化(用户导入)
+        foreach (var pp in new[]{"ExtremeLowPolyMountain","LowPolyMountain","MediumPolyMountain"})
+        { var g = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/BackgroundMountainFree/Prefabs/{pp}.prefab"); if (g != null) bgFree.Add(g); }
         var rocks = new List<GameObject>();
         for (int k = 1; k <= 4; k++) { var r = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Hill Rock Mountain Terrain/Prefab/rock_set_0{k}.prefab"); if (r != null) rocks.Add(r); }
         var trees = new List<GameObject>();
@@ -2065,24 +2068,31 @@ public static class LycheeMapLayoutGenerator_20260613
             z = Mathf.Clamp(z, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
             if (NearAnyPath(x, z, paths, radSafe)) { report.Add($"[背景山] 推不开、跳过(会压路) @({x:F0},{z:F0})"); continue; }
             if (step > 0) { nudged++; }
-            var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
+            // 部分坐标换成新矮丘(BackgroundMountainFree)增加变化：只在小山位(sc<1.2)、约每4座一座
+            bool useFree = (r % 4 == 2) && sc < 1.2f && bgFree.Count > 0;
+            GameObject pf; float psc, py;
+            if (useFree) { pf = bgFree[r % bgFree.Count]; psc = sc * 3f; py = y - 0.5f * psc; } // 10m→×3 归一；底浮0.5×scale 下移落地
+            else { pf = mtn; psc = sc; py = y; }
+            var m = (GameObject)PrefabUtility.InstantiatePrefab(pf);
             m.transform.SetParent(root, true);
-            m.transform.position = new Vector3(x, y, z);
+            m.transform.position = new Vector3(x, py, z);
             m.transform.rotation = Quaternion.Euler(0f, rot, 0f);
-            m.transform.localScale = Vector3.one * sc;
+            m.transform.localScale = Vector3.one * psc;
             placedM++;
-            // 山旁加树（山基外圈一圈、避开路；用户要求）
-            int nt = 3 + (int)(Hash01(mk, r, 50) * 4f);           // 每座 3-6 棵
+            // 山旁加树：山「前面」(朝地图中心一侧)散开成一小林——不在山后、不排排坐、不挡路(用户反馈)
+            Vector2 toCenter = mapC - new Vector2(x, z);
+            float frontA = toCenter.sqrMagnitude < 1e-4f ? 0f : Mathf.Atan2(toCenter.x, toCenter.y); // 朝地图中心的方向(Unity Y旋转式)
+            int nt = 4 + (int)(Hash01(mk, r, 50) * 5f);           // 每座 4-8 棵成一小林
             for (int j = 0; j < nt; j++)
             {
                 if (trees.Count == 0) break;
-                float ta = Hash01(mk, r * 9 + j, 51) * Mathf.PI * 2f;
-                float td = rad * (1.0f + Hash01(mk, r * 9 + j, 52) * 0.45f); // 山基外圈、不压山体
-                float tx = x + Mathf.Cos(ta) * td, tz = z + Mathf.Sin(ta) * td;
-                if (NearAnyPath(tx, tz, paths, BackgroundKeepout + 1f)) continue; // 树也不挡路
-                var pf = trees[(int)(Hash01(mk, r * 9 + j, 53) * trees.Count) % trees.Count];
+                float ta = frontA + (Hash01(mk, r * 9 + j, 51) - 0.5f) * 2.4f;       // 前方 ±~70° 扇区(只在山前)
+                float td = rad * (0.85f + Hash01(mk, r * 9 + j, 52) * 0.95f);        // 距离 0.85~1.8×半径(散开、非一圈、不排排坐)
+                float tx = x + Mathf.Sin(ta) * td, tz = z + Mathf.Cos(ta) * td;
+                if (NearAnyPath(tx, tz, paths, BackgroundKeepout + 1f)) continue;    // 树也不挡路
+                var pf2 = trees[(int)(Hash01(mk, r * 9 + j, 53) * trees.Count) % trees.Count];
                 float tyv = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(tx, tz, out float tts) ? tts : 0f;
-                var ti = (GameObject)PrefabUtility.InstantiatePrefab(pf);
+                var ti = (GameObject)PrefabUtility.InstantiatePrefab(pf2);
                 ti.transform.SetParent(root, true);
                 ti.transform.position = new Vector3(tx, tyv, tz);
                 ti.transform.rotation = Quaternion.Euler(0f, Hash01(mk, r * 9 + j, 54) * 360f, 0f);
