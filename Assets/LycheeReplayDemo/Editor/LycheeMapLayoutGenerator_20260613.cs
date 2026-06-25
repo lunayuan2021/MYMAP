@@ -92,6 +92,7 @@ public static class LycheeMapLayoutGenerator_20260613
     const float BackgroundChainStep = 20f;    // 链内相邻山沿链方向间距（成脉互相搭叠）
     const float BackgroundChainJitter = 9f;   // 链内垂直链方向抖动（脉不成直线）
     const float BackgroundKeepout = 3.5f;     // 背景景物距路/河中心线最小距离（不挡玩法可读区）
+    const float BackgroundMountainBaseWidth = 32f; // 背景山基准世界宽度(m)；主峰 ×1.7~2.6、小丘 ×0.55~1.2 → 大小错落、按此归一两种 prefab 尺寸
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
@@ -2012,6 +2013,7 @@ public static class LycheeMapLayoutGenerator_20260613
         for (var ex = GameObject.Find(rootName); ex != null; ex = GameObject.Find(rootName)) UnityEngine.Object.DestroyImmediate(ex);
         var mtn = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Hill Rock Mountain Terrain/Prefab/mountain_terrain_02.prefab");
         if (mtn == null) { report.Add("[背景山川] 缺 mountain_terrain_02，跳过"); return; }
+        var mtnB = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/FreeMountain/Prefabs/Free_Mountain.prefab"); // 第二种：宽缓大山(488m/枢轴中心)，当小丘混入增加变化
         var rocks = new List<GameObject>();
         for (int k = 1; k <= 4; k++) { var r = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Hill Rock Mountain Terrain/Prefab/rock_set_0{k}.prefab"); if (r != null) rocks.Add(r); }
         var trees = new List<GameObject>();
@@ -2054,19 +2056,26 @@ public static class LycheeMapLayoutGenerator_20260613
                 float z = Mathf.Clamp(ccz + Mathf.Sin(cdir) * along + Mathf.Sin(cdir + 1.5708f) * jit, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
                 if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;        // 山脉大、多留余量
                 float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
-                var m = (GameObject)PrefabUtility.InstantiatePrefab(mtn);
+                // 每链中段一座主峰(大)、其余小丘 → 大小错落、成"主峰+群丘"的真山脉感
+                bool isMain = (k == members / 2);
+                float sizeF = isMain ? (1.7f + Hash01(mk, gi, 2) * 0.9f) : (0.55f + Hash01(mk, gi, 2) * 0.65f);
+                float targetW = BackgroundMountainBaseWidth * sizeF;   // 目标世界宽：主峰~60-90m、小丘~18-38m
+                bool useB = !isMain && mtnB != null && Hash01(mk, gi, 12) > 0.55f; // 小丘 45% 用第二种(宽缓山)、主峰用 craggy 峰
+                GameObject pfM = useB ? mtnB : mtn;
+                float nativeW = useB ? 488f : 30f, baseToPivot = useB ? 45.73f : 0f; // 两种 prefab 各自归一+落地(枢轴不同)
+                float sc = targetW / nativeW;
+                var m = (GameObject)PrefabUtility.InstantiatePrefab(pfM);
                 m.transform.SetParent(root, true);
-                float sc = BackgroundMountainScale * (0.55f + Hash01(mk, gi, 2) * 1.0f); // 0.55~1.55 大小错落
-                m.transform.position = new Vector3(x, y - 1.0f, z);                      // 基座埋一点、无缝接地
+                m.transform.position = new Vector3(x, y - 1.0f + baseToPivot * sc, z);  // 按各 prefab 枢轴落地、基座埋 1m
                 m.transform.rotation = Quaternion.Euler(0f, Hash01(mk, gi, 3) * 360f, 0f);
                 m.transform.localScale = Vector3.one * sc;
                 placedM++;
-                // 山脚：1~2 个岩堆/树丛
+                // 山脚：1~2 个岩堆/树丛（按山宽散布）
                 int feet = 1 + (int)(Hash01(mk, gi, 4) * 2f);
                 for (int j = 0; j < feet; j++)
                 {
                     float fa = Hash01(mk, gi * 11 + j, 5) * Mathf.PI * 2f;
-                    float fr = (14f + Hash01(mk, gi * 11 + j, 6) * 12f) * Mathf.Max(0.6f, sc);
+                    float fr = targetW * (0.4f + Hash01(mk, gi * 11 + j, 6) * 0.25f);
                     float fx = x + Mathf.Cos(fa) * fr, fz = z + Mathf.Sin(fa) * fr;
                     if (NearAnyPath(fx, fz, paths, BackgroundKeepout)) continue;
                     bool isTree = Hash01(mk, gi * 11 + j, 8) > 0.45f;
