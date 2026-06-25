@@ -56,7 +56,7 @@ public static class LycheeMapLayoutGenerator_20260613
     // 路面宽度：支路原 0.94 太窄（用户反馈"比别的路窄"），加宽到 1.4（≈山路，介于山路与官道之间）。
     const float RoadWidth = 1.65f, WaterWidth = 3.2f, MountainWidth = 1.28f, BranchWidth = 1.05f; // S2:支路变细 1.4→1.05(用户锁定)
     // 清障：物体「包围盒边缘」到新路/新河中心线小于此值即清（用包围盒能清掉树冠/大石悬到路上的）。
-    const float DecoReachRoad = 1.4f, DecoReachWater = 3.4f;
+    const float DecoReachRoad = 2.2f, DecoReachWater = 3.4f; // 清障路半径 1.4→2.2：路边草清宽点、路显出来(用户：地图尾部路被草盖)
     const float RoadLift = 0.026f, WaterLift = 0.038f, MountainLift = 0.032f, BranchLift = 0.028f;
     // 彩带宽度：实测现役 overlay 宽度（ROAD 0.34 / WATER 0.36 / MOUNTAIN 0.32 / BRANCH 0.30）——
     // 旧值 0.55 过宽导致"彩带和道路宽度不统一"，按实测统一。彩带贴在路面上方 OverlayLift。
@@ -79,15 +79,15 @@ public static class LycheeMapLayoutGenerator_20260613
     const float RidgeFlatFrac = 0.45f;     // 山脊平顶占比：内侧这比例宽度保持满高（平顶）→ 路坐平顶上不颠，外侧才渐降（修路面坑洼）
     const float RidgeEndTaperFrac = 0.22f; // 端点收口占比：山路两端这一段把脊高渐隐到 0，别顶飞驿站
     const float RidgeWaterKeepout = 2.0f;  // 到水中心线 <此距离 不抬脊（防把河填平）
-    const float RidgePassExtra = 0.35f;    // N3 山口/关隘：≥2 条山路汇聚的节点处脊顶再叠这么高（全图制高点，S4 用）
+    const float RidgePassExtra = 0.2f;     // N3 山口：脊顶再叠这么高（0.35→0.2 放缓，太陡会把连过去的路拉细，用户反馈）
     // S4 节点分级抬升（建筑+脚下地形同抬一块小台 → 节点高度成玩法语言：山口最高、忙站微抬、官道广场平）
     const float NodeBusyLift = 0.10f;      // N1 忙站(>2 路/河汇聚)：建筑+脚下抬这么高的夯土小广场（用户锁定）
-    const float NodePlazaPad = 1.4f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（台子比建筑大一圈、留集散地）
+    const float NodePlazaPad = 2.6f;       // 节点台半径 = 建筑包围盒半宽 + 这个余量（1.4→2.6 加宽：台子更缓、连过去的路不被拉细）
     // S5 背景山川散布（图外留白处成链摆山脉+山脚岩树，"古地图味"；确定性哈希、禁无种子 Random）
     // 背景山脉成「链」散布（2026-06-25 用户：均匀环太假、要自然错落有致）——几条链、每链 2-4 座成脉、链间留空、大小远近随机
     const int   BackgroundChainCount = 5;     // 山脉链数（链中心随机角、随机深度 → 不均匀）
     const float BackgroundMountainScale = 1.1f; // 山脉基准缩放（×0.55~1.55 哈希抖动 → 大小错落）
-    const float BackgroundRingFracInner = 0.52f; // 链中心最近半径 = 大地图(背景地形)半幅 × 此（仍在玩法区外）
+    const float BackgroundRingFracInner = 0.62f; // 链中心最近半径 = 大地图(背景地形)半幅 × 此（外推、配合 radius keep-out 山不挡路）
     const float BackgroundRingFracOuter = 0.96f; // 链中心最远半径 = 半幅 × 此（到边界红线）；链中心在 [inner,outer] 随机 → 远近错落
     const float BackgroundChainStep = 20f;    // 链内相邻山沿链方向间距（成脉互相搭叠）
     const float BackgroundChainJitter = 9f;   // 链内垂直链方向抖动（脉不成直线）
@@ -2041,8 +2041,8 @@ public static class LycheeMapLayoutGenerator_20260613
         int placedM = 0, placedFeet = 0, gi = 0;
         for (int ch = 0; ch < BackgroundChainCount; ch++)
         {
-            // 链中心：粗分扇区 + 大抖动(松散覆盖周长又不均匀)；深度在 [inner,outer] 随机 → 远近错落、链间留空
-            float ca = ((ch + Hash01(mk, ch, 20) * 1.55f - 0.27f) / BackgroundChainCount) * Mathf.PI * 2f;
+            // 链中心：分扇区(保证环抱全图四周)+强抖动(±0.65 扇区→不规律、链间有疏有密) + 随机深度 → 既环绕又错落乱排；radius keep-out 兜底不挡路
+            float ca = ((ch + 0.5f + (Hash01(mk, ch, 20) - 0.5f) * 1.3f) / BackgroundChainCount) * Mathf.PI * 2f;
             float crf = BackgroundRingFracInner + Hash01(mk, ch, 21) * (BackgroundRingFracOuter - BackgroundRingFracInner);
             float ccx = mapC.x + Mathf.Cos(ca) * crf * mapHalfX;
             float ccz = mapC.y + Mathf.Sin(ca) * crf * mapHalfZ;
@@ -2054,12 +2054,17 @@ public static class LycheeMapLayoutGenerator_20260613
                 float jit = (Hash01(mk, ch * 13 + k, 27) - 0.5f) * 2f * BackgroundChainJitter; // 垂直抖动（脉不成直线）
                 float x = Mathf.Clamp(ccx + Mathf.Cos(cdir) * along + Mathf.Cos(cdir + 1.5708f) * jit, -mapHalfX * 0.99f, mapHalfX * 0.99f);
                 float z = Mathf.Clamp(ccz + Mathf.Sin(cdir) * along + Mathf.Sin(cdir + 1.5708f) * jit, -mapHalfZ * 0.99f, mapHalfZ * 0.99f);
-                if (NearAnyPath(x, z, paths, BackgroundKeepout + 6f)) continue;        // 山脉大、多留余量
-                float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
                 // 每链中段一座主峰(大)、其余小丘 → 大小错落、成"主峰+群丘"的真山脉感
                 bool isMain = (k == members / 2);
                 float sizeF = isMain ? (1.7f + Hash01(mk, gi, 2) * 0.9f) : (0.55f + Hash01(mk, gi, 2) * 0.65f);
                 float targetW = BackgroundMountainBaseWidth * sizeF;   // 目标世界宽：主峰~60-90m、小丘~18-38m
+                // ★★ 山绝不能挡路：按「整座山半径(targetW/2)+余量」做 keep-out —— 不只测山心、测整座山都离路/河够远，
+                //    否则中心避开了、40m 半径照样盖住路(用户多次强调的真 bug)。同时离节点(站点)也留出半径。
+                if (NearAnyPath(x, z, paths, targetW * 0.5f + BackgroundKeepout + 3f)) continue;
+                bool nearNode = false;
+                if (anchorById != null) foreach (var kv2 in anchorById) { var aa = kv2.Value; if (aa == null) continue; if ((new Vector2(aa.transform.position.x, aa.transform.position.z) - new Vector2(x, z)).magnitude < targetW * 0.5f + 6f) { nearNode = true; break; } }
+                if (nearNode) continue;
+                float y = ctx.terrainSurface != null && ctx.terrainSurface.TrySampleTop(x, z, out float ty) ? ty : 0f;
                 bool useB = !isMain && mtnB != null && Hash01(mk, gi, 12) > 0.55f; // 小丘 45% 用第二种(宽缓山)、主峰用 craggy 峰
                 GameObject pfM = useB ? mtnB : mtn;
                 float nativeW = useB ? 488f : 30f, baseToPivot = useB ? 45.73f : 0f; // 两种 prefab 各自归一+落地(枢轴不同)
