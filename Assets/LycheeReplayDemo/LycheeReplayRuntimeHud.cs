@@ -307,8 +307,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
     {
-        string winnerText = WinnerText(winner);
-        ShowCombat(1, null, contestTypeLabel + "第" + Mathf.Max(1, roundIndex) + "局  第" + round + "回合", winnerText + " 得势，状态条同步更新", CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.8f, true, "battle");
+        // 副标题显示「本拍谁得势 + 谁克谁」(用户：牌名+克制关系)；平手单独提示。
+        string sub;
+        if (winner == "RED" || winner == "BLUE")
+        {
+            string winCard = winner == "RED" ? redCard : blueCard;
+            string loseCard = winner == "RED" ? blueCard : redCard;
+            sub = WinnerText(winner) + " 本拍得势 · " + CardText(winCard) + " 克 " + CardText(loseCard);
+        }
+        else sub = "本拍平手";
+        ShowCombat(1, null, contestTypeLabel + " 第" + Mathf.Max(1, roundIndex) + "拍  第" + round + "回合", sub, CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 2.6f, true, "battle");
         // 亮牌瞬间双方卡片同时翻面：先露牌背、过中点换正面贴图（传原始牌名做映射）
         StartCardFlip(redCardFx, redCard);
         StartCardFlip(blueCardFx, blueCard);

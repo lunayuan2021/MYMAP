@@ -86,6 +86,13 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         if (Time.time - lastEndTime < CooldownSeconds) return;
         if (!EventVideo.TryGetValue(message.type, out string fileName)) return;
         if (knownMissing.Contains(fileName)) return;
+        // 用户：窗口争夺的开场视频只在「关键对抗」(五拍终局 / 宫门争夺)播；普通三拍对抗直接进逐拍出牌，不打断节奏。
+        if (message.type == "WINDOW_CONTEST_START")
+        {
+            LycheeReplayPayload pl = message.payload;
+            bool keyContest = pl != null && (pl.totalRounds >= 5 || pl.contestType == "GATE");
+            if (!keyContest) return;
+        }
         StartCoroutine(RunInterlude(fileName));
     }
 
