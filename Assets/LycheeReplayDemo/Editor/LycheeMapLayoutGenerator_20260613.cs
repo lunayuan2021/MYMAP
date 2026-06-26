@@ -95,7 +95,7 @@ public static class LycheeMapLayoutGenerator_20260613
     const float BackgroundMountainBaseWidth = 32f; // 背景山基准世界宽度(m)；主峰 ×1.7~2.6、小丘 ×0.55~1.2 → 大小错落、按此归一两种 prefab 尺寸
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
-    const float StationSandFadeExtra = 1.5f; // 站点收沙作用半径在干核外再加这么多（3.0→1.5：码头/水驿四周砂从甩出~5-6m收成贴边窄沙滩，治码头黄土乱铺）
+    const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
     const float RoadCausewayHalfWidth = 1.2f; // 陆路堤半宽：连到水驿的陆路在此半宽内保留实地不挖（窄一点、像路面宽的小堤）
     const float WaterStationRoadGap = -0.8f;  // 陆路堤戳进水塘多深：负=堤头探进塘内 0.8m（短短一截）；路面在堤上、过堤头才沉
     const float WaterStationRoadDip = 0.5f;   // 陆路在水驿端下沉到「水面 - 这个深度」→ 路伸进水塘被水盖住、消失在水边
@@ -2152,22 +2152,15 @@ public static class LycheeMapLayoutGenerator_20260613
                     if (wasCarved)
                     {
                         // 染砂对齐到渲染水面 WaterRenderHeight（shader 真正显示的水位），不再用网格深水位 → 各段沙带一致、不再硬边
-                        sandW = 1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.08f, w.y); // 仅水线一窄圈沙滩、往上很快转草(原+0.35把整片挖河缓坡都染砂=宽黄土道真凶)
+                        sandW = 1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.35f, w.y); // 水线起一条较宽沙滩、往上柔和渐隐为草
                     }
                     else sandW = RiverSandSplatWeight(w.x, w.z, waters);
                     sandW *= StationSandDamp(w.x, w.z);   // 站点干核内收沙：中央硬岸、只在水线一圈留窄沙（不再大沙坑）
-                    Color o = cols[i];
-                    if (wasCarved)
+                    if (sandW > 0.001f)
                     {
-                        // 挖到的河道顶点：向砂混合（保留原叠加行为）
-                        if (sandW > 0.001f) { cols[i] = new Color(o.r * (1f - sandW), Mathf.Lerp(o.g, 1f, sandW), o.b * (1f - sandW), o.a); sandPainted++; }
-                    }
-                    else
-                    {
-                        // ★未挖的平地：G(岩砂)直接由"离水距离 sandW"重写，不再继承母版烘死的砂 → 远水=草、近水=砂。
-                        // 根治母版那条"宽黄土道"(实测88%平地砂离水>5m=母版烘死的、改砂半径无效)；基底已压平、山是独立网格，清G不伤山。
-                        cols[i] = new Color(o.r * (1f - sandW), sandW, o.b, o.a);
-                        if (sandW > 0.001f) sandPainted++;
+                        Color o = cols[i];
+                        cols[i] = new Color(o.r * (1f - sandW), Mathf.Lerp(o.g, 1f, sandW), o.b * (1f - sandW), o.a);
+                        sandPainted++;
                     }
                 }
                 // 路堤：把道路走廊下的地形抬到路面之下一点（只抬不降，近水路不抬以保河道）。
@@ -3528,8 +3521,8 @@ public static class LycheeMapLayoutGenerator_20260613
     static float RiverSandSplatWeight(float x, float z, List<(MapRouteEdge edge, Vector3[] world)> waters)
     {
         if (waters == null) return 0f;
-        const float innerR = 0.6f;  // ≤此全砂（未挖到的顶点）；狠收到只贴水边(原1.6→1.2→0.6)
-        const float outerR = 1.4f;  // ≥此全草；狠收到≈水面边缘(原3.0→2.0→1.4)→平地恢复成草、砂只留水边一圈,根治"宽黄土道"(82%砂在平地、相邻河段3m砂带重叠灌满中央是真凶)
+        const float innerR = 1.6f;  // ≤此全砂（未挖到的顶点）；沙滩更宽
+        const float outerR = 3.0f;  // ≥此全草；砂带更宽、向草地柔和过渡（边界不再太硬，沙多一点）
         float best = float.MaxValue;
         foreach (var (edge, w) in waters)
         {
