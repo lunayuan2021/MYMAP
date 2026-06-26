@@ -1527,14 +1527,30 @@ public class LycheeReplayPlayer : MonoBehaviour
         return direction.sqrMagnitude > 0.0001f;
     }
 
+    // 「幽灵清障失败」过滤用：本回合已 SQUAD_CLEAR 成功的节点集合(按回合重置)。
+    int squadGuardRound = -1;
+    readonly HashSet<string> squadClearedNodesThisRound = new HashSet<string>();
+
     void HandleEvent(LycheeReplayMessage message, int round)
     {
-        // 用户：被争抢的障碍会在同回合同节点同时发一条无队号(player=None)的 SQUAD_FAILED「幽灵失败」，
-        // 它和该节点 SQUAD_CLEAR 的清障成功撞在一起——右侧提示被覆盖成"失败"、音效却响成功音，自相矛盾。
-        // 无队伍归属的清障失败信息量为零，在广播给任何子系统(音效/演出/HUD/事件流)之前整条丢弃。
-        if (message != null && message.type == "SQUAD_FAILED" &&
-            (message.payload == null || message.payload.playerId <= 0))
-            return;
+        // 用户：被争抢的障碍会在同回合同节点同时发「清障成功 SQUAD_CLEAR(有队号)」+「清障失败 SQUAD_FAILED」。
+        // 那条失败要么没队号(player=None)、要么是"赶到时障碍已被清掉"的迟到者——它会把成功提示覆盖成
+        // "失败"、音效却响清障成功音，自相矛盾。在广播给任何子系统(音效/演出/HUD/事件流)之前做通用过滤，
+        // 挡掉这类幽灵清障失败：① 无队伍归属(playerId<=0)；或 ② 该节点本回合已有清障成功(障碍已没、失败无意义)。
+        if (message != null)
+        {
+            if (round != squadGuardRound) { squadClearedNodesThisRound.Clear(); squadGuardRound = round; }
+            LycheeReplayPayload sp = message.payload;
+            string mtype = message.type;
+            if ((mtype == "SQUAD_CLEAR" || mtype == "SQUAD_CLEAR_SUCCESS") && sp != null && !string.IsNullOrEmpty(sp.targetNodeId))
+                squadClearedNodesThisRound.Add(sp.targetNodeId);
+            if (mtype == "SQUAD_FAILED")
+            {
+                bool noTeam = sp == null || sp.playerId <= 0;
+                bool alreadyCleared = sp != null && !string.IsNullOrEmpty(sp.targetNodeId) && squadClearedNodesThisRound.Contains(sp.targetNodeId);
+                if (noTeam || alreadyCleared) return;
+            }
+        }
         ReplayEventRaised?.Invoke(message, round);
         if (message == null) return;
         latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
