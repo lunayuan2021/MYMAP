@@ -520,15 +520,21 @@ public class LycheeReplayPlayer : MonoBehaviour
     }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-    /// <summary>WebGL 画质裁剪：编辑器/桌面取向的 MSAA4x+SMAA High 在浏览器里帧率撑不住。</summary>
+    /// <summary>WebGL 画质裁剪：浏览器单线程、draw call 是主瓶颈。WebGL 专属降配——
+    /// 不改任何场景资产/桌面包，只在 WebGL 运行时收紧渲染并按位置哈希抽稀植被。</summary>
     void ApplyWebGLQualityTrim()
     {
-        QualitySettings.shadowDistance = Mathf.Min(QualitySettings.shadowDistance, 60f);
+        QualitySettings.shadowDistance = Mathf.Min(QualitySettings.shadowDistance, 45f);
+        QualitySettings.lodBias = 0.8f; // 原 2 会强制远景树用高模；降到 0.8 让远树落到便宜 LOD(省三角、不增 draw call)
         if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is
             UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urpAsset)
         {
-            urpAsset.msaaSampleCount = 2;
-            urpAsset.renderScale = 1f;
+            urpAsset.msaaSampleCount = 1;    // 关 MSAA，改用相机 FXAA 兜 AA
+            urpAsset.renderScale = 0.8f;     // 片元成本≈0.64x
+            urpAsset.shadowDistance = Mathf.Min(urpAsset.shadowDistance, 45f);
+            // 水面 shader（IgniteCoders Simple Water）只采样 SceneDepth → 深度图必须保留；
+            // 不透明图(SceneColor)无人采样，关掉省一遍全屏拷贝，且不会破坏水面。
+            urpAsset.supportsCameraOpaqueTexture = false;
         }
         Camera sceneCamera = Camera.main ?? FindFirstObjectByType<Camera>();
         if (sceneCamera != null)
@@ -537,6 +543,32 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (cameraData != null)
                 cameraData.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
         }
+        ThinVegetationForWebGL();
+    }
+
+    /// <summary>WebGL 专属植被抽稀：按位置哈希确定性隐藏一部分草/树实例(不删资产、可逆、桌面包不受影响)。
+    /// Grass_And_Groundcover 1671 株 → 保留约 1/3；Tree_Clusters 359 株(每株4-LOD renderer) → 保留约 1/2。
+    /// 直接砍掉 draw call——WebGL 单线程提交是真瓶颈。</summary>
+    static void ThinVegetationForWebGL()
+    {
+        ThinDirectChildrenByHash("Grass_And_Groundcover", 3);
+        ThinDirectChildrenByHash("Tree_Clusters", 2);
+    }
+
+    static void ThinDirectChildrenByHash(string rootName, int keepOneOf)
+    {
+        var root = GameObject.Find(rootName);
+        if (root == null || keepOneOf <= 1) return;
+        var t = root.transform;
+        int total = t.childCount, hidden = 0;
+        for (int i = 0; i < total; i++)
+        {
+            var c = t.GetChild(i);
+            var p = c.position;
+            int h = Mathf.Abs(Mathf.RoundToInt(p.x * 6.1f) * 92821 + Mathf.RoundToInt(p.z * 6.1f));
+            if (h % keepOneOf != 0) { c.gameObject.SetActive(false); hidden++; }
+        }
+        Debug.Log("[WebGL植被抽稀] " + rootName + ": 隐藏 " + hidden + "/" + total);
     }
 
     System.Collections.IEnumerator LoadReplayThenInitialize()
@@ -1531,6 +1563,10 @@ public class LycheeReplayPlayer : MonoBehaviour
     int squadGuardRound = -1;
     readonly HashSet<string> squadClearedNodesThisRound = new HashSet<string>();
 
+    // 「朱雀门验核开始」合成用：已为之合成(或已收到真)START 的队伍集合；倒带时清空重新武装。
+    int verifyGateGuardRound = -1;
+    readonly HashSet<int> verifyGateStartedPlayers = new HashSet<int>();
+
     void HandleEvent(LycheeReplayMessage message, int round)
     {
         // 用户：被争抢的障碍会在同回合同节点同时发「清障成功 SQUAD_CLEAR(有队号)」+「清障失败 SQUAD_FAILED」。
@@ -1540,6 +1576,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (message != null)
         {
             if (round != squadGuardRound) { squadClearedNodesThisRound.Clear(); squadGuardRound = round; }
+            // 倒带：重新武装「验核开始」合成，让回看时声音/播报能再次触发。
+            if (round < verifyGateGuardRound) verifyGateStartedPlayers.Clear();
+            verifyGateGuardRound = round;
             LycheeReplayPayload sp = message.payload;
             string mtype = message.type;
             if ((mtype == "SQUAD_CLEAR" || mtype == "SQUAD_CLEAR_SUCCESS") && sp != null && !string.IsNullOrEmpty(sp.targetNodeId))
@@ -1549,6 +1588,22 @@ public class LycheeReplayPlayer : MonoBehaviour
                 bool noTeam = sp == null || sp.playerId <= 0;
                 bool alreadyCleared = sp != null && !string.IsNullOrEmpty(sp.targetNodeId) && squadClearedNodesThisRound.Contains(sp.targetNodeId);
                 if (noTeam || alreadyCleared) return;
+            }
+            // 「朱雀门验核开始」合成：V4.8.12 起外部回放不再发 VERIFY_GATE_START，但验核进度流
+            // PROCESS_PROGRESS(VERIFY_GATE) 仍在——每队第一条进度就是真正的验核开始(比 COMPLETE 早约6回合)。
+            // 据此合成一条 START 广播出去，sfx_verify_gate_start + 左侧播报 + 世界进度环随之复活。
+            // 去重：若收到过真 START，登记该队、不再合成，避免双响(对未来含真 START 的回放也安全)。
+            if (sp != null && sp.playerId > 0)
+            {
+                if (mtype == "VERIFY_GATE_START")
+                    verifyGateStartedPlayers.Add(sp.playerId);
+                else if (mtype == "PROCESS_PROGRESS" && sp.processType == "VERIFY_GATE"
+                         && !verifyGateStartedPlayers.Contains(sp.playerId))
+                {
+                    verifyGateStartedPlayers.Add(sp.playerId);
+                    var synthStart = new LycheeReplayMessage { type = "VERIFY_GATE_START", payload = sp };
+                    ReplayEventRaised?.Invoke(synthStart, round);
+                }
             }
         }
         ReplayEventRaised?.Invoke(message, round);

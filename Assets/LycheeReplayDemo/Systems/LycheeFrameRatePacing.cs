@@ -11,9 +11,14 @@ public static class LycheeFrameRatePacing
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     static void Apply()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // WebGL 由浏览器 requestAnimationFrame 控帧；vSyncCount=1 在这里冗余且会与 rAF 打架致卡顿，置 0。
+        QualitySettings.vSyncCount = 0;
+#else
         // 跟随显示器刷新呈现，帧间隔稳定（原生包/有显示器环境的主力手段）
         QualitySettings.vSyncCount = 1;
-        // WebGL / 无 vSync 环境的兜底上限；与 vSync 并存时由 vSync 主导
+#endif
+        // 帧率上限；WebGL 下由 rAF 主导，此值作兜底
         Application.targetFrameRate = 60;
     }
 }

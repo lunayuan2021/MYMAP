@@ -2226,14 +2226,12 @@ public static class LycheeMapLayoutGenerator_20260613
                 Material _flowMat = FindWaterMaterial();
                 if (_routeMR != null && _flowMat != null) { _routeMR.sharedMaterial = _flowMat; EditorUtility.SetDirty(_routeMR); }
                 // ★ 真正控制水面高度的地方：设水路物体 transform.Y（WaterShader 按它渲染水面、不看网格顶点Y）。
-                // 每段水路按 edgeId 取一个稳定的微小高差（-0.15 起 6 档×0.015，最低 -0.225），
-                // 让相邻/重叠的两段水面不再共面 → 消除透明水面 z-fighting 的「格子」（洛阳驿↔洞庭一带重灾区）。
-                // 几厘米高差俯视看不出，但足以拉开深度；水塘另在更低层（见 BuildWaterStationPonds）。
+                // 全河统一到 WaterRenderHeight。旧版按 edgeId 哈希给每段 6 档微小高差（为把重叠水面拉开深度、压 z-fighting），
+                // 但相邻两段高差(最高9cm) + 各段波相错位 → 俯视下「两边河面明显不一样」+ 重叠带摩尔条纹（用户反馈）。
+                // 统一高度后：去掉高差与波相错位，重叠处同一世界坐标波纹对齐、不再摩尔；船点本就用 WaterRenderHeight、天然同高。
                 if (_routeT != null)
                 {
-                    int _h = 23; foreach (char _c in edge.edgeId) _h = _h * 31 + _c;
-                    float _wy = WaterRenderHeight - (Mathf.Abs(_h) % 6) * 0.015f;
-                    var _wp = _routeT.position; _routeT.position = new Vector3(_wp.x, _wy, _wp.z); EditorUtility.SetDirty(_routeT);
+                    var _wp = _routeT.position; _routeT.position = new Vector3(_wp.x, WaterRenderHeight, _wp.z); EditorUtility.SetDirty(_routeT);
                 }
             }
             // S1 河道压一层：去掉浮在主面上方 +0.045 的 _WaterHighlight 独立薄层（旧子物体由 CleanLegacyWaterChildren 删）。
