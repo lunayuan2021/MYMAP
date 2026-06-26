@@ -558,6 +558,10 @@ public static class LycheeMapLayoutGenerator_20260613
 
             // 6b. 新河道凹陷：下挖地形成河谷 + 沉水面（每图地形是独立副本，安全）。
             //     CarveRivers 内部在 carve 之后顺带把道路走廊下的地形/高度场抬到路面之下（近水路不抬以保河道）。
+            // 山路(MountainRoute)中心线收集:重刷地形砂时,山路下保留黄土(用户规则:山路下的黄土留、非山路非贴水的清成草)
+            sceneCtx.mountainTuples = changedEdges
+                .Where(_ce => _ce.type == MapRouteType.Mountain && _ce.world != null && _ce.world.Length > 0)
+                .Select(_ce => (_ce.edge, _ce.world)).ToList();
             CarveRivers(waterEdges, sceneCtx, anchorById, report);
             SinkExtendedGroundBelowMain(report);  // 第二张底板下沉一点，消与主地形共面的 z-fighting（草上沙/石疯狂闪动）
             // 6b2. 路堤已停用：道路保持纯贴地，不再抬升网格/pathPoints。
@@ -654,6 +658,7 @@ public static class LycheeMapLayoutGenerator_20260613
         public float endAUnderlayTrim, endBUnderlayTrim;  // 砂石路基在该端裁掉此半径内的点（水驿端用，让黄路基不探到水边）
         // 所有水路中心线（建路前预算）：路在与河重叠处下沉到河床以下，实现"道路最底/河床/水面+建筑在上"的层级。
         public List<(MapRouteEdge edge, Vector3[] world)> waterTuples;
+        public List<(MapRouteEdge edge, Vector3[] world)> mountainTuples;  // 山路中心线:重刷地形砂时,山路下保留黄土(其余非贴水平地清成草)
         public readonly Dictionary<MapRouteType, MapRouteEdge> edgeTemplate = new();
         public readonly Dictionary<MapRouteType, Transform> routeLayer = new();
         public readonly Dictionary<MapRouteType, Transform> overlayTemplate = new();
@@ -2148,19 +2153,22 @@ public static class LycheeMapLayoutGenerator_20260613
                 // 未挖到的按到中心线距离羽化到岸→砂渐隐入草。terrain 自身像素级"水→砂→草"过渡，不靠硬边贴片。
                 if (hasCols)
                 {
-                    float sandW;
+                    Color o = cols[i];
                     if (wasCarved)
                     {
-                        // 染砂对齐到渲染水面 WaterRenderHeight（shader 真正显示的水位），不再用网格深水位 → 各段沙带一致、不再硬边
-                        sandW = 1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.35f, w.y); // 水线起一条较宽沙滩、往上柔和渐隐为草
+                        // 挖到的河道/河岸顶点：按高度向砂混合（河岸砂照旧、不动）。
+                        float sandW = (1f - Mathf.SmoothStep(WaterRenderHeight - 0.05f, WaterRenderHeight + 0.35f, w.y)) * StationSandDamp(w.x, w.z);
+                        if (sandW > 0.001f) { cols[i] = new Color(o.r * (1f - sandW), Mathf.Lerp(o.g, 1f, sandW), o.b * (1f - sandW), o.a); sandPainted++; }
                     }
-                    else sandW = RiverSandSplatWeight(w.x, w.z, waters);
-                    sandW *= StationSandDamp(w.x, w.z);   // 站点干核内收沙：中央硬岸、只在水线一圈留窄沙（不再大沙坑）
-                    if (sandW > 0.001f)
+                    else
                     {
-                        Color o = cols[i];
-                        cols[i] = new Color(o.r * (1f - sandW), Mathf.Lerp(o.g, 1f, sandW), o.b * (1f - sandW), o.a);
-                        sandPainted++;
+                        // 未挖的平地：非山路下按"离水距离"重写 G（贴水=砂、其余清成草，清掉母版烘死的孤立黄土块）；
+                        // 山路下则【保留母版原色】（不强加砂），按离山路权重在二者间混合避免硬边。用户规则：山路下留、非山路非贴水清、贴水留。
+                        float riverSand = RiverSandSplatWeight(w.x, w.z, waters) * StationSandDamp(w.x, w.z);
+                        float mtnKeep = MountainRouteSandWeight(w.x, w.z, ctx);
+                        Color rewritten = new Color(o.r * (1f - riverSand), riverSand, o.b * (1f - riverSand), o.a);
+                        cols[i] = Color.Lerp(rewritten, o, mtnKeep);  // mtnKeep=1→保留母版黄土，=0→按离水重写
+                        if (riverSand > 0.001f || mtnKeep > 0.001f) sandPainted++;
                     }
                 }
                 // 路堤：把道路走廊下的地形抬到路面之下一点（只抬不降，近水路不抬以保河道）。
@@ -3525,6 +3533,24 @@ public static class LycheeMapLayoutGenerator_20260613
         const float outerR = 3.0f;  // ≥此全草；砂带更宽、向草地柔和过渡（边界不再太硬，沙多一点）
         float best = float.MaxValue;
         foreach (var (edge, w) in waters)
+        {
+            if (w == null || w.Length == 0) continue;
+            float d = NearestOnPolylineXZ(x, z, w, out _, out _);
+            if (d < best) best = d;
+        }
+        if (best >= outerR) return 0f;
+        return 1f - Mathf.SmoothStep(0f, 1f, (best - innerR) / (outerR - innerR));
+    }
+
+    /// <summary>山路砂染保留权重：到最近山路(MountainRoute)中心线 XZ 距离 → [内全砂 1, 外 0]。
+    /// 重刷地形砂时与 RiverSandSplatWeight 取大：贴水或山路下保留黄土，其余平地清成草（用户规则）。</summary>
+    static float MountainRouteSandWeight(float x, float z, SceneContext ctx)
+    {
+        if (ctx == null || ctx.mountainTuples == null || ctx.mountainTuples.Count == 0) return 0f;
+        const float innerR = 2.4f;  // ≤此全砂（山路路床宽约 2.35）
+        const float outerR = 4.0f;  // ≥此无砂，羽化入草
+        float best = float.MaxValue;
+        foreach (var (edge, w) in ctx.mountainTuples)
         {
             if (w == null || w.Length == 0) continue;
             float d = NearestOnPolylineXZ(x, z, w, out _, out _);
