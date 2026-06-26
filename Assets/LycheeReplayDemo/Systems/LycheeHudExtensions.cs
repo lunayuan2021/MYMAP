@@ -903,12 +903,12 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         }
         if (type == "VERIFY_GATE_START")
         {
-            text = "回合 " + round + " " + team + " 开始朱雀门验核：验核完成后才具备进宫交付资格。";
+            text = "回合 " + round + " " + team + " 开始宫门验核：验核完成后才具备进宫交付资格。";
             return true;
         }
         if (type == "VERIFY_GATE_COMPLETE")
         {
-            text = "回合 " + round + " " + team + " 朱雀门验核通过：已获得交付资格，接下来拼交付速度与保鲜结果。";
+            text = "回合 " + round + " " + team + " 宫门验核通过：已获得交付资格，接下来拼交付速度与保鲜结果。";
             return true;
         }
         if (type == "DELIVER_SUCCESS")
@@ -1071,7 +1071,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "TRANSFER") return "驿站换运";
         if (value == "PASS_TRANSFER") return "关隘通行";
         if (value == "PALACE_TRANSFER") return "宫城换运";
-        if (value == "VERIFY" || value == "VERIFY_GATE" || value == "RUSH_VERIFY_GATE") return "朱雀门验核";
+        if (value == "VERIFY" || value == "VERIFY_GATE" || value == "RUSH_VERIFY_GATE") return "宫门验核";
         if (value == "PASS_NODE") return "限时过关";
         if (value == "STATION_PROCESS") return "驿站催运";
         if (value == "WIN_HORSE_WINDOW") return "争马换乘";
@@ -1086,7 +1086,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "BREAK_GUARD") return "破关";
         if (value == "BOARD") return "登船";
         if (value == "CLAIM_RESOURCE") return "领取资源";
-        if (value == "VERIFY_GATE") return "朱雀门验核";
+        if (value == "VERIFY_GATE") return "宫门验核";
         return ProcessName(value);
     }
 

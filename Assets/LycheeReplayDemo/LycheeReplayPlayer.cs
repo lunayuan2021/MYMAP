@@ -1541,7 +1541,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     int squadGuardRound = -1;
     readonly HashSet<string> squadClearedNodesThisRound = new HashSet<string>();
 
-    // 「朱雀门验核开始」合成用：已为之合成(或已收到真)START 的队伍集合；倒带时清空重新武装。
+    // 「宫门验核开始」合成用：已为之合成(或已收到真)START 的队伍集合；倒带时清空重新武装。
     int verifyGateGuardRound = -1;
     readonly HashSet<int> verifyGateStartedPlayers = new HashSet<int>();
 
@@ -1567,7 +1567,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 bool alreadyCleared = sp != null && !string.IsNullOrEmpty(sp.targetNodeId) && squadClearedNodesThisRound.Contains(sp.targetNodeId);
                 if (noTeam || alreadyCleared) return;
             }
-            // 「朱雀门验核开始」合成：V4.8.12 起外部回放不再发 VERIFY_GATE_START，但验核进度流
+            // 「宫门验核开始」合成：V4.8.12 起外部回放不再发 VERIFY_GATE_START，但验核进度流
             // PROCESS_PROGRESS(VERIFY_GATE) 仍在——每队第一条进度就是真正的验核开始(比 COMPLETE 早约6回合)。
             // 据此合成一条 START 广播出去，sfx_verify_gate_start + 左侧播报 + 世界进度环随之复活。
             // 去重：若收到过真 START，登记该队、不再合成，避免双响(对未来含真 START 的回放也安全)。
@@ -1993,7 +1993,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         else if (type == "VERIFY_GATE_START")
         {
-            title = "朱雀门验核开始";
+            title = "宫门验核开始";
             subtitle = team + " 在 " + target + " 提交验核";
             left = string.IsNullOrEmpty(payload.rushTactic) ? "验核" : ActionName(payload.rushTactic);
             right = DurationText(payload.processRound);

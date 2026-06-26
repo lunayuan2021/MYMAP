@@ -221,7 +221,7 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             case "SQUAD_CLEAR":
             case "SQUAD_CLEAR_SUCCESS": return "sfx_squad_clear";       // 小队清障成功(本批新增)
             case "SQUAD_FAILED": return "sfx_squad_failed";            // 小队失败(本批新增)
-            case "VERIFY_GATE_START": return "sfx_verify_gate_start";  // 朱雀门验核开始(本批新增)
+            case "VERIFY_GATE_START": return "sfx_verify_gate_start";  // 宫门验核开始(本批新增)
             case "TASK_SPAWN":
             case "BOUNTY_SPAWN":
             case "BOUNTY_CREATE": return "sfx_task_spawn";       // BOUNTY_CREATE 为 V4.8.12 新名
