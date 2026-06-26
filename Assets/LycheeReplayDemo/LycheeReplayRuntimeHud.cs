@@ -365,14 +365,35 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
     {
-        DisplayContest(2, contestTypeLabel + "结束  第" + round + "回合", WinnerText(winner) + " 胜出",
+        // replay 的结算事件常不填 winner(为空)，只给点数。为空/非红蓝时按红蓝累计点数判定，
+        // 否则 WinnerText("")="双方" 会拼出荒谬的「双方 胜出」(实测 0:2 也显示双方胜出)。点数相同才是真平局。
+        string w = ResolveEndWinner(winner, redPoint, bluePoint);
+        string verdict = w == "RED" ? "红队 胜出"
+            : w == "BLUE" ? "蓝队 胜出"
+            : "双方战平 · 无人胜出";
+        DisplayContest(2, contestTypeLabel + "结束  第" + round + "回合", verdict,
             "红队 " + redPoint + " 分", "蓝队 " + bluePoint + " 分", redPoint + " : " + bluePoint, 4.5f);
-        // 胜者演出：判出胜负的这一拍给胜方卡片两次金色脉冲，并配一记短促震屏强化打击感
-        if (winner == "RED") StartWinnerGlow(contestRedFx, 0f);
-        else if (winner == "BLUE") StartWinnerGlow(contestBlueFx, 0f);
-        if (winner == "RED" || winner == "BLUE") ShakeCamera(0.18f, 0.35f);
+        // 胜者演出：判出胜负方给胜方卡片金色脉冲 + 短促震屏；平局不给
+        if (w == "RED") StartWinnerGlow(contestRedFx, 0f);
+        else if (w == "BLUE") StartWinnerGlow(contestBlueFx, 0f);
+        if (w == "RED" || w == "BLUE") ShakeCamera(0.18f, 0.35f);
         // 对抗收束：暗角 0.6s 缓缓放开
         SetVignette(false);
+    }
+
+    // 结算胜负判定：优先读 replay 的 winner(红/蓝)；缺省或非红蓝时按累计点数判，点数相同=平局。
+    // 这不是"自己算克制"——只是读 replay 已给的最终点数(redPoint/bluePoint)。
+    static string ResolveEndWinner(string winner, int redPoint, int bluePoint)
+    {
+        if (!string.IsNullOrEmpty(winner))
+        {
+            string k = winner.ToUpperInvariant();
+            if (k.Contains("RED")) return "RED";
+            if (k.Contains("BLUE")) return "BLUE";
+        }
+        if (bluePoint > redPoint) return "BLUE";
+        if (redPoint > bluePoint) return "RED";
+        return "DRAW";
     }
 
     // 窗口平局（WINDOW_CONTEST_DRAW）：三拍胜点相同、无胜方。中性收束，不给任一方金光/震屏。
