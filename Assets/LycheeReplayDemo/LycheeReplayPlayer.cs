@@ -526,6 +526,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         QualitySettings.shadowDistance = Mathf.Min(QualitySettings.shadowDistance, 45f);
         QualitySettings.lodBias = 0.8f; // 原 2 会强制远景树用高模；降到 0.8 让远树落到便宜 LOD(省三角、不增 draw call)
+        QualitySettings.globalTextureMipmapLimit = 1; // 降一级贴图 mip(显存/带宽≈1/4)；俯视远景几乎看不出,即用户要的"降贴面"
         if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is
             UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urpAsset)
         {
@@ -543,32 +544,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (cameraData != null)
                 cameraData.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.FastApproximateAntialiasing;
         }
-        ThinVegetationForWebGL();
-    }
-
-    /// <summary>WebGL 专属植被抽稀：按位置哈希确定性隐藏一部分草/树实例(不删资产、可逆、桌面包不受影响)。
-    /// Grass_And_Groundcover 1671 株 → 保留约 1/3；Tree_Clusters 359 株(每株4-LOD renderer) → 保留约 1/2。
-    /// 直接砍掉 draw call——WebGL 单线程提交是真瓶颈。</summary>
-    static void ThinVegetationForWebGL()
-    {
-        ThinDirectChildrenByHash("Grass_And_Groundcover", 3);
-        ThinDirectChildrenByHash("Tree_Clusters", 2);
-    }
-
-    static void ThinDirectChildrenByHash(string rootName, int keepOneOf)
-    {
-        var root = GameObject.Find(rootName);
-        if (root == null || keepOneOf <= 1) return;
-        var t = root.transform;
-        int total = t.childCount, hidden = 0;
-        for (int i = 0; i < total; i++)
-        {
-            var c = t.GetChild(i);
-            var p = c.position;
-            int h = Mathf.Abs(Mathf.RoundToInt(p.x * 6.1f) * 92821 + Mathf.RoundToInt(p.z * 6.1f));
-            if (h % keepOneOf != 0) { c.gameObject.SetActive(false); hidden++; }
-        }
-        Debug.Log("[WebGL植被抽稀] " + rootName + ": 隐藏 " + hidden + "/" + total);
+        // 不再运行时抽稀植被(用户要求保留密度)。draw call 改由植被材质的 GPU 实例化收口——
+        // 草 2 种 mesh / 树 3 种 mesh 共用 URP/Lit、已开 enableInstancing，几千个 draw 在 GPU 侧塌成几个实例批，
+        // 零内存代价、植被一棵不少；比抽稀更省。
     }
 
     System.Collections.IEnumerator LoadReplayThenInitialize()
@@ -3875,5 +3853,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             wordWrap = true,
             normal = { textColor = new Color(1f, 0.88f, 0.62f) }
         };
+        // 绑中文字体：IMGUI 默认内置 Arial 无中文字形，WebGL 无系统字体 → OnGUI 中文(暂停/播放/重播/报错)空白。
+        Font cjk = Resources.Load<Font>("Fonts/LXGWWenKai-Regular");
+        if (cjk != null) { hudStyle.font = cjk; titleStyle.font = cjk; buttonStyle.font = cjk; startupErrorStyle.font = cjk; }
     }
 }

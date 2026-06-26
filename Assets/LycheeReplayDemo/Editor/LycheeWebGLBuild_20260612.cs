@@ -262,8 +262,9 @@ static class LycheeWebGLBuild_20260612
             foreach (TextMesh textMesh in UnityEngine.Object.FindObjectsByType<TextMesh>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
-                bool embedded = textMesh.font != null && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(textMesh.font));
-                if (textMesh.font != null && !embedded) continue;
+                // 只保留"工程内(Assets/)字体"(即已绑 LXGW)；内置 Arial 的资产路径是 Library/unity default resources、
+                // 非空但不以 Assets/ 开头，旧逻辑误当"已是资产"跳过 → 中文在 WebGL 空白。改为非 Assets/ 字体(含内置 Arial)与 null 一律换 LXGW。
+                if (textMesh.font != null && AssetDatabase.GetAssetPath(textMesh.font).StartsWith("Assets/")) continue;
                 textMesh.font = bundled;
                 MeshRenderer meshRenderer = textMesh.GetComponent<MeshRenderer>();
                 if (meshRenderer != null) meshRenderer.sharedMaterial = bundled.material;
@@ -272,15 +273,14 @@ static class LycheeWebGLBuild_20260612
             foreach (UnityEngine.UI.Text text in UnityEngine.Object.FindObjectsByType<UnityEngine.UI.Text>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
-                bool embedded = text.font != null && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(text.font));
-                if (text.font != null && !embedded) continue;
+                if (text.font != null && AssetDatabase.GetAssetPath(text.font).StartsWith("Assets/")) continue;
                 text.font = bundled;
                 fixedCount++;
             }
             UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
             UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
         }
-        Append("Scene font fix: " + fixedCount + " text components now use bundled NotoSansSC.");
+        Append("Scene font fix: " + fixedCount + " text components now use bundled LXGWWenKai.");
     }
 
     static void FixReplayCameraControllers(string[] scenes)
@@ -457,7 +457,8 @@ static class LycheeWebGLBuild_20260612
             "      #unity-progress-bar-empty { width: 100%; height: 12px; margin-top: 22px; background: rgba(238,213,154,0.18); border: 1px solid rgba(232,195,106,0.5); border-radius: 999px; overflow: hidden; }\n" +
             "      #unity-progress-bar-full { height: 100%; background: linear-gradient(90deg, #a93523, #e8c36a); border-radius: 999px; }\n" +
             // 全屏游戏加载封面：首帧即覆盖整窗，杜绝默认模板/开发页面观感；Unity 实例就绪后淡出移除。
-            "      #lychee-splash { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 34%, #2a1d12 0%, #120d0a 68%, #050505 100%); transition: opacity 0.55s ease; }\n" +
+            // 背景三层叠加：暗罩(保证金字可读) → 全景地图(lychee_loading_bg.jpg，构建时若存在则拷入包) → 渐变兜底(图缺失时显示)。
+            "      #lychee-splash { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: linear-gradient(rgba(8,6,5,0.50), rgba(8,6,5,0.74)), url('lychee_loading_bg.jpg') center/cover no-repeat, radial-gradient(ellipse at 50% 34%, #2a1d12 0%, #120d0a 68%, #050505 100%); transition: opacity 0.55s ease; }\n" +
             "      #lychee-splash .lychee-splash-card { text-align: center; padding: 0 24px; }\n" +
             "      #lychee-splash .lychee-splash-title { color: #e8c36a; font: 800 48px/1.15 'Microsoft YaHei','Noto Sans CJK SC',sans-serif; letter-spacing: 8px; text-shadow: 0 6px 26px rgba(0,0,0,0.62); }\n" +
             "      #lychee-splash .lychee-splash-sub { margin-top: 20px; color: #f3e6c9; font: 600 20px/1.5 'Microsoft YaHei','Noto Sans CJK SC',sans-serif; }\n" +
@@ -473,22 +474,21 @@ static class LycheeWebGLBuild_20260612
             "<div id=\"unity-container\"",
             "<div id=\"lychee-splash\"><div class=\"lychee-splash-card\">" +
             "<div class=\"lychee-splash-title\">一骑红尘：荔枝争运战</div>" +
-            "<div class=\"lychee-splash-sub\">正在加载游戏资源...</div>" +
-            "<div class=\"lychee-splash-en\">Loading game assets...</div>" +
-            "<div class=\"lychee-splash-hint\">正在准备地图、队伍与事件回放</div>" +
+            "<div class=\"lychee-splash-sub\">地图资源加载中，请耐心等待</div>" +
+            "<div class=\"lychee-splash-en\">Loading map assets, please wait...</div>" +
+            "<div class=\"lychee-splash-hint\">首次加载资源较多，请勿关闭页面</div>" +
             "<div class=\"lychee-splash-track\"><div class=\"lychee-splash-glow\"></div></div>" +
             "</div></div>\n    <div id=\"unity-container\"");
         html = html.Replace(
             "<div id=\"unity-logo\"></div>",
             "<div id=\"unity-logo\"></div><div class=\"lychee-loading-title\">一骑红尘：荔枝争运战</div><div class=\"lychee-loading-subtitle\">正在加载游戏资源...<br>Loading game assets...<br>正在准备地图、队伍与事件回放</div>");
-        // Unity 实例就绪后移除加载封面（成功路径主钩子）。
+        // 引擎就绪后不立即移除封面——createUnityInstance 解析时首帧场景仍在预热(植被/地形/小地图RT)，
+        // 立即移除会露出"卡住"的首帧。延时 2.6s 覆盖预热；30s 兜底与报错路径仍会移除。
         html = html.Replace(
             ".then((unityInstance) => {",
-            ".then((unityInstance) => {\n          if (window.__lycheeHideSplash) window.__lycheeHideSplash();\n");
-        // 进度到 100% 也移除一次（次要钩子，模板若改写 .then 结构仍兜底）。
-        html = html.Replace(
-            "progressBarFull.style.width = 100 * progress + \"%\";",
-            "progressBarFull.style.width = 100 * progress + \"%\";\n          if (progress >= 1 && window.__lycheeHideSplash) window.__lycheeHideSplash();");
+            ".then((unityInstance) => {\n          setTimeout(function(){ if (window.__lycheeHideSplash) window.__lycheeHideSplash(); }, 2600);\n");
+        // 进度到 100% 不再移除封面——那只是下载完成、引擎尚未初始化/首帧未出，移早了正是"卡住"露馅处；
+        // 统一由上面 .then 的延时移除 + 30s 兜底 + 报错路径处理。
         html = html.Replace(".loader.js\";", ".loader.js\" + \"?v=\" + buildStamp;");
         html = html.Replace(".data.unityweb\",", ".data.unityweb\" + \"?v=\" + buildStamp,");
         html = html.Replace(".framework.js.unityweb\",", ".framework.js.unityweb\" + \"?v=\" + buildStamp,");
@@ -522,6 +522,11 @@ static class LycheeWebGLBuild_20260612
         html = html.Replace("canvas.style.width = \"960px\";", "canvas.style.width = \"100vw\";");
         html = html.Replace("canvas.style.height = \"600px\";", "canvas.style.height = \"100vh\";");
         File.WriteAllText(indexPath, html);
+        // 全景地图封面图：若 Assets 下有 lychee_loading_bg.jpg 就拷进包根(与 index.html 同级)，CSS 以相对路径引用；
+        // 没有则 splash 退回渐变兜底(见 #lychee-splash 背景叠层)。把想要的全景截图放到该源路径，下次构建即生效。
+        string loadBg = "Assets/LycheeReplayDemo/Editor/lychee_loading_bg.jpg";
+        if (File.Exists(loadBg)) { File.Copy(loadBg, OutputDir + "/lychee_loading_bg.jpg", true); Append("Loading panorama copied into package (lychee_loading_bg.jpg)."); }
+        else Append("No lychee_loading_bg.jpg in Assets — splash uses gradient fallback. Drop a JPG at " + loadBg + " for a map panorama.");
         Append("index.html patched (cache bust=" + stamp + ", branded loading, adaptive DPR/4K option, full-window canvas).");
     }
 

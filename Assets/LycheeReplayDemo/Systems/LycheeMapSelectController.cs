@@ -166,6 +166,9 @@ public sealed class LycheeMapSelectController : MonoBehaviour
             normal = { textColor = new Color(0.82f, 0.86f, 0.9f) },
             wordWrap = true
         };
+        // 绑中文字体：IMGUI 默认内置 Arial 无中文字形，WebGL 无系统字体 → 选图标题/按钮中文空白。
+        Font cjk = Resources.Load<Font>("Fonts/LXGWWenKai-Regular");
+        if (cjk != null) { titleStyle.font = cjk; subtitleStyle.font = cjk; buttonStyle.font = cjk; smallStyle.font = cjk; }
 
         panelTexture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
         panelTexture.SetPixel(0, 0, new Color(0.05f, 0.08f, 0.11f, 0.88f));

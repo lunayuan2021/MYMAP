@@ -64,6 +64,14 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         tagSquadStyle = new GUIStyle(tagStyle);
         tagSquadStyle.normal.textColor = new Color(1f, 0.78f, 0.5f);     // 小分队：橙
         buttonStyle = new GUIStyle(GUI.skin.button) { fontStyle = FontStyle.Bold };
+        // 绑中文字体：IMGUI 默认用内置 Arial(无中文字形)，WebGL 无系统字体 → 中文按钮(如"调测地图")空白。
+        Font cjk = Resources.Load<Font>("Fonts/LXGWWenKai-Regular");
+        if (cjk != null)
+        {
+            headStyle.font = cjk; rowStyle.font = cjk;
+            tagStyle.font = cjk; tagConvoyStyle.font = cjk; tagSquadStyle.font = cjk;
+            buttonStyle.font = cjk;
+        }
     }
 
     // 每帧按当前分辨率刷新字号（窗口缩放时也能跟随）。
