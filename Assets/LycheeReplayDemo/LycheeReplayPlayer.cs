@@ -1529,6 +1529,12 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     void HandleEvent(LycheeReplayMessage message, int round)
     {
+        // 用户：被争抢的障碍会在同回合同节点同时发一条无队号(player=None)的 SQUAD_FAILED「幽灵失败」，
+        // 它和该节点 SQUAD_CLEAR 的清障成功撞在一起——右侧提示被覆盖成"失败"、音效却响成功音，自相矛盾。
+        // 无队伍归属的清障失败信息量为零，在广播给任何子系统(音效/演出/HUD/事件流)之前整条丢弃。
+        if (message != null && message.type == "SQUAD_FAILED" &&
+            (message.payload == null || message.payload.playerId <= 0))
+            return;
         ReplayEventRaised?.Invoke(message, round);
         if (message == null) return;
         latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
