@@ -95,7 +95,7 @@ public static class LycheeMapLayoutGenerator_20260613
     const float BackgroundMountainBaseWidth = 32f; // 背景山基准世界宽度(m)；主峰 ×1.7~2.6、小丘 ×0.55~1.2 → 大小错落、按此归一两种 prefab 尺寸
     const float RiverMeanderAmp = 0.85f;   // 河道蜿蜒幅度（中心线垂直偏移上限，端点0、中间最大）→ 河不再直直的
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
-    const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
+    const float StationSandFadeExtra = 1.5f; // 站点收沙作用半径在干核外再加这么多（3.0→1.5：码头/水驿四周砂从甩出~5-6m收成贴边窄沙滩，治码头黄土乱铺）
     const float RoadCausewayHalfWidth = 1.2f; // 陆路堤半宽：连到水驿的陆路在此半宽内保留实地不挖（窄一点、像路面宽的小堤）
     const float WaterStationRoadGap = -0.8f;  // 陆路堤戳进水塘多深：负=堤头探进塘内 0.8m（短短一截）；路面在堤上、过堤头才沉
     const float WaterStationRoadDip = 0.5f;   // 陆路在水驿端下沉到「水面 - 这个深度」→ 路伸进水塘被水盖住、消失在水边
@@ -3521,8 +3521,8 @@ public static class LycheeMapLayoutGenerator_20260613
     static float RiverSandSplatWeight(float x, float z, List<(MapRouteEdge edge, Vector3[] world)> waters)
     {
         if (waters == null) return 0f;
-        const float innerR = 1.6f;  // ≤此全砂（未挖到的顶点）；沙滩更宽
-        const float outerR = 3.0f;  // ≥此全草；砂带更宽、向草地柔和过渡（边界不再太硬，沙多一点）
+        const float innerR = 1.2f;  // ≤此全砂（未挖到的顶点）；1.6→1.2 砂带收窄、贴着河走
+        const float outerR = 2.0f;  // ≥此全草；3.0→2.0 砂带不再外溢~3m，河湾处不再因相邻段重叠灌满一大片（治码头/河弯黄土乱铺）
         float best = float.MaxValue;
         foreach (var (edge, w) in waters)
         {
