@@ -371,15 +371,6 @@
       "pathId": "P_E20"
     },
     {
-      "edgeId": "E21",
-      "fromNodeId": "S04",
-      "toNodeId": "S07",
-      "routeType": "BRANCH",
-      "distance": 57,
-      "bidirectional": true,
-      "pathId": "P_E21"
-    },
-    {
       "edgeId": "E22",
       "fromNodeId": "S08",
       "toNodeId": "S09",
@@ -1025,28 +1016,6 @@
         {
           "x": 49,
           "y": 18
-        }
-      ]
-    },
-    {
-      "pathId": "P_E21",
-      "edgeId": "E21",
-      "points": [
-        {
-          "x": 22,
-          "y": 54
-        },
-        {
-          "x": 31,
-          "y": 46
-        },
-        {
-          "x": 37,
-          "y": 39
-        },
-        {
-          "x": 43,
-          "y": 32
         }
       ]
     },
