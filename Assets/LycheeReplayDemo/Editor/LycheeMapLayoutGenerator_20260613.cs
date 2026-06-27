@@ -2162,12 +2162,13 @@ public static class LycheeMapLayoutGenerator_20260613
                     }
                     else
                     {
-                        // 未挖的平地：非山路下按"离水距离"重写 G（贴水=砂、其余清成草，清掉母版烘死的孤立黄土块）；
-                        // 山路下则【保留母版原色】（不强加砂），按离山路权重在二者间混合避免硬边。用户规则：山路下留、非山路非贴水清、贴水留。
+                        // 未挖的平地：非山路下清成草——R(路缘土/母版散落黄土块)和 G(砂)都按"离水"清，只贴水留砂、保留 B(变化草)；
+                        // 山路下则【保留母版原色】（R+G 都留），按离山路权重在二者间混合避免硬边。用户规则：山路下留、非山路非贴水清成草、贴水留砂。
+                        // 道路网格(官道/支路路面+路基)不在此处理、照旧保留——只清地形顶点色里的散落黄土斑(如三站三角内那块)。
                         float riverSand = RiverSandSplatWeight(w.x, w.z, waters) * StationSandDamp(w.x, w.z);
                         float mtnKeep = MountainRouteSandWeight(w.x, w.z, ctx);
-                        Color rewritten = new Color(o.r * (1f - riverSand), riverSand, o.b * (1f - riverSand), o.a);
-                        cols[i] = Color.Lerp(rewritten, o, mtnKeep);  // mtnKeep=1→保留母版黄土，=0→按离水重写
+                        Color rewritten = new Color(0f, riverSand, o.b, o.a);  // R=0清土、G=离水砂、B=变化草 → 远水远山=纯草
+                        cols[i] = Color.Lerp(rewritten, o, mtnKeep);  // mtnKeep=1→保留母版黄土(山路下)，=0→清成草
                         if (riverSand > 0.001f || mtnKeep > 0.001f) sandPainted++;
                     }
                 }
