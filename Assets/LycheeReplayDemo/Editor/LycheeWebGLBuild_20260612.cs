@@ -19,6 +19,9 @@ static class LycheeWebGLBuild_20260612
     const string RequestMarker = "LycheeWebGLBuild_20260616.request";
     const string DoneMarker = "LycheeWebGLBuild_20260616.done";
     const string ReportPath = "LycheeWebGLBuild_20260616_report.txt";
+    // 部署子路径前缀 + 起服端口：访问形如 ip:port/litchi_delivery_replay/?path=...（原根路径 + 端口 3000）。
+    const string DeployPrefix = "litchi_delivery_replay";
+    const int ServePort = 9091;
     // 输出包名带完整时间戳(yyyyMMdd_HHmmss)：每次构建都是独立新目录、不再互相替换（用户要求）。
     // 用字段而非属性：属性每次取值都会得到不同的当前时间，会让 CleanOutputDir/BuildPlayer/PatchIndexHtml 指向不同目录而破坏构建；
     // 故在 RunBuild 开始处一次性赋值，整次构建用同一个时间戳。
@@ -444,6 +447,7 @@ static class LycheeWebGLBuild_20260612
         html = Regex.Replace(html, "<title>.*?</title>", "<title>一骑红尘：荔枝争运战 · 回放</title>", RegexOptions.Singleline);
         html = html.Replace(
             "</head>",
+            "    <base href=\"/" + DeployPrefix + "/\">\n" +   // 部署在子路径下：相对资源(Build/、StreamingAssets/)挂到 /litchi_delivery_replay/
             "    <style>\n" +
             "      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #050505; }\n" +
             "      #unity-container.unity-desktop { width: 100vw; height: 100vh; background: #050505; }\n" +
@@ -544,18 +548,18 @@ static class LycheeWebGLBuild_20260612
             "- TemplateData/\n\n" +
             "推荐访问方式：\n" +
             "- 打开回放：http://服务器地址/本目录/index.html\n" +
-            "- 指定外部回放：http://服务器地址:3000/?path=/data/results/game/replay/serve/replay.txt\n" +
-            "- 指定包内示例：http://服务器地址:3000/?path=/StreamingAssets/Tournament/map1.txt\n" +
-            "- 指定地图：http://服务器地址:3000/?map=map_1\n" +
-            "- 地图选择页：http://服务器地址:3000/?map=select\n" +
-            "- 指定地图 + 外部回放：http://服务器地址:3000/?map=map_1&path=/data/results/game/replay/serve/replay.txt\n\n" +
+            "- 指定外部回放：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?path=/data/results/game/replay/serve/replay.txt\n" +
+            "- 指定包内示例：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?path=/StreamingAssets/Tournament/map1.txt\n" +
+            "- 指定地图：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=map_1\n" +
+            "- 地图选择页：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=select\n" +
+            "- 指定地图 + 外部回放：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=map_1&path=/data/results/game/replay/serve/replay.txt\n\n" +
             "离线使用：\n" +
             "- 本包已包含 Build、StreamingAssets、UITheme、Video、默认 replay.txt，不需要访问外网。\n" +
-            "- 默认地址 http://127.0.0.1:3000/ 读取包内 StreamingAssets/replay.txt。\n" +
+            "- 默认地址 http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/ 读取包内 StreamingAssets/replay.txt。\n" +
             "- ?path=/data/results/.../replay.txt 读取的是 Linux 本机磁盘上的 /data 路径，不是外网请求。\n" +
             "- 只有 ?path=http://... 才需要机器能访问对应 HTTP 地址；离线机器不要用 http://... 形式。\n\n" +
             "本机临时测试：\n" +
-            "- Linux：执行 ./start.sh；默认端口 3000，HOST=0.0.0.0，NO_OPEN=1 可只启动不打开浏览器。\n" +
+            "- Linux：执行 ./start.sh；默认端口 " + ServePort + "，访问路径前缀 /" + DeployPrefix + "/，HOST=0.0.0.0，NO_OPEN=1 可只启动不打开浏览器。\n" +
             "- Windows：双击 start.bat 或 start_local_server.bat；脚本会优先使用 PowerShell 内置服务器。\n\n" +
             "常见卡住原因：\n" +
             "- 双击 index.html：浏览器会阻止 StreamingAssets 文本读取，回放无法启动。\n" +
@@ -582,14 +586,14 @@ static class LycheeWebGLBuild_20260612
             "- StreamingAssets/\n" +
             "- TemplateData/\n\n" +
             "Local test:\n" +
-            "- Linux: run ./start.sh. Default port is 3000; set NO_OPEN=1 to start without opening a browser.\n" +
+            "- Linux: run ./start.sh. Default port is " + ServePort + ", URL prefix /" + DeployPrefix + "/; set NO_OPEN=1 to start without opening a browser.\n" +
             "- Windows: double-click start.bat or start_local_server.bat. Use stop.bat to stop it.\n" +
-            "- External replay: http://host:3000/?path=/data/results/game/replay/serve/replay.txt\n" +
-            "- Map switch: http://host:3000/?map=map_1 ; selector: http://host:3000/?map=select\n" +
-            "- Map + replay: http://host:3000/?map=map_1&path=/data/results/game/replay/serve/replay.txt\n\n" +
+            "- External replay: http://host:" + ServePort + "/" + DeployPrefix + "/?path=/data/results/game/replay/serve/replay.txt\n" +
+            "- Map switch: http://host:" + ServePort + "/" + DeployPrefix + "/?map=map_1 ; selector: http://host:" + ServePort + "/" + DeployPrefix + "/?map=select\n" +
+            "- Map + replay: http://host:" + ServePort + "/" + DeployPrefix + "/?map=map_1&path=/data/results/game/replay/serve/replay.txt\n\n" +
             "Offline use:\n" +
             "- The package includes Build, StreamingAssets, UITheme, Video, and default replay.txt. No internet is required.\n" +
-            "- http://127.0.0.1:3000/ loads packaged StreamingAssets/replay.txt.\n" +
+            "- http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/ loads packaged StreamingAssets/replay.txt.\n" +
             "- ?path=/data/results/.../replay.txt reads a local Linux filesystem path through the bundled server.\n" +
             "- Only ?path=http://... requires network access.\n\n" +
             "Render quality:\n" +
@@ -606,8 +610,8 @@ static class LycheeWebGLBuild_20260612
         File.WriteAllText(Path.Combine(OutputDir, "start_local_server.ps1"),
             "$ErrorActionPreference = 'Stop'\r\n" +
             "$root = Split-Path -Parent $MyInvocation.MyCommand.Path\r\n" +
-            "$port = 3000\r\n" +
-            "$url = \"http://127.0.0.1:$port/\"\r\n" +
+            "$port = " + ServePort + "\r\n" +
+            "$url = \"http://127.0.0.1:$port/" + DeployPrefix + "/\"\r\n" +
             "$listener = [System.Net.HttpListener]::new()\r\n" +
             "$listener.Prefixes.Add(\"http://127.0.0.1:$port/\")\r\n" +
             "$mime = @{\r\n" +
@@ -645,6 +649,9 @@ static class LycheeWebGLBuild_20260612
             "  while ($listener.IsListening) {\r\n" +
             "    $ctx = $listener.GetContext()\r\n" +
             "    $requestPath = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)\r\n" +
+            "    $prefix = '/" + DeployPrefix + "'\r\n" +
+            "    if ($requestPath -eq $prefix -or $requestPath -eq ($prefix + '/')) { $requestPath = '/' }\r\n" +
+            "    elseif ($requestPath.StartsWith($prefix + '/', [StringComparison]::OrdinalIgnoreCase)) { $requestPath = $requestPath.Substring($prefix.Length) }\r\n" +
             "    $rootFull = [IO.Path]::GetFullPath($root)\r\n" +
             "    if ([string]::IsNullOrWhiteSpace($requestPath) -or $requestPath -eq '/') {\r\n" +
             "      $full = [IO.Path]::GetFullPath([IO.Path]::Combine($root, 'index.html'))\r\n" +
@@ -674,7 +681,7 @@ static class LycheeWebGLBuild_20260612
         File.WriteAllText(Path.Combine(OutputDir, "start_local_server.bat"),
             "@echo off\r\n" +
             "cd /d \"%~dp0\"\r\n" +
-            "set \"URL=http://127.0.0.1:3000/\"\r\n" +
+            "set \"URL=http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/\"\r\n" +
             "where powershell >nul 2>nul\r\n" +
             "if %errorlevel%==0 (\r\n" +
             "  powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0start.ps1\"\r\n" +
@@ -683,13 +690,13 @@ static class LycheeWebGLBuild_20260612
             "where py >nul 2>nul\r\n" +
             "if %errorlevel%==0 (\r\n" +
             "  start \"\" \"%URL%\"\r\n" +
-            "  py -3 lychee_server.py --port 3000 --host 0.0.0.0\r\n" +
+            "  py -3 lychee_server.py --port " + ServePort + " --host 0.0.0.0\r\n" +
             "  goto :end\r\n" +
             ")\r\n" +
             "where python >nul 2>nul\r\n" +
             "if %errorlevel%==0 (\r\n" +
             "  start \"\" \"%URL%\"\r\n" +
-            "  python lychee_server.py --port 3000 --host 0.0.0.0\r\n" +
+            "  python lychee_server.py --port " + ServePort + " --host 0.0.0.0\r\n" +
             "  goto :end\r\n" +
             ")\r\n" +
             "echo Could not find PowerShell, py, or python. Please run this folder through any local HTTP server.\r\n" +
@@ -703,11 +710,11 @@ static class LycheeWebGLBuild_20260612
             "$ErrorActionPreference = 'Stop'\r\n" +
             "$root = Split-Path -Parent $MyInvocation.MyCommand.Path\r\n" +
             "$pidPath = Join-Path $root '.lychee_web_server.pid'\r\n" +
-            "$url = 'http://127.0.0.1:3000/'\r\n" +
+            "$url = 'http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/'\r\n" +
             "if (Test-Path $pidPath) {\r\n" +
             "  $oldPid = [int](Get-Content $pidPath -ErrorAction SilentlyContinue)\r\n" +
             "  if ($oldPid -gt 0 -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {\r\n" +
-            "    Write-Host \"Server already running on port 3000 (PID $oldPid).\"\r\n" +
+            "    Write-Host \"Server already running on port " + ServePort + " (PID $oldPid).\"\r\n" +
             "    Start-Process $url\r\n" +
             "    exit 0\r\n" +
             "  }\r\n" +
@@ -715,7 +722,7 @@ static class LycheeWebGLBuild_20260612
             "$server = Join-Path $root 'start_local_server.ps1'\r\n" +
             "$p = Start-Process powershell -WindowStyle Minimized -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$server)\r\n" +
             "Set-Content -Path $pidPath -Value $p.Id\r\n" +
-            "Write-Host \"Started Lychee WebGL server on http://127.0.0.1:3000/ (PID $($p.Id)).\"\r\n" +
+            "Write-Host \"Started Lychee WebGL server on http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/ (PID $($p.Id)).\"\r\n" +
             "Start-Process $url\r\n");
         File.WriteAllText(Path.Combine(OutputDir, "stop.ps1"),
             "$root = Split-Path -Parent $MyInvocation.MyCommand.Path\r\n" +
@@ -760,6 +767,11 @@ static class LycheeWebGLBuild_20260612
             "    def translate_path(self, path):\n" +
             "        request_path = urllib.parse.urlparse(path).path\n" +
             "        request_path = urllib.parse.unquote(request_path)\n" +
+            "        prefix = '/" + DeployPrefix + "'\n" +
+            "        if request_path == prefix or request_path == prefix + '/':\n" +
+            "            return os.path.join(ROOT, 'index.html')\n" +
+            "        if request_path.startswith(prefix + '/'):\n" +
+            "            request_path = request_path[len(prefix):]\n" +
             "        if request_path in ('', '/'):\n" +
             "            return os.path.join(ROOT, 'index.html')\n" +
             "        if request_path.startswith('/data/'):\n" +
@@ -805,7 +817,7 @@ static class LycheeWebGLBuild_20260612
             "def main():\n" +
             "    parser = argparse.ArgumentParser()\n" +
             "    parser.add_argument('--host', default='0.0.0.0')\n" +
-            "    parser.add_argument('--port', type=int, default=3000)\n" +
+            "    parser.add_argument('--port', type=int, default=" + ServePort + ")\n" +
             "    parser.add_argument('--daemon', action='store_true')\n" +
             "    parser.add_argument('--pid-file')\n" +
             "    parser.add_argument('--log-file')\n" +
@@ -820,7 +832,7 @@ static class LycheeWebGLBuild_20260612
         File.WriteAllText(Path.Combine(OutputDir, "start.command"),
             "#!/bin/bash\n" +
             "cd \"$(dirname \"$0\")\"\n" +
-            "PORT=\"${PORT:-3000}\"\n" +
+            "PORT=\"${PORT:-" + ServePort + "}\"\n" +
             "HOST=\"${HOST:-0.0.0.0}\"\n" +
             "PID_FILE=\".lychee_web_server.pid\"\n" +
             "LOG_FILE=\".lychee_web_server.log\"\n" +
@@ -837,12 +849,12 @@ static class LycheeWebGLBuild_20260612
             "    rm -f \"$PID_FILE\"\n" +
             "    exit 1\n" +
             "  fi\n" +
-            "  echo \"Started Lychee WebGL server on http://127.0.0.1:$PORT/ (PID $(cat \"$PID_FILE\")).\"\n" +
+            "  echo \"Started Lychee WebGL server on http://127.0.0.1:$PORT/" + DeployPrefix + "/ (PID $(cat \"$PID_FILE\")).\"\n" +
             "fi\n" +
-            "echo \"External replay example: http://127.0.0.1:$PORT/?path=/data/results/game/replay/serve/replay.txt\"\n" +
-            "echo \"4K/UHD example: http://127.0.0.1:$PORT/?quality=4k\"\n" +
-            "echo \"External replay + 4K: http://127.0.0.1:$PORT/?path=/data/results/game/replay/serve/replay.txt&quality=4k\"\n" +
-            "open \"http://127.0.0.1:$PORT/\"\n");
+            "echo \"External replay example: http://127.0.0.1:$PORT/" + DeployPrefix + "/?path=/data/results/game/replay/serve/replay.txt\"\n" +
+            "echo \"4K/UHD example: http://127.0.0.1:$PORT/" + DeployPrefix + "/?quality=4k\"\n" +
+            "echo \"External replay + 4K: http://127.0.0.1:$PORT/" + DeployPrefix + "/?path=/data/results/game/replay/serve/replay.txt&quality=4k\"\n" +
+            "open \"http://127.0.0.1:$PORT/" + DeployPrefix + "/\"\n");
         File.WriteAllText(Path.Combine(OutputDir, "stop.command"),
             "#!/bin/bash\n" +
             "cd \"$(dirname \"$0\")\"\n" +
@@ -858,12 +870,12 @@ static class LycheeWebGLBuild_20260612
             "#!/usr/bin/env bash\n" +
             "set -euo pipefail\n" +
             "cd \"$(dirname \"$0\")\"\n\n" +
-            "PORT=\"${PORT:-3000}\"\n" +
+            "PORT=\"${PORT:-" + ServePort + "}\"\n" +
             "HOST=\"${HOST:-0.0.0.0}\"\n" +
             "NO_OPEN=\"${NO_OPEN:-0}\"\n" +
             "PID_FILE=\".lychee_web_server.pid\"\n" +
             "LOG_FILE=\".lychee_web_server.log\"\n" +
-            "URL=\"http://127.0.0.1:${PORT}/\"\n\n" +
+            "URL=\"http://127.0.0.1:${PORT}/" + DeployPrefix + "/\"\n\n" +
             "if [[ -f \"$PID_FILE\" ]] && kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then\n" +
             "  echo \"Server already running on port ${PORT} (PID $(cat \"$PID_FILE\")).\"\n" +
             "else\n" +
