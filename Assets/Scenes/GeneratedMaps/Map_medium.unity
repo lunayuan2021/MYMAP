@@ -167207,7 +167207,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LycheeReplayPlayer
   replayFile: {fileID: 4900000, guid: cf7c973212b3a43cc915481427ede047, type: 3}
-  streamingReplayPath: Tournament/map1.txt
+  streamingReplayPath: replay.txt
   secondsPerRound: 1
   playOnStart: 1
   loop: 0

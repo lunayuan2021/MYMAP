@@ -194,10 +194,9 @@ static class LycheeWebGLBuild_20260612
     /// </summary>
     static string[] GetBuildScenes()
     {
-        // 默认首场景 = Map_medium（官方 map1）。当前 StreamingAssets/replay.txt 就是 map1 的回放，
-        // Map_medium 绑定 Tournament/map1.txt 且承载 map1 的地形/河道/建筑几何；若默认仍用 LycheeReplayDemo
-        // （非 map1 几何）去播 map1 回放，会出现“用错误地图测当前回放”——镜头/河道/建筑/事件位置全错判。
-        // 故把 map1 置为首场景；LycheeReplayDemo 仍打包，可用 ?map=demo 进入。其余地图按 ?map=... 切换。
+        // 默认首场景 = Map_medium（官方 map1 几何）+ StreamingAssets/replay.txt（含 WINDOW_* 出牌段）。
+        // Tournament/map1.txt 是纯地图回放，当前没有窗口争夺事件；若默认绑定它，包打开后就看不到出牌。
+        // LycheeReplayDemo 仍打包，可用 ?map=demo 进入。其余地图按 ?map=... 切换。
         List<string> oneToOneScenes = new List<string>();
         AddSceneIfExists(oneToOneScenes, PreferredSingleMapScene);
         AddSceneIfExists(oneToOneScenes, DemoScene);

@@ -87,6 +87,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     // 开局首帧的 SQUAD_DISPATCH 延迟到出发动画结束再生成：否则在 Awake 的 ApplyFrame(0,true) 里就凭空冒出小队，
     // 早于 LycheeOpeningShowcase 暂停播放（其暂停在 Start 协程 yield 之后才执行），表现为"出发动画前小队凭空派发、走着走着消失"。
     bool applyingInitialFrame;
+    bool applyingForcedFrame;
     bool openingDispatchesReleased;
     int pendingOpeningRound;
     readonly List<LycheeReplayMessage> pendingOpeningDispatches = new List<LycheeReplayMessage>();
@@ -186,6 +187,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     public int CurrentRound => frames.Count == 0 ? 0 : frames[frameIndex].round;
     public bool IsPlaying => playing;
+    public bool IsApplyingForcedFrame => applyingForcedFrame;
     public LycheeReplayFrame CurrentFrame => frames.Count == 0 ? null : frames[frameIndex];
     public LycheeReplayFrame NextFrame => frames.Count == 0 ? null : frames[Mathf.Min(frameIndex + 1, frames.Count - 1)];
     public LycheeReplayFrame StartFrameData => startFrame;
@@ -1206,11 +1208,20 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (index < 0 || index >= frames.Count) return;
         LycheeReplayFrame frame = frames[index];
         LycheeReplayFrame previousApplied = lastAppliedFrame;
-        if (frame.messages != null && (force || index > lastEventFrame))
+        bool previousForcedState = applyingForcedFrame;
+        applyingForcedFrame = force;
+        try
         {
-            foreach (LycheeReplayMessage message in frame.messages)
-                HandleEvent(message, frame.round);
-            lastEventFrame = index;
+            if (frame.messages != null && (force || index > lastEventFrame))
+            {
+                foreach (LycheeReplayMessage message in frame.messages)
+                    HandleEvent(message, frame.round);
+                lastEventFrame = index;
+            }
+        }
+        finally
+        {
+            applyingForcedFrame = previousForcedState;
         }
         ApplyObstacles(frame);
         RoundApplied?.Invoke(previousApplied, frame);
@@ -1647,10 +1658,11 @@ public class LycheeReplayPlayer : MonoBehaviour
                 pendingOpeningRound = round;
                 return;
             }
+            int dispatchedCount = SquadMemberCount(payload);
             if (runtimeHud != null)
             {
                 string teamName = TeamName(payload.playerId);
-                runtimeHud.ShowDispatch(teamName + "小分队正在 " + CleanNode(payload.targetNodeId) + " " + SquadActionCn(payload.action));
+                runtimeHud.ShowDispatch(teamName + "小分队 x" + dispatchedCount + " 正在 " + CleanNode(payload.targetNodeId) + " " + SquadActionCn(payload.action));
             }
             ShowKeyEventIllustration(message, payload, round);
             ShowObstacleCauseCue(payload.targetNodeId);
@@ -1660,11 +1672,11 @@ public class LycheeReplayPlayer : MonoBehaviour
                 // 相机带一下出征的小队：跟拍小队根节点 ~3.4s、拉近到 17m，让 3D 队员"出发"看得见，
                 // 而不是只剩头顶一行飞字（旧代码这里是 ClearEventFocus()，镜头当场把小队甩回主车队）。
                 SetEventFocus(dispatched.root.transform, 3.4f, 17f);
-                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发", TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
+                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发 x" + dispatched.memberCount, TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             }
             else if (!string.IsNullOrEmpty(payload.targetNodeId) &&
                 stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
-                SpawnEventPulse(squadTarget.transform.position, "小队出发", TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
+                SpawnEventPulse(squadTarget.transform.position, "小队出发 x" + dispatchedCount, TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             return;
         }
 
@@ -2153,31 +2165,20 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 务必先判空——新版回放小队派发只给 targetNodeId，fromNodeId 缺省会导致初始化崩溃卡死。
         if (string.IsNullOrEmpty(payload.targetNodeId) ||
             !stations.TryGetValue(payload.targetNodeId, out MapStationAnchor target)) return null;
-        // 出发点：有 fromNodeId 用站点；缺省时从该玩家当前车队位置出发，真实表现“派出一支小队”。
-        // 早版用目标附近 staging 避免突兀，现在改为跟拍小队出征，所以从车队走向目标更符合玩法语义。
+        // 出发点：有 fromNodeId 用站点；缺省时优先用该玩家当前所在节点。
+        // 开局回放常见形态是 currentNodeId=S01、routeEdgeId 已经有少量进度；若直接取车队插值位置，
+        // 观感会变成“小分队从路中间冒出来”，而不是从起点/驿站派出。
         Vector3 startPos;
         Vector3 endPos = target.transform.position + Vector3.up * 0.15f;
-        if (!string.IsNullOrEmpty(payload.fromNodeId) &&
-            stations.TryGetValue(payload.fromNodeId, out MapStationAnchor from))
-            startPos = from.transform.position + Vector3.up * 0.15f;
+        if (TryResolveSquadStartStation(payload, out MapStationAnchor fromStation))
+            startPos = fromStation.transform.position + Vector3.up * 0.15f;
         else
         {
             Transform convoy = GetConvoyRoot(payload.playerId);
             if (convoy != null)
                 startPos = convoy.position + Vector3.up * 0.15f;
             else
-            {
-                // 车队还没解析到（开场早期 GetConvoyRoot 为空）时，从该队"当前所在节点"出发，
-                // 而不是凭空落在目标点旁 3.2m（旧 LocalSquadStagingPosition 是绕目标取点，正是"不是从起点发出"的根因）。
-                LycheeReplayPlayerState pstate = frames.Count > 0 && frames[frameIndex].players != null
-                    ? frames[frameIndex].players.FirstOrDefault(c => c.playerId == payload.playerId)
-                    : null;
-                if (pstate != null && !string.IsNullOrEmpty(pstate.currentNodeId) &&
-                    stations.TryGetValue(pstate.currentNodeId, out MapStationAnchor fromStation))
-                    startPos = fromStation.transform.position + Vector3.up * 0.15f;
-                else
-                    startPos = LocalSquadStagingPosition(target.transform.position, payload, round);
-            }
+                startPos = LocalSquadStagingPosition(target.transform.position, payload, round);
         }
         ApplySquadLaneOffset(ref startPos, ref endPos, payload);
         GameObject root = new GameObject("Squad_" + PayloadTactic(payload) + "_" + round);
@@ -2227,6 +2228,34 @@ public class LycheeReplayPlayer : MonoBehaviour
         };
         squads.Add(visual);
         return visual;
+    }
+
+    bool TryResolveSquadStartStation(LycheeReplayPayload payload, out MapStationAnchor station)
+    {
+        station = null;
+        if (payload == null) return false;
+
+        if (!string.IsNullOrEmpty(payload.fromNodeId) &&
+            stations.TryGetValue(payload.fromNodeId, out station) &&
+            station != null)
+            return true;
+
+        if (TryGetPlayerCurrentStation(frameIndex, payload.playerId, out station)) return true;
+        if (TryGetPlayerCurrentStation(frameIndex - 1, payload.playerId, out station)) return true;
+        if (TryGetPlayerCurrentStation(0, payload.playerId, out station)) return true;
+
+        return stations.TryGetValue("S01", out station) && station != null;
+    }
+
+    bool TryGetPlayerCurrentStation(int index, int playerId, out MapStationAnchor station)
+    {
+        station = null;
+        if (index < 0 || index >= frames.Count) return false;
+        LycheeReplayFrame frame = frames[index];
+        if (frame == null || frame.players == null) return false;
+        LycheeReplayPlayerState state = frame.players.FirstOrDefault(player => player != null && player.playerId == playerId);
+        if (state == null || string.IsNullOrEmpty(state.currentNodeId)) return false;
+        return stations.TryGetValue(state.currentNodeId, out station) && station != null;
     }
 
     static void ApplySquadLaneOffset(ref Vector3 startPos, ref Vector3 endPos, LycheeReplayPayload payload)
@@ -3176,19 +3205,28 @@ public class LycheeReplayPlayer : MonoBehaviour
     static string SquadActionCn(string action)
     {
         if (string.IsNullOrEmpty(action)) return "行动";
-        if (action.Contains("CLEAR")) return "清障";
-        if (action.Contains("REINFORCE")) return "增援";
-        if (action.Contains("WEAKEN")) return "削弱";
-        if (action.Contains("SCOUT")) return "探路";
-        if (action.Contains("RAID")) return "破袭";
+        string normalized = action.ToUpperInvariant();
+        if (normalized.Contains("CLEAR")) return "清障";
+        if (normalized.Contains("REINFORCE")) return "增援";
+        if (normalized.Contains("WEAKEN")) return "削弱";
+        if (normalized.Contains("SCOUT")) return "探路";
+        if (normalized.Contains("RAID")) return "破袭";
         return "行动";
     }
 
     int SquadMemberCount(LycheeReplayPayload payload)
     {
-        // 用户要求：一个小分队固定只 1 个人（原先按回放数据/默认会出 2~4 个、像一整队）。
-        // 影响小分队的模型数量、地图标签 "小分队 x1" 与事件卡 "派出 1 人"。
-        return 1;
+        string action = PayloadTactic(payload);
+        if (!string.IsNullOrEmpty(action))
+        {
+            string normalized = action.ToUpperInvariant();
+            if (normalized.Contains("SCOUT")) return 1;
+            if (normalized.Contains("CLEAR") ||
+                normalized.Contains("REINFORCE") ||
+                normalized.Contains("WEAKEN"))
+                return 2;
+        }
+        return Mathf.Clamp(defaultDispatchMemberCount, 1, 12);
     }
 
     static int PayloadArrivalRound(LycheeReplayPayload payload, int currentRound)
@@ -3658,7 +3696,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (bytes != null)
         {
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (texture.LoadImage(bytes))
+            if (texture.LoadImage(bytes, markNonReadable: true)) // 上传 GPU 后立即释放 CPU 端 RGBA 副本：省 WASM 堆/内存(这些卡牌/图标贴图运行中逐张缓存、从不回收)
             {
                 texture.wrapMode = TextureWrapMode.Clamp;
                 sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
@@ -3725,7 +3763,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (bytes != null)
         {
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (texture.LoadImage(bytes))
+            if (texture.LoadImage(bytes, markNonReadable: true)) // 上传 GPU 后立即释放 CPU 端 RGBA 副本：省 WASM 堆/内存(这些卡牌/图标贴图运行中逐张缓存、从不回收)
             {
                 texture.wrapMode = TextureWrapMode.Clamp;
                 sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),

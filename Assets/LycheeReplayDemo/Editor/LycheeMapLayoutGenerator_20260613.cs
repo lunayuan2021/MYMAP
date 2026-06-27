@@ -1353,6 +1353,7 @@ public static class LycheeMapLayoutGenerator_20260613
             if (hasCols) clone.colors = cols;  // 显式回写顶点色，杜绝任何丢失（与 CarveRivers 同防御）→ splat 外观不变只是变平
             clone.RecalculateNormals();        // 平面法线全朝上 (0,1,0) → 受光正常，路再也不沉进暗沟变黑
             clone.RecalculateBounds();
+            NormalizeTerrainMeshSubmeshes(clone, mf.GetComponent<MeshRenderer>(), mf.name, report);
             Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
             mf.sharedMesh = saved;
             var mc = mf.GetComponent<MeshCollider>();
@@ -1522,6 +1523,7 @@ public static class LycheeMapLayoutGenerator_20260613
             clone.vertices = verts;
             clone.RecalculateNormals();
             clone.RecalculateBounds();
+            NormalizeTerrainMeshSubmeshes(clone, mf.GetComponent<MeshRenderer>(), mf.name, report);
             Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
             ctx.transientRestoredTerrainAssets.Add(AssetDatabase.GetAssetPath(saved));
             mf.sharedMesh = saved;
@@ -1623,6 +1625,75 @@ public static class LycheeMapLayoutGenerator_20260613
         if (carved >= 0) name = name.Substring(0, carved);
 
         return string.IsNullOrEmpty(name) ? "Continuous_Terrain" : name;
+    }
+
+    struct TriangleKey : IEquatable<TriangleKey>
+    {
+        readonly int a, b, c;
+
+        public TriangleKey(int i0, int i1, int i2)
+        {
+            if (i0 > i1) { int tmp = i0; i0 = i1; i1 = tmp; }
+            if (i1 > i2) { int tmp = i1; i1 = i2; i2 = tmp; }
+            if (i0 > i1) { int tmp = i0; i0 = i1; i1 = tmp; }
+            a = i0; b = i1; c = i2;
+        }
+
+        public bool Equals(TriangleKey other) => a == other.a && b == other.b && c == other.c;
+        public override bool Equals(object obj) => obj is TriangleKey other && Equals(other);
+        public override int GetHashCode()
+        {
+            unchecked { return ((a * 397) ^ b) * 397 ^ c; }
+        }
+    }
+
+    /// <summary>地形的黄土/砂岸应由 TerrainSplat 顶点色控制；母版历史遗留的第二材质子网格
+    /// (M_RiverBed_SandGravel) 在旧水路改陆路后会留下孤立黄土块。生成地图时把地形子网格合并回主材质。</summary>
+    static void NormalizeTerrainMeshSubmeshes(Mesh mesh, MeshRenderer renderer, string label, List<string> report)
+    {
+        if (mesh == null) return;
+
+        int oldSubmeshCount = mesh.subMeshCount;
+        int duplicateTriangles = 0;
+        if (oldSubmeshCount > 1)
+        {
+            var merged = new List<int>();
+            var seen = new HashSet<TriangleKey>();
+            for (int sub = 0; sub < oldSubmeshCount; sub++)
+            {
+                int[] triangles = mesh.GetTriangles(sub);
+                for (int i = 0; i + 2 < triangles.Length; i += 3)
+                {
+                    int a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+                    var key = new TriangleKey(a, b, c);
+                    if (!seen.Add(key)) { duplicateTriangles++; continue; }
+                    merged.Add(a); merged.Add(b); merged.Add(c);
+                }
+            }
+
+            if (merged.Count > 0)
+            {
+                mesh.subMeshCount = 1;
+                mesh.SetTriangles(merged, 0);
+            }
+        }
+
+        int oldMaterialCount = renderer != null && renderer.sharedMaterials != null ? renderer.sharedMaterials.Length : 0;
+        if (renderer != null && oldMaterialCount > 1)
+        {
+            Material primary = renderer.sharedMaterials.FirstOrDefault(m => m != null && m.name.Contains("TerrainSplat")) ??
+                               renderer.sharedMaterials.FirstOrDefault(m => m != null);
+            if (primary != null)
+            {
+                renderer.sharedMaterials = new[] { primary };
+                EditorUtility.SetDirty(renderer);
+            }
+        }
+
+        if ((oldSubmeshCount > 1 || oldMaterialCount > 1) && report != null)
+        {
+            report.Add($"[地形材质] {label}: 合并遗留地形子网格 {oldSubmeshCount}→{mesh.subMeshCount}，材质槽 {oldMaterialCount}→{(renderer != null ? renderer.sharedMaterials.Length : 0)}，去重三角 {duplicateTriangles}");
+        }
     }
 
     // ============================================================ 道路路堤/栈道（把路抬出洼地）
@@ -1853,6 +1924,7 @@ public static class LycheeMapLayoutGenerator_20260613
             if (hasCols) clone.colors = cols;
             clone.RecalculateNormals();
             clone.RecalculateBounds();
+            NormalizeTerrainMeshSubmeshes(clone, mf.GetComponent<MeshRenderer>(), mf.name, report);
             Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
             mf.sharedMesh = saved;
             var mc = mf.GetComponent<MeshCollider>();
@@ -2181,6 +2253,7 @@ public static class LycheeMapLayoutGenerator_20260613
             if (hasCols) clone.colors = cols;
             clone.RecalculateNormals();
             clone.RecalculateBounds();
+            NormalizeTerrainMeshSubmeshes(clone, mf.GetComponent<MeshRenderer>(), mf.name, report);
             Mesh saved = SaveMesh(clone, ctx.meshDir + "/" + Sanitize(ctx.mapKey) + "_" + clone.name + ".asset");
             mf.sharedMesh = saved;
             var mc = mf.GetComponent<MeshCollider>();
@@ -3393,21 +3466,24 @@ public static class LycheeMapLayoutGenerator_20260613
             // 路踩在窄地堤上、河水从两边让开、不凭空架在河上。连水驿的端再由下面 trim 收到塘内一小截（短堤下水）。
             Vector3[] world = ExistingEdgeWorldPath(edge);
             if (world == null || world.Length < 2) continue;
-            // 把贴近水驿/码头的那段路堤去掉：堤止于岸边、不盖到水驿脚下（水驿留在水里、不再造沙台）
-            var keep = new List<Vector3>();
-            foreach (var p in world)
+            // 把贴近水驿的那段路堤精确裁到塘外，并多退一个路堤半宽：
+            // 否则路堤走廊会从水塘边缘反向压回塘里，留下沙/草高地把水面截断。
+            var keep = new List<Vector3>(world);
+            foreach (var kv in anchorById)
             {
-                bool nearWs = false;
-                foreach (var kv in anchorById)
+                var a = kv.Value;
+                if (!IsWaterStation(a)) continue;
+                if (edge.fromStationId != kv.Key && edge.toStationId != kv.Key) continue;
+                float clear = WaterStationPondRadius(a) + RoadCausewayHalfWidth + 0.25f;
+                var center = new Vector2(a.transform.position.x, a.transform.position.z);
+                if (edge.fromStationId == kv.Key)
+                    ClipPathStartAtCircle(keep, center, clear);
+                if (edge.toStationId == kv.Key)
                 {
-                    var a = kv.Value;
-                    if (!IsWaterStation(a)) continue;
-                    if (edge.fromStationId != kv.Key && edge.toStationId != kv.Key) continue;
-                    float gap = WaterStationPondRadius(a) + WaterStationRoadGap;
-                    var ap = new Vector2(a.transform.position.x, a.transform.position.z);
-                    if ((new Vector2(p.x, p.z) - ap).magnitude < gap) { nearWs = true; break; }
+                    keep.Reverse();
+                    ClipPathStartAtCircle(keep, center, clear);
+                    keep.Reverse();
                 }
-                if (!nearWs) keep.Add(p);
             }
             if (keep.Count < 2) continue;
             _roadCauseways.Add((keep.ToArray(), RoadCausewayHalfWidth));
@@ -3482,12 +3558,6 @@ public static class LycheeMapLayoutGenerator_20260613
         List<(MapRouteEdge edge, Vector3[] world)> waters, out float newY)
     {
         newY = origY; bool any = false;
-        // 陆路堤优先：连到水驿的陆路走廊内保留实地、不挖 → 路下有地、避开水、不悬空（优先于站点核心满深）
-        if (_roadCauseways != null)
-        {
-            foreach (var (path, rr) in _roadCauseways)
-                if (NearestOnPolylineXZ(x, z, path, out _, out _) < rr) return false;
-        }
         // 水驿/码头核心：端点不收口让水到脚下；水驿(isPond)再额外挖整圆塘、码头只临河那侧进水
         bool inStationCore = false, inPondCore = false;
         if (_riverDryCores != null)
@@ -3495,6 +3565,13 @@ public static class LycheeMapLayoutGenerator_20260613
             var p2 = new Vector2(x, z);
             foreach (var (c, r, isPond) in _riverDryCores)
                 if ((p2 - c).sqrMagnitude < r * r) { inStationCore = true; if (isPond) inPondCore = true; }
+        }
+        // 陆路堤优先：连到水驿的陆路走廊内保留实地、不挖 → 路下有地、避开水、不悬空。
+        // 但水驿圆塘核心必须优先成水；否则路堤会在塘边留下高地，把水面截断成一块沙桥。
+        if (!inPondCore && _roadCauseways != null)
+        {
+            foreach (var (path, rr) in _roadCauseways)
+                if (NearestOnPolylineXZ(x, z, path, out _, out _) < rr) return false;
         }
         foreach (var (edge, w) in waters)
         {

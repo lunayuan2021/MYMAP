@@ -11,9 +11,9 @@ using UnityEngine.InputSystem.UI;
 /// <summary>
 /// 中段视频插播：回放进行到关键事件时，插播一段短视频，播放期间暂停回放、播完恢复，让整体更有观赏性。
 /// 触发事件→视频文件名约定（放 StreamingAssets/Video/ 下，缺失则该事件不插播、零打扰）：
-///   WINDOW_CONTEST_START → contest.mp4   RUSH_START → rush.mp4   DELIVER_SUCCESS → deliver.mp4
-///   OBSTACLE_CLEAR → clear_obstacle.mp4  GUARD_BREAK → break_guard.mp4  SQUAD_DISPATCH → squad_dispatch.mp4
-///   RESOURCE_CLAIM → resource_contest.mp4  VERIFY_GATE_START → gate_verification.mp4  WEATHER_START → weather_start.mp4
+///   WINDOW_CONTEST_START → contest.mp4/resource_contest.mp4   RUSH_START → rush.mp4   DELIVER_SUCCESS → deliver.mp4
+///   OBSTACLE_CLEAR → clear_obstacle.mp4  GUARD_BREAK → break_guard.mp4
+///   VERIFY_GATE_START → gate_verification.mp4  WEATHER_START → weather_start.mp4
 /// 用户按约定丢视频进去即自动接入；没丢的事件正常播放不中断。两次插播间有 20s 冷却，不会连环打断。
 ///
 /// 关键设计：先静默 Prepare 视频（回放继续跑），确认能播了才暂停+淡黑+播放——缺失/失败的视频
@@ -30,16 +30,11 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     // 事件→插播视频。事件名按实际回放数据对齐：冲刺是 RUSH_START（非 RUSH_PHASE_START）。
     static readonly Dictionary<string, string> EventVideo = new Dictionary<string, string>
     {
-        // 对抗大战。注意：当前 replay.txt 不含任何对抗事件（contests 恒为空，无 WINDOW_CONTEST_START），
-        // 因此 contest.mp4 在这份回放里不会触发；需换用含对抗的回放，或把键改成本回放实际存在的事件名。
-        { "WINDOW_CONTEST_START", "contest.mp4" },
         { "RUSH_START", "rush.mp4" },              // 冲刺阶段开始（本回放第 ~450 回合触发）
         { "DELIVER_SUCCESS", "deliver.mp4" },      // 荔枝交付成功（本回放第 ~490 / 503 回合触发）
         // 关键事件短片（StreamingAssets/Video/，20s 冷却 + knownMissing 兜底；缺文件则该事件零打扰）
         { "OBSTACLE_CLEAR", "clear_obstacle.mp4" },       // 清障
         { "GUARD_BREAK", "break_guard.mp4" },             // 破卡
-        { "SQUAD_DISPATCH", "squad_dispatch.mp4" },       // 小分队派出
-        { "RESOURCE_CLAIM", "resource_contest.mp4" },     // 资源争夺
         { "VERIFY_GATE_START", "gate_verification.mp4" }, // 宫门验核
         { "WEATHER_START", "weather_start.mp4" },         // 天气开始
     };
@@ -82,18 +77,31 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     void OnReplayEvent(LycheeReplayMessage message, int round)
     {
         if (player == null || busy) return;
+        if (player.IsApplyingForcedFrame) return;
         if (message == null || string.IsNullOrEmpty(message.type)) return;
         if (Time.time - lastEndTime < CooldownSeconds) return;
-        if (!EventVideo.TryGetValue(message.type, out string fileName)) return;
+        string fileName = ResolveInterludeVideo(message);
+        if (string.IsNullOrEmpty(fileName)) return;
         if (knownMissing.Contains(fileName)) return;
-        // 用户：窗口争夺的开场视频只在「关键对抗」(五拍终局 / 宫门争夺)播；普通三拍对抗直接进逐拍出牌，不打断节奏。
+        StartCoroutine(RunInterlude(fileName));
+    }
+
+    static string ResolveInterludeVideo(LycheeReplayMessage message)
+    {
+        if (message == null || string.IsNullOrEmpty(message.type)) return null;
         if (message.type == "WINDOW_CONTEST_START")
         {
             LycheeReplayPayload pl = message.payload;
-            bool keyContest = pl != null && (pl.totalRounds >= 5 || pl.contestType == "GATE");
-            if (!keyContest) return;
+            string contestType = pl == null ? null : pl.contestType;
+            if (string.Equals(contestType, "RESOURCE", System.StringComparison.OrdinalIgnoreCase))
+                return "resource_contest.mp4";
+
+            // 普通三拍对抗直接进逐拍出牌；只有五拍终局/宫门争夺播通用对抗短片。
+            bool keyContest = pl != null &&
+                (pl.totalRounds >= 5 || string.Equals(contestType, "GATE", System.StringComparison.OrdinalIgnoreCase));
+            return keyContest ? "contest.mp4" : null;
         }
-        StartCoroutine(RunInterlude(fileName));
+        return EventVideo.TryGetValue(message.type, out string fileName) ? fileName : null;
     }
 
     IEnumerator RunInterlude(string fileName)

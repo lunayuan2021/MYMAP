@@ -834,7 +834,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type == "SQUAD_DISPATCH")
         {
             string eta = payload.completeRound > round ? "，预计 R" + payload.completeRound + " 完成" : "";
-            text = "回合 " + round + " " + team + " 派出小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
+            text = "回合 " + round + " " + team + " 派出 " + SquadMemberCount(payload) + " 人小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
             return true;
         }
         if (type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS" || type == "OBSTACLE_CLEAR")
@@ -1082,12 +1082,30 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     static string ActionName(string value)
     {
+        if (value == "SQUAD_SCOUT") return "探路";
         if (value == "SQUAD_CLEAR") return "清障";
+        if (value == "SQUAD_REINFORCE") return "增援";
+        if (value == "SQUAD_WEAKEN") return "削弱";
         if (value == "BREAK_GUARD") return "破关";
         if (value == "BOARD") return "登船";
         if (value == "CLAIM_RESOURCE") return "领取资源";
         if (value == "VERIFY_GATE") return "宫门验核";
         return ProcessName(value);
+    }
+
+    static int SquadMemberCount(LycheeReplayPayload payload)
+    {
+        string action = payload == null ? null : (!string.IsNullOrEmpty(payload.action) ? payload.action : payload.tactic);
+        if (!string.IsNullOrEmpty(action))
+        {
+            string normalized = action.ToUpperInvariant();
+            if (normalized.Contains("SCOUT")) return 1;
+            if (normalized.Contains("CLEAR") ||
+                normalized.Contains("REINFORCE") ||
+                normalized.Contains("WEAKEN"))
+                return 2;
+        }
+        return 2;
     }
 
     static string ResourceName(string value)
