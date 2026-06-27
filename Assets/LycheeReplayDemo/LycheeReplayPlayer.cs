@@ -3186,11 +3186,9 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     int SquadMemberCount(LycheeReplayPayload payload)
     {
-        if (payload == null) return Mathf.Max(1, defaultDispatchMemberCount);
-        int count = payload.memberCount > 0 ? payload.memberCount : payload.count;
-        if (count <= 0) count = payload.squadCount;
-        if (count <= 0) count = defaultDispatchMemberCount;
-        return Mathf.Clamp(count, 1, 8);   // 小分队总人手 8，最多 8 名（队员数上限）
+        // 用户要求：一个小分队固定只 1 个人（原先按回放数据/默认会出 2~4 个、像一整队）。
+        // 影响小分队的模型数量、地图标签 "小分队 x1" 与事件卡 "派出 1 人"。
+        return 1;
     }
 
     static int PayloadArrivalRound(LycheeReplayPayload payload, int currentRound)

@@ -20,6 +20,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
     LycheeReplayPlayer player;
     Vector2 scroll;
     float lastScan;
+    Vector2 mapOrigin;  // 地图西南角世界坐标；显示坐标 = 世界 - 此原点 → 全为 0 基正数（用户不想看到负数）
     readonly List<MapStationAnchor> stations = new List<MapStationAnchor>();
     readonly List<int> convoyIds = new List<int>();
     readonly List<KeyValuePair<Vector3, string>> squadTags = new List<KeyValuePair<Vector3, string>>();
@@ -92,8 +93,14 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         MapStationAnchor[] arr = FindObjectsByType<MapStationAnchor>(FindObjectsSortMode.None);
         if (arr != null) stations.AddRange(arr);
         stations.Sort((a, b) => string.CompareOrdinal(a != null ? a.stationId : "", b != null ? b.stationId : ""));
+        var terr = GameObject.Find("Continuous_Terrain");
+        var tmr = terr != null ? terr.GetComponent<MeshRenderer>() : null;
+        if (tmr != null) mapOrigin = new Vector2(tmr.bounds.min.x, tmr.bounds.min.z);  // 西南角为显示原点(0,0)
         lastScan = Time.unscaledTime;
     }
+
+    // 显示坐标 = 世界坐标 - 地图西南角 → 全为 0 基正数（地图中心在世界原点，西/南半区世界坐标为负，用户不想看负数）。
+    Vector2 L(Vector3 p) => new Vector2(p.x - mapOrigin.x, p.z - mapOrigin.y);
 
     void OnGUI()
     {
@@ -131,7 +138,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
             if (s == null) continue;
             Vector3 wp = s.transform.position;
             string nm = string.IsNullOrEmpty(s.displayName) ? s.stationId : s.displayName;
-            DrawTag(cam, wp + Vector3.up * 1.5f, $"{nm}\n({wp.x:F0},{wp.z:F0})", tagStyle);
+            DrawTag(cam, wp + Vector3.up * 1.5f, $"{nm}\n({L(wp).x:F0},{L(wp).y:F0})", tagStyle);
         }
 
         if (player == null) return;
@@ -143,13 +150,13 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
             Transform root = player.GetConvoyRoot(pid);
             if (root == null) continue;
             Vector3 wp = root.position;
-            DrawTag(cam, wp + Vector3.up * 2.0f, $"{player.TeamDisplayName(pid)}\n({wp.x:F1},{wp.z:F1})", tagConvoyStyle);
+            DrawTag(cam, wp + Vector3.up * 2.0f, $"{player.TeamDisplayName(pid)}\n({L(wp).x:F1},{L(wp).y:F1})", tagConvoyStyle);
         }
 
         // 在途小分队
         player.CollectSquadTags(squadTags);
         foreach (KeyValuePair<Vector3, string> kv in squadTags)
-            DrawTag(cam, kv.Key + Vector3.up * 1.8f, $"{kv.Value}\n({kv.Key.x:F1},{kv.Key.z:F1})", tagSquadStyle);
+            DrawTag(cam, kv.Key + Vector3.up * 1.8f, $"{kv.Value}\n({L(kv.Key).x:F1},{L(kv.Key).y:F1})", tagSquadStyle);
     }
 
     void DrawTag(Camera cam, Vector3 world, string text, GUIStyle style)
@@ -169,7 +176,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         Rect panel = new Rect(Screen.width - pw - margin, top, pw, ph);
         GUILayout.BeginArea(panel, panelStyle);
 
-        GUILayout.Label(player != null ? $"回合 {player.CurrentRound}/{player.TotalRounds}（坐标=世界 X/Z）" : "回合 -", headStyle);
+        GUILayout.Label(player != null ? $"回合 {player.CurrentRound}/{player.TotalRounds}（坐标=地图 X/Z，西南角为0）" : "回合 -", headStyle);
 
         GUILayout.Space(4f);
         GUILayout.Label("主角 / 车队 / 小分队（实时）", headStyle);
@@ -183,13 +190,13 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
                 if (root == null) continue;
                 any = true;
                 Vector3 p = root.position;
-                GUILayout.Label($"  {player.TeamDisplayName(pid)}:  X {p.x:F1}   Z {p.z:F1}", rowStyle);
+                GUILayout.Label($"  {player.TeamDisplayName(pid)}:  X {L(p).x:F1}   Z {L(p).y:F1}", rowStyle);
             }
             player.CollectSquadTags(squadTags);
             foreach (KeyValuePair<Vector3, string> kv in squadTags)
             {
                 any = true;
-                GUILayout.Label($"  {kv.Value}:  X {kv.Key.x:F1}   Z {kv.Key.z:F1}", rowStyle);
+                GUILayout.Label($"  {kv.Value}:  X {L(kv.Key).x:F1}   Z {L(kv.Key).y:F1}", rowStyle);
             }
         }
         if (!any) GUILayout.Label("  （当前无车队 / 小分队）", rowStyle);
@@ -202,7 +209,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
             if (s == null) continue;
             Vector3 p = s.transform.position;
             string nm = string.IsNullOrEmpty(s.displayName) ? s.stationId : s.displayName;
-            GUILayout.Label($"  {nm}   世界({p.x:F0},{p.z:F0})  格({s.gridCoordinate.x},{s.gridCoordinate.y})", rowStyle);
+            GUILayout.Label($"  {nm}   地图({L(p).x:F0},{L(p).y:F0})  格({s.gridCoordinate.x},{s.gridCoordinate.y})", rowStyle);
         }
         GUILayout.EndScrollView();
 

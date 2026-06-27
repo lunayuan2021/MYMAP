@@ -875,7 +875,7 @@ static class LycheeWebGLBuild_20260612
             "NO_OPEN=\"${NO_OPEN:-0}\"\n" +
             "PID_FILE=\".lychee_web_server.pid\"\n" +
             "LOG_FILE=\".lychee_web_server.log\"\n" +
-            "URL=\"http://127.0.0.1:${PORT}/" + DeployPrefix + "/\"\n\n" +
+            "URL=\"http://127.0.0.1:${PORT}\"\n\n" +
             "if [[ -f \"$PID_FILE\" ]] && kill -0 \"$(cat \"$PID_FILE\")\" 2>/dev/null; then\n" +
             "  echo \"Server already running on port ${PORT} (PID $(cat \"$PID_FILE\")).\"\n" +
             "else\n" +
