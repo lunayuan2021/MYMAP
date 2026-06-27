@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: DefaultCompany
-  productName: 一骑红尘：荔枝争运战
+  productName: "\u4E00\u9A91\u7EA2\u5C18\uFF1A\u8354\u679D\u4E89\u8FD0\u6218"
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
