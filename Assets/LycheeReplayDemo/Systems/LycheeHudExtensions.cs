@@ -17,7 +17,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     const string CanvasName = "LycheeHudExtCanvas";
     const int MaxFeedEntries = 6;
-    const float FeedWidth = 332f;
+    const float FeedWidth = 500f;
     const float FeedEntryHeight = 36f;
     const float FeedLifetime = 12f;
     const float TickerWidth = 960f;
@@ -417,8 +417,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
         Font font = GetSharedFont();
         string replayLabel = HasGlyph(font, '⟲') ? "⟲ 重播" : "重播";
-        playGlyph = HasGlyph(font, '▶') ? "▶" : "播放";
-        pauseGlyph = HasGlyph(font, '⏸') ? "⏸" : "暂停";
+        // WebGL 字体会把部分播放/暂停符号判成可用但实际渲染为空白，直接用中文确保按钮可见。
+        playGlyph = "播放";
+        pauseGlyph = "暂停";
 
         // 按钮行（自面板左缘起，按钮间隔 12px）：重播 16..112 / 播放 124..196 / 速度 208..284。
         MakeButton(panel, "ReplayButton", replayLabel, new Vector2(16f, -16f), new Vector2(96f, 36f), OnReplayClicked, out _);
@@ -584,7 +585,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         string actor = FeedTeamPrefix(payload != null ? payload.playerId : 0);
         // 类别符号不再拼进文本：交给 CreateFeedEntry 用专属 PNG 图标呈现（缺图才回退文字符号）。
         string label = "回合 " + round + "  " + actor +
-            (string.IsNullOrEmpty(node) ? "" : node + " ") + EventNameCn(type);
+            (string.IsNullOrEmpty(node) ? "" : node + " · ") + FeedEventDetail(type, payload, node);
         Color color = FeedColor(type);
         if (feedPaused)
         {
@@ -642,10 +643,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         text.supportRichText = true;   // 队伍前缀用 <color> 富文本上色(点6/点8)，需开启
         SetRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
             new Vector2((textLeft - 12f) * 0.5f, 0f), new Vector2(-(textLeft + 12f), 0f));
-        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Truncate;
-        // 按可用宽度（条目宽 - 图标位 - 右留白）截断并追加省略号，保证单行不溢出。
-        text.text = TruncateWithEllipsis(text, label, FeedWidth - textLeft - 12f);
+        text.text = label;
 
         FeedEntry entry = new FeedEntry
         {
@@ -743,6 +743,38 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (player != null && player.TryGetStationPosition(nodeId, out _, out string displayName) && !string.IsNullOrEmpty(displayName))
             return displayName;
         return nodeId;
+    }
+
+    static string FeedEventDetail(string type, LycheeReplayPayload payload, string nodeName)
+    {
+        if (IsProcessEvent(type))
+        {
+            string action = StationProcessAction(payload, nodeName);
+            if (!string.IsNullOrEmpty(action))
+                return action + " · " + EventNameCn(type);
+        }
+        return EventNameCn(type);
+    }
+
+    static bool IsProcessEvent(string type)
+    {
+        return type == "PROCESS_START" || type == "PROCESS_PROGRESS" ||
+            type == "PROCESS_COMPLETE" || type == "PROCESS_INTERRUPT";
+    }
+
+    static string StationProcessAction(LycheeReplayPayload payload, string nodeName)
+    {
+        string nodeId = payload == null ? null : (!string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId);
+        if (string.IsNullOrEmpty(nodeId) && payload != null) nodeId = payload.fromNodeId;
+        if (nodeId == "S02" || nodeName == "南岭驿") return "前段交接";
+        if (nodeId == "S04" || nodeName == "江南码头") return "登船处理";
+        if (nodeId == "S05" || nodeName == "洞庭水驿") return "水路换运";
+        if (nodeId == "S11" || nodeName == "潼关驿") return "入关交接";
+        if (nodeId == "S13" || nodeName == "灞桥驿") return "宫前交接";
+        if (nodeId == "S14" || nodeName == "朱雀门") return "宫门验核";
+
+        string process = payload == null ? null : (!string.IsNullOrEmpty(payload.processType) ? payload.processType : payload.action);
+        return ProcessName(process);
     }
 
     // ================= 机制说明滚动条 =================
@@ -1066,11 +1098,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (value == "CLEAR_OBSTACLE") return "清障";
         if (value == "CLAIM_RESOURCE") return "领取资源";
-        if (value == "BOARD") return "登船";
+        if (value == "BOARD") return "登船处理";
         if (value == "WATER_TRANSFER") return "水路换运";
-        if (value == "TRANSFER") return "驿站换运";
-        if (value == "PASS_TRANSFER") return "关隘通行";
-        if (value == "PALACE_TRANSFER") return "宫城换运";
+        if (value == "TRANSFER") return "前段交接";
+        if (value == "PASS_TRANSFER") return "入关交接";
+        if (value == "PALACE_TRANSFER") return "宫前交接";
         if (value == "VERIFY" || value == "VERIFY_GATE" || value == "RUSH_VERIFY_GATE") return "宫门验核";
         if (value == "PASS_NODE") return "限时过关";
         if (value == "STATION_PROCESS") return "驿站催运";
@@ -1087,7 +1119,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "SQUAD_REINFORCE") return "增援";
         if (value == "SQUAD_WEAKEN") return "削弱";
         if (value == "BREAK_GUARD") return "破关";
-        if (value == "BOARD") return "登船";
+        if (value == "BOARD") return "登船处理";
         if (value == "CLAIM_RESOURCE") return "领取资源";
         if (value == "VERIFY_GATE") return "宫门验核";
         return ProcessName(value);
@@ -1165,7 +1197,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
                 ? active.remainRound
                 : (frame != null && active.endRound > frame.round ? active.endRound - frame.round : 0);
             string remain = remainRounds > 0 ? " · 余 " + remainRounds + " 回合" : "";
-            weatherText.text = symbol + WeatherNameCn(active.type) + "进行中 · " + RegionNameCn(active.region) + remain;
+            string region = RegionNameCn(active.region);
+            weatherText.text = symbol + WeatherNameCn(active.type) + "进行中" + WeatherRegionSuffix(region) + remain;
             return;
         }
 
@@ -1182,7 +1215,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             // RefreshWeatherBanner 每回合(HandleRoundApplied)被调一次，故 N 自动倒数。
             int remaining = frame != null && forecast.startRound > 0 ? forecast.startRound - frame.round : 0;
             string startText = remaining > 0 ? "将在 " + remaining + " 回合内出现" : "即将来临";
-            weatherText.text = symbol + "预告：" + WeatherNameCn(forecast.type) + " " + startText + " · " + RegionNameCn(forecast.region);
+            string region = RegionNameCn(forecast.region);
+            weatherText.text = symbol + "预告：" + WeatherNameCn(forecast.type) + " " + startText + WeatherRegionSuffix(region);
             return;
         }
 
@@ -1252,11 +1286,16 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     static string RegionNameCn(string region)
     {
-        if (region == "ALL") return "全图";
+        if (region == "ALL") return "";
         if (region == "WATER") return "水路";
         if (region == "MOUNTAIN") return "山路";
         if (region == "PLAIN") return "平原";
         return "区域";   // 兜底改中文
+    }
+
+    static string WeatherRegionSuffix(string region)
+    {
+        return string.IsNullOrEmpty(region) ? "" : " · " + region;
     }
 
     // ================= 回放控制条 =================
@@ -1302,6 +1341,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (player == null) return;
         player.SetPlaying(!player.IsPlaying);
+        UpdateControls();
     }
 
     void OnSpeedClicked()

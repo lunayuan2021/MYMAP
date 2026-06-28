@@ -97,8 +97,11 @@ public static class LycheeMapLayoutGenerator_20260613
     const float RiverMeanderFreq = 0.16f;  // 蜿蜒频率（Perlin 采样频率；小=大弯、大=碎弯）
     const float StationSandFadeExtra = 3.0f; // 站点收沙作用半径在干核外再加这么多：站点周围沙三角收成规整小沙滩（越大收得越狠）
     const float RoadCausewayHalfWidth = 1.2f; // 陆路堤半宽：连到水驿的陆路在此半宽内保留实地不挖（窄一点、像路面宽的小堤）
-    const float WaterStationRoadGap = -0.8f;  // 陆路堤戳进水塘多深：负=堤头探进塘内 0.8m（短短一截）；路面在堤上、过堤头才沉
-    const float WaterStationRoadDip = 0.5f;   // 陆路在水驿端下沉到「水面 - 这个深度」→ 路伸进水塘被水盖住、消失在水边
+    const float WaterStationRoadGap = -0.35f; // 陆路路面只浅浅探进水塘；短地基接住路头，避免路面直接埋进水里
+    const float WaterStationRoadDip = 0.12f;  // 陆路在水驿端略低于水面即可，不再深埋
+    const float WaterStationFoundationIn = 0.25f;  // 水驿陆路短地基向塘内探入距离：只接路头，不铺成沙桥
+    const float WaterStationFoundationBack = 0.45f; // 水驿陆路短地基向岸上回退距离
+    const float WaterStationFoundationHalfWidth = 0.72f;
     const float StationWaterPad = 0.5f;       // 水塘半径 = 建筑包围盒半宽 + 这个余量；只比水驿大一圈（用户：圆别太大、差不多就好）
     const float RoadWaterNarrowFrac = 0.35f;  // 陆路在贴着水中心线处收窄到原宽的这个比例（大幅收窄、过河/近河处变细）
     const float RoadWaterNarrowDist = 2.5f;   // 到水中心线 ≤此距离 → 收到最窄
@@ -3435,6 +3438,7 @@ public static class LycheeMapLayoutGenerator_20260613
     static Dictionary<MapRouteEdge, float> _riverBaseY;
     static List<(Vector2 c, float r, bool isPond)> _riverDryCores; // 水驿/码头核心圈：端点不收口让水到脚下；isPond=水驿(挖整圆塘) / 码头(只临河侧进水)
     static List<(Vector3[] path, float r)> _roadCauseways; // 连到水驿/码头的陆路走廊：路下保留实地堤、不挖 → 路避开水、不悬空
+    static List<(Vector3[] path, float r)> _waterStationApproachFoundations; // 水驿岸边短地基：只接住路头，不横穿水塘
 
     static void BuildRiverBaseY(List<(MapRouteEdge edge, Vector3[] world)> waters, SceneContext ctx,
         Dictionary<string, MapStationAnchor> anchorById)
@@ -3458,6 +3462,7 @@ public static class LycheeMapLayoutGenerator_20260613
     static void BuildRoadCauseways(Dictionary<string, MapStationAnchor> anchorById)
     {
         _roadCauseways = new List<(Vector3[], float)>();
+        _waterStationApproachFoundations = new List<(Vector3[], float)>();
         if (anchorById == null) return;
         foreach (var edge in UnityEngine.Object.FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
         {
@@ -3474,6 +3479,7 @@ public static class LycheeMapLayoutGenerator_20260613
                 var a = kv.Value;
                 if (!IsWaterStation(a)) continue;
                 if (edge.fromStationId != kv.Key && edge.toStationId != kv.Key) continue;
+                AddWaterStationApproachFoundation(a, edge, world, kv.Key);
                 float clear = WaterStationPondRadius(a) + RoadCausewayHalfWidth + 0.25f;
                 var center = new Vector2(a.transform.position.x, a.transform.position.z);
                 if (edge.fromStationId == kv.Key)
@@ -3488,6 +3494,33 @@ public static class LycheeMapLayoutGenerator_20260613
             if (keep.Count < 2) continue;
             _roadCauseways.Add((keep.ToArray(), RoadCausewayHalfWidth));
         }
+    }
+
+    static void AddWaterStationApproachFoundation(MapStationAnchor station, MapRouteEdge edge, Vector3[] world, string stationId)
+    {
+        if (station == null || edge == null || world == null || world.Length < 2 || string.IsNullOrEmpty(stationId)) return;
+        Vector3 c3 = station.transform.position;
+        Vector2 center = new Vector2(c3.x, c3.z);
+        Vector3 towardRoad;
+        if (edge.fromStationId == stationId)
+            towardRoad = world.Length > 1 ? world[1] - c3 : Vector3.zero;
+        else if (edge.toStationId == stationId)
+            towardRoad = world.Length > 1 ? world[world.Length - 2] - c3 : Vector3.zero;
+        else return;
+
+        Vector2 dir = new Vector2(towardRoad.x, towardRoad.z);
+        if (dir.sqrMagnitude < 0.0001f) return;
+        dir.Normalize();
+
+        float pondR = WaterStationPondRadius(station);
+        Vector2 inner = center + dir * Mathf.Max(0.2f, pondR - WaterStationFoundationIn);
+        Vector2 outer = center + dir * (pondR + WaterStationFoundationBack);
+        Vector3[] foundation =
+        {
+            new Vector3(inner.x, c3.y, inner.y),
+            new Vector3(outer.x, c3.y, outer.y)
+        };
+        _waterStationApproachFoundations.Add((foundation, WaterStationFoundationHalfWidth));
     }
 
     static void AddStationDryCore(string id, Dictionary<string, MapStationAnchor> anchorById)
@@ -3565,6 +3598,12 @@ public static class LycheeMapLayoutGenerator_20260613
             var p2 = new Vector2(x, z);
             foreach (var (c, r, isPond) in _riverDryCores)
                 if ((p2 - c).sqrMagnitude < r * r) { inStationCore = true; if (isPond) inPondCore = true; }
+        }
+        // 水驿岸边短地基：只在每条陆路入塘口留一小段实地，接住路头；范围很短，不会横穿水塘断水。
+        if (_waterStationApproachFoundations != null)
+        {
+            foreach (var (path, rr) in _waterStationApproachFoundations)
+                if (NearestOnPolylineXZ(x, z, path, out _, out _) < rr) return false;
         }
         // 陆路堤优先：连到水驿的陆路走廊内保留实地、不挖 → 路下有地、避开水、不悬空。
         // 但水驿圆塘核心必须优先成水；否则路堤会在塘边留下高地，把水面截断成一块沙桥。

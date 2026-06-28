@@ -272,6 +272,7 @@ public class LycheeReplayPayload
     public string rushTactic;
     public string processType;
     public string orderId;
+    public string templateId;
     public string taskTemplateId;
     public string toNodeId;
     public string routeEdgeId;

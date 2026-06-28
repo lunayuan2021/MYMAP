@@ -73,6 +73,13 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public float fadeStart = -1f;
     }
 
+    sealed class ObstacleBadge
+    {
+        public GameObject root;
+        public Transform iconRoot;
+        public float bobSeed;
+    }
+
     sealed class ProgressRing
     {
         public GameObject root;
@@ -96,6 +103,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     readonly Dictionary<string, ResourceMarker> resources = new Dictionary<string, ResourceMarker>();
     readonly Dictionary<string, PillarMarker> taskPillars = new Dictionary<string, PillarMarker>();
     readonly Dictionary<string, PillarMarker> bountyPillars = new Dictionary<string, PillarMarker>();
+    readonly Dictionary<string, ObstacleBadge> obstacleBadges = new Dictionary<string, ObstacleBadge>();
     readonly Dictionary<int, ProgressRing> rings = new Dictionary<int, ProgressRing>();
 
     readonly HashSet<string> activeKeyBuffer = new HashSet<string>();
@@ -160,6 +168,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         float time = Time.time;
         UpdateGuardCollapse(time);
         UpdateResourceBob(time);
+        UpdateObstacleBadges(time);
         UpdatePillarGroup(taskPillars, time);
         UpdatePillarGroup(bountyPillars, time);
         UpdateRings(time);
@@ -176,6 +185,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
         RefreshGuardMarkers(current);
         RefreshResourceMarkers(current);
+        RefreshObstacleBadges(current);
         RefreshTaskPillars(current);
         RefreshBountyPillars(current);
     }
@@ -519,6 +529,148 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         "BOAT_RIGHT" => new Color(0.30f, 0.80f, 0.75f, 1f),
         _ => GoldColor
     };
+
+    // ------------------------------------------------------------------ 2b. 清障 / 障碍任务常驻徽章
+
+    void RefreshObstacleBadges(LycheeReplayFrame frame)
+    {
+        activeKeyBuffer.Clear();
+        if (frame.nodes != null)
+        {
+            foreach (LycheeReplayNodeState node in frame.nodes)
+            {
+                if (node == null || string.IsNullOrEmpty(node.nodeId)) continue;
+                if (node.hasObstacle)
+                    activeKeyBuffer.Add(node.nodeId);
+            }
+        }
+
+        if (frame.tasks != null)
+        {
+            foreach (LycheeReplayTaskState task in frame.tasks)
+            {
+                if (task == null || !IsActiveTask(task) || !IsClearObstacleTask(task)) continue;
+                string nodeId = !string.IsNullOrEmpty(task.targetNodeId) ? task.targetNodeId : task.nodeId;
+                if (!string.IsNullOrEmpty(nodeId))
+                    activeKeyBuffer.Add(nodeId);
+            }
+        }
+
+        foreach (string nodeId in activeKeyBuffer)
+        {
+            obstacleBadges.TryGetValue(nodeId, out ObstacleBadge badge);
+            if (badge == null || badge.root == null)
+            {
+                if (badge != null) obstacleBadges.Remove(nodeId);
+                badge = CreateObstacleBadge(nodeId);
+                if (badge != null) obstacleBadges[nodeId] = badge;
+            }
+        }
+
+        removalBuffer.Clear();
+        foreach (KeyValuePair<string, ObstacleBadge> pair in obstacleBadges)
+            if (!activeKeyBuffer.Contains(pair.Key)) removalBuffer.Add(pair.Key);
+        foreach (string key in removalBuffer)
+        {
+            ObstacleBadge badge = obstacleBadges[key];
+            if (badge != null && badge.root != null) Destroy(badge.root);
+            obstacleBadges.Remove(key);
+        }
+    }
+
+    ObstacleBadge CreateObstacleBadge(string nodeId)
+    {
+        if (player == null || string.IsNullOrEmpty(nodeId)) return null;
+
+        Transform anchor = null;
+        if (player.TryGetStationAnchor(nodeId, out MapStationAnchor station) && station != null)
+            anchor = station.eventAnchor != null ? station.eventAnchor :
+                (station.obstacleAnchor != null ? station.obstacleAnchor :
+                (station.modelSlot != null ? station.modelSlot : station.transform));
+
+        GameObject root = new GameObject("ObstacleClearBadge_" + nodeId);
+        if (anchor != null)
+        {
+            root.transform.SetParent(anchor, false);
+            root.transform.localPosition = new Vector3(0f, 3.15f, 0f);
+        }
+        else
+        {
+            if (!player.TryGetStationPosition(nodeId, out Vector3 position, out _))
+            {
+                Destroy(root);
+                return null;
+            }
+            root.transform.SetParent(markerRoot, false);
+            root.transform.position = position + Vector3.up * 3.15f;
+        }
+        root.transform.localScale = Vector3.one * 1.15f;
+        LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
+        billboard.maxScale = 1.7f;
+        billboard.nearFadeStart = 7.5f;
+        billboard.nearFadeEnd = 3.8f;
+
+        GameObject iconRoot = new GameObject("ClearObstacleIcon");
+        iconRoot.transform.SetParent(root.transform, false);
+        iconRoot.transform.localPosition = Vector3.zero;
+
+        Sprite sprite = LycheeLoadThemeSprite("EventIcons/icon_event_clear_obstacle");
+        if (sprite != null)
+        {
+            SpriteRenderer renderer = iconRoot.AddComponent<SpriteRenderer>();
+            renderer.sprite = sprite;
+            renderer.sortingOrder = 24000;
+        }
+        else
+        {
+            Material material = GetUnlitMaterial("clear_badge_fallback", new Color(1f, 0.74f, 0.24f, 1f), false);
+            CreateBarCube(iconRoot.transform, "PickaxeA", new Vector3(-0.15f, 0f, 0f), new Vector3(0f, 0f, 45f), new Vector3(0.08f, 1.0f, 0.08f), material);
+            CreateBarCube(iconRoot.transform, "PickaxeB", new Vector3(0.15f, 0f, 0f), new Vector3(0f, 0f, -45f), new Vector3(0.08f, 1.0f, 0.08f), material);
+            CreateWorldLabel(iconRoot.transform, new Vector3(0f, -0.74f, -0.02f), "清障", GoldColor, 42, 0.06f, false);
+        }
+
+        return new ObstacleBadge
+        {
+            root = root,
+            iconRoot = iconRoot.transform,
+            bobSeed = Mathf.Abs(nodeId.GetHashCode() % 628) * 0.01f
+        };
+    }
+
+    void UpdateObstacleBadges(float time)
+    {
+        foreach (KeyValuePair<string, ObstacleBadge> pair in obstacleBadges)
+        {
+            ObstacleBadge badge = pair.Value;
+            if (badge == null || badge.root == null || badge.iconRoot == null) continue;
+            float y = Mathf.Sin(time * 1.65f + badge.bobSeed) * 0.12f;
+            badge.iconRoot.localPosition = new Vector3(0f, y, 0f);
+            float pulse = 1f + Mathf.Sin(time * 2.2f + badge.bobSeed) * 0.04f;
+            badge.iconRoot.localScale = Vector3.one * pulse;
+        }
+    }
+
+    static bool IsActiveTask(LycheeReplayTaskState task)
+    {
+        if (task == null) return false;
+        return task.status == "ACTIVE" || task.active;
+    }
+
+    static bool IsClearObstacleTask(LycheeReplayTaskState task)
+    {
+        if (task == null) return false;
+        return IsClearToken(task.templateId) ||
+            IsClearToken(task.taskTemplateId) ||
+            IsClearToken(task.processType) ||
+            IsClearToken(task.name);
+    }
+
+    static bool IsClearToken(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        string upper = value.ToUpperInvariant();
+        return upper.Contains("CLEAR") || upper.Contains("OBSTACLE") || value.Contains("清障");
+    }
 
     // ------------------------------------------------------------------ 3. 任务 / 悬赏光柱
 
@@ -916,6 +1068,10 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         taskPillars.Clear();
         foreach (PillarMarker marker in bountyPillars.Values) DestroyPillar(marker);
         bountyPillars.Clear();
+
+        foreach (ObstacleBadge badge in obstacleBadges.Values)
+            if (badge != null && badge.root != null) Destroy(badge.root);
+        obstacleBadges.Clear();
 
         foreach (ProgressRing ring in rings.Values)
             if (ring != null && ring.root != null) Destroy(ring.root);

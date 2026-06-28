@@ -53,6 +53,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     public Sprite[] combatIllustrations;
 
     const float MinRoundSeconds = 0.01f;
+    // WebGL 偶发掉帧时不要一次补很多视觉时间，否则车队会像 PPT 一格一格跳；观感优先，掉帧时宁可轻微慢放。
+    const float MaxPlaybackDeltaSeconds = 1f / 30f;
     // 窗口争夺逐拍：对抗期间每回合至少 hold 这么久，让出牌(每拍 1 回合、原 0.2s 一闪而过)各自看清。
     const float ContestRoundSeconds = 2.6f;
     float contestSlowUntil = -999f;   // 最近一次对抗事件起算的减速截止时刻(unscaledTime)；每个对抗事件续期。
@@ -128,6 +130,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         public Vector3 smoothedPosition;
         public Vector3 positionVelocity;
         public Vector3 lastTangent = Vector3.forward;
+        public float bobTime;
         public bool initialized;
     }
 
@@ -153,7 +156,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         public bool dashing;
         public Vector3 dashFrom;
         public float dashStartTime;
+        public float dashElapsed;
         public float dashSeconds;
+        public float arrivedElapsed;
+        public float animTime;
         public TextMesh label;
         /// <summary>跨河时垫在脚下的小船（懒创建，仅水面段激活）。</summary>
         public GameObject boat;
@@ -213,6 +219,16 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         position = Vector3.zero;
         displayName = nodeId;
+        return false;
+    }
+
+    public bool TryGetStationAnchor(string nodeId, out MapStationAnchor anchor)
+    {
+        if (!string.IsNullOrEmpty(nodeId) &&
+            stations.TryGetValue(nodeId, out anchor) &&
+            anchor != null)
+            return true;
+        anchor = null;
         return false;
     }
 
@@ -498,7 +514,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             applyingInitialFrame = true;
             ApplyFrame(0, true);
             applyingInitialFrame = false;
-            InterpolateConvoys(0f);
+            InterpolateConvoys(0f, 0f);
             UpdateRuntimeHud();
             ShowOpeningRoster();
             SnapReplayCameras();
@@ -659,9 +675,10 @@ public class LycheeReplayPlayer : MonoBehaviour
     void Update()
     {
         if (frames.Count == 0) return;
+        float playbackDelta = Mathf.Min(Time.deltaTime, MaxPlaybackDeltaSeconds);
         if (playing)
         {
-            frameTime += Time.deltaTime;
+            frameTime += playbackDelta;
             float frameSeconds = EffectiveSecondsForFrame(CurrentFrame);
             while (frameTime >= frameSeconds && playing)
             {
@@ -689,9 +706,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
 
         float interpolation = FrameInterpolation;
-        InterpolateConvoys(interpolation);
+        float visualDelta = playing ? playbackDelta : 0f;
+        InterpolateConvoys(interpolation, visualDelta);
         // 出发动画展示期间冻结小队动作/到达消失计时，避免漏网小队在演出中走动或被销毁。
-        if (!LycheeOpeningShowcase.AnyShowing) UpdateSquads(interpolation);
+        if (!LycheeOpeningShowcase.AnyShowing) UpdateSquads(interpolation, visualDelta);
         UpdateRuntimeHud();
     }
 
@@ -1243,7 +1261,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             HandleEvent(queuedMessage, pendingOpeningRound);
     }
 
-    void InterpolateConvoys(float t)
+    void InterpolateConvoys(float t, float visualDelta)
     {
         LycheeReplayFrame current = frames[frameIndex];
         LycheeReplayFrame next = frames[Mathf.Min(frameIndex + 1, frames.Count - 1)];
@@ -1274,22 +1292,26 @@ public class LycheeReplayPlayer : MonoBehaviour
                 }
                 else
                 {
-                    visual.smoothedPosition = Vector3.SmoothDamp(
-                        visual.smoothedPosition,
-                        targetPosition,
-                        ref visual.positionVelocity,
-                        0.055f,
-                        80f,
-                        Time.deltaTime);
-                    Quaternion targetRotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
-                    float rotationBlend = 1f - Mathf.Exp(-10f * Time.deltaTime);
-                    visual.root.transform.rotation = Quaternion.Slerp(
-                        visual.root.transform.rotation,
-                        targetRotation,
-                        rotationBlend);
+                    if (visualDelta > 0f)
+                    {
+                        visual.smoothedPosition = Vector3.SmoothDamp(
+                            visual.smoothedPosition,
+                            targetPosition,
+                            ref visual.positionVelocity,
+                            0.055f,
+                            80f,
+                            visualDelta);
+                        Quaternion targetRotation = Quaternion.LookRotation(visual.lastTangent, Vector3.up);
+                        float rotationBlend = 1f - Mathf.Exp(-10f * visualDelta);
+                        visual.root.transform.rotation = Quaternion.Slerp(
+                            visual.root.transform.rotation,
+                            targetRotation,
+                            rotationBlend);
+                        visual.bobTime += visualDelta;
+                    }
                 }
                 visual.root.transform.position = visual.smoothedPosition +
-                    Vector3.up * (0.10f + Mathf.Sin(Time.time * 6f + player.camp) * 0.025f);
+                    Vector3.up * (0.10f + Mathf.Sin(visual.bobTime * 6f + player.camp) * 0.025f);
             }
 
             bool water = IsWaterEdge(player.routeEdgeId);
@@ -1815,10 +1837,13 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         else if (type == "TASK_SPAWN" || type == "TASK_REFRESH")
         {
+            string taskName = TaskNameWithSuffix(TaskDisplayName(payload));
+            int taskScore = TaskScore(payload);
             title = "皇榜任务刷新";
-            subtitle = target + "  " + ScoreText(payload.score);
-            left = ShortId(payload.taskId, "任务");
-            right = "限时争夺";
+            subtitle = target + "位置已公开" + taskName;
+            left = taskName;
+            right = ScoreText(taskScore);
+            center = "公开";
         }
         else if (type == "TASK_COMPLETE")
         {
@@ -1832,7 +1857,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "WEATHER_START")
         {
             title = "天气生效";
-            subtitle = WeatherName(payload.weatherType) + " 覆盖 " + RegionName(payload.region);
+            subtitle = WeatherName(payload.weatherType) + WeatherCoverageText(payload.region);
             left = "鲜度损耗变化";
             right = DurationText(payload.durationRound);
         }
@@ -1840,7 +1865,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             title = "天气结束";
             subtitle = WeatherName(payload.weatherType) + " 已退场";
-            left = RegionName(payload.region);
+            left = string.IsNullOrEmpty(RegionName(payload.region)) ? "天气影响" : RegionName(payload.region);
             right = "恢复常规";
         }
         else if (type == "RESOURCE_CLAIM")
@@ -2284,7 +2309,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         return targetPosition + radial * 3.2f + Vector3.up * 0.15f;
     }
 
-    void UpdateSquads(float interpolation)
+    void UpdateSquads(float interpolation, float visualDelta)
     {
         float replayRound = CurrentRound + interpolation;
         for (int i = squads.Count - 1; i >= 0; i--)
@@ -2298,18 +2323,20 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (squad.dashing)
             {
                 // 结算冲刺：从当前位置平滑滑到结算节点，替代旧的瞬移闪现；到位后转入抵达/攻击演出。
-                float dprog = Mathf.Clamp01((Time.time - squad.dashStartTime) / Mathf.Max(0.01f, squad.dashSeconds));
+                if (visualDelta > 0f) squad.dashElapsed += visualDelta;
+                float dprog = Mathf.Clamp01(squad.dashElapsed / Mathf.Max(0.01f, squad.dashSeconds));
                 Vector3 dpos = Vector3.Lerp(squad.dashFrom, squad.end, Mathf.SmoothStep(0f, 1f, dprog));
                 if (elevation != null) dpos.y = elevation.SampleWorldHeight(dpos.x, dpos.z) + 0.15f;
                 squad.root.transform.position = dpos;
                 Vector3 ddir = squad.end - squad.dashFrom; ddir.y = 0f;
                 if (ddir.sqrMagnitude > 0.001f)
                     squad.root.transform.rotation = Quaternion.LookRotation(ddir.normalized, Vector3.up);
-                AnimateSquadMembers(squad, false, false);
+                AnimateSquadMembers(squad, false, false, false, visualDelta);
                 if (dprog >= 1f)
                 {
                     squad.dashing = false;
                     squad.arrivedRealTime = Time.time;
+                    squad.arrivedElapsed = 0f;
                 }
                 continue;
             }
@@ -2323,7 +2350,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 bool onWater = TrySampleWaterSurface(position.x, position.z, out float waterY);
                 if (onWater)
                 {
-                    position.y = waterY + 0.05f + Mathf.Sin(Time.time * 1.8f) * 0.03f; // 贴水 + 随波轻浮沉
+                    position.y = waterY + 0.05f + Mathf.Sin(squad.animTime * 1.8f) * 0.03f; // 贴水 + 随波轻浮沉
                     EnsureSquadBoat(squad);
                     if (squad.boat != null && !squad.boat.activeSelf) squad.boat.SetActive(true);
                 }
@@ -2340,11 +2367,12 @@ public class LycheeReplayPlayer : MonoBehaviour
                 Vector3 direction = squad.end - squad.start;
                 if (direction.sqrMagnitude > 0.001f)
                     squad.root.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
-                AnimateSquadMembers(squad, false, onWater);
+                AnimateSquadMembers(squad, false, onWater, false, visualDelta);
                 if (t >= 1f)
                 {
                     // 抵达后停留做攻击突刺演出，配合防御浮字/血条下降一起读，而不是 0.2 秒就消失
                     squad.arrivedRealTime = Time.time;
+                    squad.arrivedElapsed = 0f;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f), ResolveEventIcon("SQUAD_ARRIVE"));
                     SpawnClearActionFx(squad.end, TeamColor(squad.playerId), "清障中", true);
                     SetEventFocus(squad.root.transform, 2.8f, 13.5f);
@@ -2354,8 +2382,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             }
             else
             {
-                AnimateSquadMembers(squad, true, false, squad.resultResolved && !squad.resultSuccess);
-                if (Time.time - squad.arrivedRealTime > squad.holdSeconds)
+                AnimateSquadMembers(squad, true, false, squad.resultResolved && !squad.resultSuccess, visualDelta);
+                if (visualDelta > 0f) squad.arrivedElapsed += visualDelta;
+                if (squad.arrivedElapsed > squad.holdSeconds)
                 {
                     Destroy(squad.root);
                     squads.RemoveAt(i);
@@ -2365,14 +2394,15 @@ public class LycheeReplayPlayer : MonoBehaviour
     }
 
     /// <summary>程序化小队动作：行军时交替起伏+前倾步伐，攻击时朝目标方向突刺，船上时站立随波。仅改 Y 坐标/旋转/缩放，不破坏阵型。</summary>
-    static void AnimateSquadMembers(SquadVisual squad, bool attacking, bool onWater, bool failed = false)
+    static void AnimateSquadMembers(SquadVisual squad, bool attacking, bool onWater, bool failed = false, float visualDelta = 0f)
     {
+        if (visualDelta > 0f) squad.animTime += visualDelta;
         Transform root = squad.root.transform;
         for (int m = 0; m < root.childCount; m++)
         {
             Transform member = root.GetChild(m);
             if (!member.name.StartsWith("Member_", StringComparison.Ordinal)) continue;
-            float phase = Time.time * (attacking ? 8f : 10f) + m * 1.7f;
+            float phase = squad.animTime * (attacking ? 8f : 10f) + m * 1.7f;
             if (failed)
             {
                 Vector3 memberPosition = member.localPosition;
@@ -2447,18 +2477,21 @@ public class LycheeReplayPlayer : MonoBehaviour
                 squad.dashing = true;
                 squad.dashFrom = here;
                 squad.dashStartTime = Time.time;
+                squad.dashElapsed = 0f;
                 squad.dashSeconds = Mathf.Clamp(dist / 14f, 0.18f, 0.6f);
             }
             else
             {
                 squad.root.transform.position = focusPosition;
                 squad.arrivedRealTime = Time.time;
+                squad.arrivedElapsed = 0f;
             }
         }
         else
         {
             squad.root.transform.position = focusPosition;
             if (squad.arrivedRealTime < 0f) squad.arrivedRealTime = Time.time;
+            if (squad.arrivedRealTime >= 0f) squad.arrivedElapsed = 0f;
         }
         Vector3 direction = squad.end - squad.start;
         direction.y = 0f;
@@ -3181,7 +3214,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         recentEventFocuses.Clear();
         processCardRoundByKey.Clear();
         ApplyFrame(frameIndex, true);
-        InterpolateConvoys(0f);
+        InterpolateConvoys(0f, 0f);
         UpdateRuntimeHud();
         if (frameIndex == 0) ShowOpeningRoster();
     }
@@ -3316,6 +3349,78 @@ public class LycheeReplayPlayer : MonoBehaviour
         return id.Length > 10 ? id.Substring(0, 10) : id;
     }
 
+    LycheeReplayTaskState FindTaskState(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        LycheeReplayFrame frame = CurrentFrame;
+        LycheeReplayTaskState[] tasks = frame == null ? null : frame.tasks;
+        if (tasks == null || tasks.Length == 0) return null;
+
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        string templateId = PayloadTaskTemplateId(payload);
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            LycheeReplayTaskState task = tasks[i];
+            if (task == null) continue;
+            if (!string.IsNullOrEmpty(payload.taskId) && task.taskId == payload.taskId) return task;
+            if (!string.IsNullOrEmpty(templateId) && (task.taskTemplateId == templateId || task.templateId == templateId)) return task;
+            string taskNode = !string.IsNullOrEmpty(task.targetNodeId) ? task.targetNodeId : task.nodeId;
+            if (!string.IsNullOrEmpty(nodeId) && taskNode == nodeId) return task;
+        }
+        return null;
+    }
+
+    string TaskDisplayName(LycheeReplayPayload payload)
+    {
+        LycheeReplayTaskState task = FindTaskState(payload);
+        if (task != null && !string.IsNullOrEmpty(task.name)) return task.name;
+        return TaskTemplateName(PayloadTaskTemplateId(payload));
+    }
+
+    int TaskScore(LycheeReplayPayload payload)
+    {
+        if (payload != null && payload.score > 0) return payload.score;
+        LycheeReplayTaskState task = FindTaskState(payload);
+        return task != null ? task.score : 0;
+    }
+
+    static string PayloadTaskTemplateId(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        if (!string.IsNullOrEmpty(payload.taskTemplateId)) return payload.taskTemplateId;
+        if (!string.IsNullOrEmpty(payload.templateId)) return payload.templateId;
+        if (!string.IsNullOrEmpty(payload.taskId))
+        {
+            int split = payload.taskId.IndexOf('_');
+            if (split > 1 && payload.taskId[0] == 'T')
+                return payload.taskId.Substring(0, split);
+        }
+        return null;
+    }
+
+    static string TaskNameWithSuffix(string taskName)
+    {
+        if (string.IsNullOrEmpty(taskName)) return "皇榜任务";
+        return taskName.EndsWith("任务", StringComparison.Ordinal) ? taskName : taskName + "任务";
+    }
+
+    static string TaskTemplateName(string templateId)
+    {
+        switch (templateId)
+        {
+            case "T01": return "限时过关";
+            case "T02": return "抵驿催运";
+            case "T04": return "清障任务";
+            case "T05": return "争柜取冰";
+            case "T07": return "官凭验牒";
+            case "T08": return "码头争船";
+            case "T09": return "宫门催运";
+            case "T10": return "御前验鲜";
+            case "T11": return "栈道复核";
+            default: return "皇榜";
+        }
+    }
+
     static string ShortDetail(string value, int maxLength)
     {
         if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return value;
@@ -3339,11 +3444,17 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static string RegionName(string value)
     {
-        if (value == "ALL") return "全图";
+        if (value == "ALL") return "";
         if (value == "WATER") return "水路";
         if (value == "MOUNTAIN") return "山路";
         if (value == "PLAIN") return "平原";
         return "区域";   // 兜底改中文
+    }
+
+    static string WeatherCoverageText(string region)
+    {
+        string name = RegionName(region);
+        return string.IsNullOrEmpty(name) ? "" : " 覆盖 " + name;
     }
 
     static string ResourceName(string value)
@@ -3363,7 +3474,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (value == "MOVE") return "移动";
         if (value == "DELIVER") return "交付";
         if (value == "WAIT") return "等待";
-        if (value == "BOARD") return "登船";
+        if (value == "BOARD") return "登船处理";
         if (value == "TRANSFER") return "前段交接";
         if (value == "WATER_TRANSFER") return "水路换运";
         if (value == "PASS_TRANSFER") return "入关交接";

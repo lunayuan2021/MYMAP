@@ -25,6 +25,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     const float RainEmitterHeight = 13f; // 雨幕发射盒高度
     const float RainFallSpeed = 14f;     // 雨滴下落速度 m/s
     const int MaxEmitterSpots = 4;       // 单种天气最多发射器数量，超出则合并为包围盒
+    const string WeatherFxLayerName = "TransparentFX";
 
     sealed class RegionSpot
     {
@@ -526,8 +527,16 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
     {
         if (fxRoot != null) return;
         GameObject rootObject = new GameObject("WeatherFx_Root");
+        AssignWeatherFxLayer(rootObject);
         rootObject.transform.SetParent(transform, false);
         fxRoot = rootObject.transform;
+    }
+
+    static void AssignWeatherFxLayer(GameObject go)
+    {
+        if (go == null) return;
+        int layer = LayerMask.NameToLayer(WeatherFxLayerName);
+        if (layer >= 0) go.layer = layer;
     }
 
     void SpawnRain(List<RegionSpot> spots)
@@ -543,6 +552,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             float side = Mathf.Clamp(spot.radius * 2f, 8f, 110f);
 
             GameObject emitterObject = new GameObject("WeatherFx_Rain_" + i);
+            AssignWeatherFxLayer(emitterObject);
             emitterObject.transform.SetParent(fxRoot, false);
             emitterObject.transform.position = spot.position + Vector3.up * RainEmitterHeight;
             emitterObject.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // 本地 +Z 朝下
@@ -595,6 +605,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
             float side = Mathf.Clamp(spot.radius * 2f, 6f, 80f);
 
             GameObject emitterObject = new GameObject("WeatherFx_Fog_" + i);
+            AssignWeatherFxLayer(emitterObject);
             emitterObject.transform.SetParent(fxRoot, false);
             emitterObject.transform.position = spot.position + Vector3.up * 0.8f;
 
@@ -648,6 +659,7 @@ public sealed class LycheeWeatherFxSystem : MonoBehaviour
         if (heatMaterial == null) return;
         EnsureFxRoot();
         GameObject emitterObject = new GameObject("WeatherFx_HeatShimmer");
+        AssignWeatherFxLayer(emitterObject);
         emitterObject.transform.SetParent(fxRoot, false);
         emitterObject.transform.position = position + Vector3.up * 0.2f;
         emitterObject.transform.rotation = Quaternion.Euler(-90f, 0f, 0f); // 本地 +Z 朝上

@@ -34,6 +34,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         public Text label;
         public Text redValue;
         public Text blueValue;
+        public Text redDelta;
+        public Text blueDelta;
+        public float redDeltaUntil;
+        public float blueDeltaUntil;
     }
 
     sealed class DualBar
@@ -188,6 +192,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     float lastBlueFresh;
     int lastRedFruit;
     int lastBlueFruit;
+    int lastRedBadFruit;
+    int lastBlueBadFruit;
+    int lastRedTaskCount;
+    int lastBlueTaskCount;
+    int lastRedTaskScore;
+    int lastBlueTaskScore;
+    int lastRedPenalty;
+    int lastBluePenalty;
     float lastRedProgress;
     float lastBlueProgress;
     int lastRedScore;
@@ -267,11 +279,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         roundText.text = "第 1 / 600 回合";
         phaseText.text = "回放预览";
         redTeam.name.text = "红队";
-        redTeam.roster.text = "16人  队长1 / 队员15";
+        redTeam.roster.text = "#1002";
         redTeam.score.text = "0";
         redTeam.score.fontSize = TeamScoreFontSize;
         blueTeam.name.text = "蓝队";
-        blueTeam.roster.text = "16人  队长1 / 队员15";
+        blueTeam.roster.text = "#2002";
         blueTeam.score.text = "0";
         blueTeam.score.fontSize = TeamScoreFontSize;
         // 比分滚动状态归零：预览不滚动、不回弹
@@ -510,13 +522,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (red != null)
         {
             redTeam.name.text = "红队  " + red.name;
-            // 队伍 ID 放在小字行，避免与队名挤在一行被裁切；用 playerId（红 1002/蓝 2002，唯一）区分重名。
-            redTeam.roster.text = TeamIdTag(red) + " · " + redCount + "人";
+            // 队伍 ID 放在小字行，避免与队名挤在一行被裁切；人数不是剩余小队人手，不在 HUD 显示。
+            redTeam.roster.text = TeamIdTag(red);
         }
         if (blue != null)
         {
             blueTeam.name.text = "蓝队  " + blue.name;
-            blueTeam.roster.text = TeamIdTag(blue) + " · " + blueCount + "人";
+            blueTeam.roster.text = TeamIdTag(blue);
         }
 
         float now = Time.unscaledTime;
@@ -529,21 +541,36 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float blueFresh = blue == null ? 0f : blue.freshness;
         int redFruit = red == null ? 0 : red.goodFruit;
         int blueFruit = blue == null ? 0 : blue.goodFruit;
+        int redBadFruit = red == null ? 0 : red.badFruit;
+        int blueBadFruit = blue == null ? 0 : blue.badFruit;
+        int redTaskScore = TaskScoreOf(red);
+        int blueTaskScore = TaskScoreOf(blue);
+        int redPenalty = PenaltyScoreOf(red);
+        int bluePenalty = PenaltyScoreOf(blue);
         // 送达进度 = 整段总进度(0..1，由 LycheeReplayPlayer.RouteProgressOf 按站号 S01→S15 推出，单调不抖)。
         // 不再直接用 state.progress：replay.txt 里它是「当前路段」比例、每到站清零，会让进度条 0↔100 抖动。
         float redProgress = Mathf.Clamp01(redRouteProgress) * 100f;
         float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
+        bool showDelta = newRound && lastRound >= 0;
 
         // 9 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。
-        SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%");
-        SetStatRow(1, redFruit.ToString(), blueFruit.ToString());
-        SetStatRow(2, (red == null ? 0 : red.badFruit).ToString(), (blue == null ? 0 : blue.badFruit).ToString());
-        SetStatRow(3, redTaskCount.ToString(), blueTaskCount.ToString());
-        SetStatRow(4, redScore.ToString(), blueScore.ToString());
-        SetStatRow(5, TaskScoreOf(red).ToString(), TaskScoreOf(blue).ToString());
-        SetStatRow(6, PenaltyScoreOf(red).ToString(), PenaltyScoreOf(blue).ToString());
+        SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%",
+            showDelta ? redFresh - lastRedFresh : 0f, showDelta ? blueFresh - lastBlueFresh : 0f, "%");
+        SetStatRow(1, redFruit.ToString(), blueFruit.ToString(),
+            showDelta ? redFruit - lastRedFruit : 0f, showDelta ? blueFruit - lastBlueFruit : 0f);
+        SetStatRow(2, redBadFruit.ToString(), blueBadFruit.ToString(),
+            showDelta ? redBadFruit - lastRedBadFruit : 0f, showDelta ? blueBadFruit - lastBlueBadFruit : 0f);
+        SetStatRow(3, redTaskCount.ToString(), blueTaskCount.ToString(),
+            showDelta ? redTaskCount - lastRedTaskCount : 0f, showDelta ? blueTaskCount - lastBlueTaskCount : 0f);
+        SetStatRow(4, redScore.ToString(), blueScore.ToString(),
+            showDelta ? redScore - lastRedScore : 0f, showDelta ? blueScore - lastBlueScore : 0f);
+        SetStatRow(5, redTaskScore.ToString(), blueTaskScore.ToString(),
+            showDelta ? redTaskScore - lastRedTaskScore : 0f, showDelta ? blueTaskScore - lastBlueTaskScore : 0f);
+        SetStatRow(6, redPenalty.ToString(), bluePenalty.ToString(),
+            showDelta ? redPenalty - lastRedPenalty : 0f, showDelta ? bluePenalty - lastBluePenalty : 0f);
         SetStatRow(7, StatusTextOf(red), StatusTextOf(blue));
-        SetStatRow(8, (Mathf.Clamp01(redRouteProgress) * 100f).ToString("0.0") + "%", (Mathf.Clamp01(blueRouteProgress) * 100f).ToString("0.0") + "%");
+        SetStatRow(8, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
+            showDelta ? redProgress - lastRedProgress : 0f, showDelta ? blueProgress - lastBlueProgress : 0f, "%");
 
         if (newRound)
         {
@@ -552,6 +579,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             lastBlueFresh = blueFresh;
             lastRedFruit = redFruit;
             lastBlueFruit = blueFruit;
+            lastRedBadFruit = redBadFruit;
+            lastBlueBadFruit = blueBadFruit;
+            lastRedTaskCount = redTaskCount;
+            lastBlueTaskCount = blueTaskCount;
+            lastRedTaskScore = redTaskScore;
+            lastBlueTaskScore = blueTaskScore;
+            lastRedPenalty = redPenalty;
+            lastBluePenalty = bluePenalty;
             lastRedProgress = redProgress;
             lastBlueProgress = blueProgress;
             lastRedScore = redScore;
@@ -985,6 +1020,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(150f, 16f), new Vector2(1f, 0.5f));
         r.blueValue = Text(label + "StatBlue", parent, 13, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
         SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(150f, 16f), new Vector2(0f, 0.5f));
+        r.redDelta = Text(label + "StatRedDelta", parent, 12, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
+        SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-212f, y), new Vector2(58f, 16f), new Vector2(1f, 0.5f));
+        r.blueDelta = Text(label + "StatBlueDelta", parent, 12, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
+        SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(212f, y), new Vector2(58f, 16f), new Vector2(0f, 0.5f));
+        AddTextShadow(r.redDelta);
+        AddTextShadow(r.blueDelta);
         return r;
     }
 
@@ -997,13 +1038,48 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         return "#?";
     }
 
-    void SetStatRow(int index, string redVal, string blueVal)
+    void SetStatRow(int index, string redVal, string blueVal, float redDelta = 0f, float blueDelta = 0f, string suffix = "")
     {
         if (statRows == null || index < 0 || index >= statRows.Length) return;
         StatRow r = statRows[index];
         if (r == null) return;
         if (r.redValue != null) r.redValue.text = redVal;
         if (r.blueValue != null) r.blueValue.text = blueVal;
+        UpdateStatDelta(r.redDelta, redDelta, suffix, ref r.redDeltaUntil);
+        UpdateStatDelta(r.blueDelta, blueDelta, suffix, ref r.blueDeltaUntil);
+    }
+
+    static void UpdateStatDelta(Text text, float delta, string suffix, ref float visibleUntil)
+    {
+        if (text == null) return;
+        float now = Time.unscaledTime;
+        if (Mathf.Abs(delta) >= 0.05f)
+        {
+            text.text = FormatStatDelta(delta, suffix);
+            text.color = delta > 0f
+                ? new Color(0.45f, 1f, 0.45f, 1f)
+                : new Color(1f, 0.36f, 0.26f, 1f);
+            text.rectTransform.localScale = Vector3.one * 1.12f;
+            visibleUntil = now + 1.25f;
+            return;
+        }
+        if (now >= visibleUntil)
+        {
+            text.text = "";
+            text.rectTransform.localScale = Vector3.one;
+            return;
+        }
+        float alpha = Mathf.Clamp01((visibleUntil - now) / 0.35f);
+        Color color = text.color;
+        color.a = alpha;
+        text.color = color;
+        text.rectTransform.localScale = Vector3.one * (1f + 0.12f * alpha);
+    }
+
+    static string FormatStatDelta(float delta, string suffix)
+    {
+        string format = Mathf.Abs(delta - Mathf.Round(delta)) < 0.05f ? "0" : "0.#";
+        return (delta > 0f ? "+" : "") + delta.ToString(format) + suffix;
     }
 
     // 总分：首选 player.totalScore；为 0 回退 scoreDetail 各分项之和；再回退顶层分项(任务+悬赏+惩罚)
@@ -1068,15 +1144,34 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         outline.effectColor = teamColor;
         outline.effectDistance = new Vector2(4f, -4f);
 
-        float textX = side * 410f;
+        float textX = side * 372f;
+        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(textX, 105f), new Vector2(188f, 112f), new Vector2(0.5f, 0.5f));
+        Image textBgImage = textBg.gameObject.AddComponent<Image>();
+        textBgImage.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.78f);
+        textBgImage.raycastTarget = false;
+        Outline textBgOutline = textBg.gameObject.AddComponent<Outline>();
+        textBgOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.48f);
+        textBgOutline.effectDistance = new Vector2(1.4f, -1.4f);
+
         TextAnchor align = red ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight;
-        widgets.name = Text(red ? "RedName" : "BlueName", parent, 16, FontStyle.Bold, teamColor, align);
-        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(112f, 24f), new Vector2(0.5f, 0.5f));
-        widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 12, FontStyle.Normal, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.82f), align);
-        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(112f, 20f), new Vector2(0.5f, 0.5f));
+        widgets.name = Text(red ? "RedName" : "BlueName", parent, 17, FontStyle.Bold, teamColor, align);
+        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.name);
+        widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 14, FontStyle.Bold, SilkColor, align);
+        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.roster);
         widgets.score = Text(red ? "RedScore" : "BlueScore", parent, TeamScoreFontSize, FontStyle.Bold, teamColor, align);
-        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 75f), new Vector2(112f, 36f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 75f), new Vector2(166f, 36f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.score);
         return widgets;
+    }
+
+    static void AddTextShadow(Text text)
+    {
+        if (text == null) return;
+        Shadow shadow = text.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
+        shadow.effectDistance = new Vector2(1.2f, -1.2f);
     }
 
     DualBar BuildDualBar(Transform parent, string label, float max, float y)
@@ -1150,16 +1245,19 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatImage.preserveAspect = true;
         combatImage.raycastTarget = false;
 
-        combatTitle = Text("CombatTitle", panel, 20, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(combatTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(368f, 26f), new Vector2(0.5f, 1f));
-        combatSubtitle = Text("CombatSubtitle", panel, 13, FontStyle.Bold, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.95f), TextAnchor.MiddleCenter);
-        SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(368f, 20f), new Vector2(0.5f, 0f));
+        combatTitle = Text("CombatTitle", panel, 23, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(combatTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(368f, 30f), new Vector2(0.5f, 1f));
+        AddTextShadow(combatTitle);
+        combatSubtitle = Text("CombatSubtitle", panel, 16, FontStyle.Bold, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.98f), TextAnchor.MiddleCenter);
+        SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(368f, 24f), new Vector2(0.5f, 0f));
+        AddTextShadow(combatSubtitle);
         redCardFx = BuildCombatCard(panel, true);
         blueCardFx = BuildCombatCard(panel, false);
         combatRedCard = redCardFx.label;
         combatBlueCard = blueCardFx.label;
-        combatScore = Text("CombatScore", panel, 24, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(90f, 32f), new Vector2(0.5f, 0f));
+        combatScore = Text("CombatScore", panel, 28, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(104f, 34f), new Vector2(0.5f, 0f));
+        AddTextShadow(combatScore);
         SetGroup(combatGroup, false, 0f);
     }
 
@@ -1206,8 +1304,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         fx.backMark.text = "?";
         fx.backMark.enabled = false;
 
-        fx.label = Text("Text", box, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        fx.label = Text("Text", box, 14, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
         SetRect(fx.label.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(138f, 24f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(fx.label);
         return fx;
     }
 

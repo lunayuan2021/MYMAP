@@ -25,7 +25,12 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     const float PrepareTimeout = 12f;     // 视频准备超时（WebGL 首次解码慢，对齐开场演出的 12s）
     const float CooldownSeconds = 20f;    // 两次插播之间的最小真实间隔，避免连环打断
     const float FadeSeconds = 0.45f;
-    const int CanvasSortingOrder = 235;   // 压在常规 HUD 之上、开场演出(230)之上、结算(220)之下不冲突
+    // 插播短片要在天气氛围层(125)之上，但在运行时 HUD(130/140)之下；
+    // 否则左侧事件流、右侧事件卡和中央窗口争夺会被视频盖住。
+    const int CanvasSortingOrder = 128;
+
+    public static bool IsPresentationVisible { get; private set; }
+    public static bool IsPresentationActive { get; private set; }
 
     // 事件→插播视频。事件名按实际回放数据对齐：冲刺是 RUSH_START（非 RUSH_PHASE_START）。
     static readonly Dictionary<string, string> EventVideo = new Dictionary<string, string>
@@ -71,6 +76,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     void OnDisable()
     {
         LycheeReplayPlayer.ReplayEventRaised -= OnReplayEvent;
+        IsPresentationVisible = false;
+        IsPresentationActive = false;
         if (videoTexture != null) videoTexture.Release();
     }
 
@@ -108,6 +115,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     {
         busy = true;
         EnsureCanvas();
+        IsPresentationActive = true;
 
         // 关键修复：VideoPlayer 挂在 canvasRoot 上，Prepare() 只有在 GameObject 处于激活态时才会推进。
         // 旧实现先 Prepare() 后才 SetActive(true)，于是 isPrepared 永远为 false → 等满 PrepareTimeout 后被
@@ -142,6 +150,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         player.SetPlaying(false);
         skipRequested = false;
         canvasRoot.SetActive(true);
+        IsPresentationVisible = true;
         if (group != null) group.blocksRaycasts = true; // 开始展示：恢复点击跳过
         videoImage.gameObject.SetActive(true);
         yield return Fade(0f, 1f, FadeSeconds);
@@ -161,6 +170,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         yield return Fade(1f, 0f, FadeSeconds);
         videoImage.gameObject.SetActive(false);
         canvasRoot.SetActive(false);
+        IsPresentationVisible = false;
+        IsPresentationActive = false;
         if (wasPlaying) player.SetPlaying(true);
         lastEndTime = Time.time;
         busy = false;
@@ -246,6 +257,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         if (videoPlayer != null && videoPlayer.isPlaying) videoPlayer.Stop();
         if (canvasRoot != null) canvasRoot.SetActive(false);
         if (group != null) group.alpha = 0f;
+        IsPresentationVisible = false;
+        IsPresentationActive = false;
     }
 
     static RectTransform NewStretch(string name, Transform parent)

@@ -42,10 +42,13 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     static readonly Color TaskGold = new Color(1f, 0.80f, 0.20f, 0.96f);
     static readonly Color ObstacleGray = new Color(0.62f, 0.62f, 0.58f, 0.92f);
     static readonly Color MinimapGroundColor = new Color(0.05f, 0.12f, 0.06f, 1f);
+    static readonly Color WeatherBadgeBg = new Color(0.78f, 0.58f, 0.22f, 0.72f);
+    static readonly Color WeatherBadgeEdge = new Color(1f, 0.78f, 0.32f, 0.95f);
 
     static Sprite circleSprite;
     static Sprite ringSprite;
     static Sprite triangleSprite;
+    static readonly Dictionary<string, Sprite> weatherSpriteCache = new Dictionary<string, Sprite>();
 
     sealed class ConvoyMarker
     {
@@ -117,8 +120,13 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     RectTransform panel;
     RectTransform nodeIconLayer;
     RectTransform convoyLayer;
+    RectTransform weatherLayer;
     RawImage mapImage;
     Image themeFrameImage;
+    RectTransform weatherMarker;
+    Image weatherMarkerBg;
+    Image weatherMarkerIcon;
+    Text weatherMarkerText;
     readonly List<Image> borderImages = new List<Image>(4);
     readonly Dictionary<int, ConvoyMarker> convoyMarkers = new Dictionary<int, ConvoyMarker>();
     IconPool nodePool;
@@ -192,6 +200,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         UpgradeThemeFrame();
         UpdateBorderBreath();
         UpdateConvoyMarkers();
+        UpdateWeatherMarker();
     }
 
     void OnDestroy()
@@ -232,7 +241,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             minimapCamera = cameraObject.AddComponent<Camera>();
             minimapCamera.orthographic = true;
             minimapCamera.orthographicSize = mapOrthoSize;
-            minimapCamera.cullingMask = ~0;
+            minimapCamera.cullingMask = MinimapCullingMask();
             minimapCamera.clearFlags = CameraClearFlags.SolidColor;
             minimapCamera.backgroundColor = MinimapGroundColor;
             minimapCamera.nearClipPlane = 0.3f;
@@ -333,6 +342,19 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         return (min + max) * 0.5f;
     }
 
+    static int MinimapCullingMask()
+    {
+        int mask = ~0;
+        ExcludeLayer(ref mask, "TransparentFX");
+        return mask;
+    }
+
+    static void ExcludeLayer(ref int mask, string layerName)
+    {
+        int layer = LayerMask.NameToLayer(layerName);
+        if (layer >= 0) mask &= ~(1 << layer);
+    }
+
     /// <summary>按站点包围盒求俯视相机正交半径：取 X/Z 跨度较大者的一半再留 12% 余量，
     /// 保证整条路线（含右上角终点站）都落在小地图内——固定的 32 只能容下 64 宽，而站点横跨约 73，
     /// 终点 S15 会被裁出右边界，正是“右上角小地图显示不全”的根因。</summary>
@@ -408,6 +430,13 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
 
         nodeIconLayer = CreateRect(
             "NodeIconLayer",
+            panel,
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(MapSize, MapSize),
+            new Vector2(0.5f, 0.5f));
+        weatherLayer = CreateRect(
+            "WeatherLayer",
             panel,
             new Vector2(0.5f, 0.5f),
             Vector2.zero,
@@ -562,6 +591,184 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             Debug.LogWarning("小地图节点图标刷新失败：" + exception.Message, this);
         }
         nodePool.Finish();
+    }
+
+    void UpdateWeatherMarker()
+    {
+        if (weatherLayer == null) return;
+        LycheeReplayFrame frame = currentFrame;
+        if (frame == null && replayPlayer != null) frame = replayPlayer.CurrentFrame;
+        LycheeReplayWeatherState weather = FirstWeather(frame == null || frame.weather == null ? null : frame.weather.active);
+        bool forecast = false;
+        if (weather == null)
+        {
+            weather = FirstWeather(frame == null || frame.weather == null ? null : frame.weather.forecast);
+            forecast = weather != null;
+        }
+        if (weather == null || string.IsNullOrEmpty(weather.type))
+        {
+            if (weatherMarker != null && weatherMarker.gameObject.activeSelf)
+                weatherMarker.gameObject.SetActive(false);
+            return;
+        }
+
+        EnsureWeatherMarker();
+        if (weatherMarker == null) return;
+        if (!weatherMarker.gameObject.activeSelf) weatherMarker.gameObject.SetActive(true);
+
+        Vector3 anchor = WeatherAnchor(weather);
+        if (TryWorldToLayer(anchor, out Vector2 local))
+            weatherMarker.anchoredPosition = ClampToMap(local, 16f);
+        else
+            weatherMarker.anchoredPosition = new Vector2(-MapSize * 0.32f, MapSize * 0.32f);
+
+        Sprite sprite = WeatherSprite(weather.type);
+        if (weatherMarkerIcon != null)
+        {
+            weatherMarkerIcon.enabled = sprite != null;
+            if (sprite != null) weatherMarkerIcon.sprite = sprite;
+        }
+        if (weatherMarkerText != null)
+        {
+            weatherMarkerText.enabled = sprite == null;
+            weatherMarkerText.text = WeatherSymbol(weather.type);
+        }
+        if (weatherMarkerBg != null)
+        {
+            Color color = WeatherColor(weather.type);
+            color.a = forecast ? 0.68f : 0.86f;
+            weatherMarkerBg.color = color;
+        }
+        float pulse = forecast ? 0.92f + 0.08f * Mathf.Sin(Time.unscaledTime * 3.2f) : 1f;
+        weatherMarker.localScale = Vector3.one * pulse;
+    }
+
+    void EnsureWeatherMarker()
+    {
+        if (weatherMarker != null) return;
+        weatherMarker = CreateRect("WeatherMarker", weatherLayer, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(34f, 34f), new Vector2(0.5f, 0.5f));
+        weatherMarkerBg = weatherMarker.gameObject.AddComponent<Image>();
+        weatherMarkerBg.sprite = circleSprite;
+        weatherMarkerBg.color = WeatherBadgeBg;
+        weatherMarkerBg.raycastTarget = false;
+        Outline outline = weatherMarker.gameObject.AddComponent<Outline>();
+        outline.effectColor = WeatherBadgeEdge;
+        outline.effectDistance = new Vector2(1.2f, -1.2f);
+
+        RectTransform iconRt = CreateRect("WeatherIcon", weatherMarker, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24f, 24f), new Vector2(0.5f, 0.5f));
+        weatherMarkerIcon = iconRt.gameObject.AddComponent<Image>();
+        weatherMarkerIcon.preserveAspect = true;
+        weatherMarkerIcon.raycastTarget = false;
+
+        weatherMarkerText = iconRt.gameObject.AddComponent<Text>();
+        weatherMarkerText.font = Resources.Load<Font>("Fonts/LXGWWenKai-Regular") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        weatherMarkerText.fontSize = 22;
+        weatherMarkerText.fontStyle = FontStyle.Bold;
+        weatherMarkerText.alignment = TextAnchor.MiddleCenter;
+        weatherMarkerText.color = Color.white;
+        weatherMarkerText.raycastTarget = false;
+        weatherMarkerText.enabled = false;
+    }
+
+    Vector3 WeatherAnchor(LycheeReplayWeatherState weather)
+    {
+        string region = NormalizeWeatherRegion(weather == null ? null : weather.region, weather == null ? null : weather.type);
+        if (TryWeatherRegionCenter(region, out Vector3 center)) return center;
+        return mapCenter;
+    }
+
+    bool TryWeatherRegionCenter(string region, out Vector3 center)
+    {
+        center = mapCenter;
+        MapStationAnchor[] anchors = FindObjectsByType<MapStationAnchor>(FindObjectsSortMode.None);
+        if (anchors == null || anchors.Length == 0) return false;
+        Vector3 sum = Vector3.zero;
+        int count = 0;
+        for (int i = 0; i < anchors.Length; i++)
+        {
+            MapStationAnchor anchor = anchors[i];
+            if (anchor == null || !StationMatchesWeatherRegion(anchor, region)) continue;
+            sum += anchor.transform.position;
+            count++;
+        }
+        if (count <= 0) return false;
+        center = sum / count;
+        return true;
+    }
+
+    static bool StationMatchesWeatherRegion(MapStationAnchor anchor, string region)
+    {
+        if (anchor == null) return false;
+        string id = anchor.stationId ?? string.Empty;
+        MapStationType type = anchor.stationType;
+        string combined = (id + " " + type + " " + anchor.displayName).ToUpperInvariant();
+        if (region == "WATER")
+            return type == MapStationType.WaterStation || type == MapStationType.Dock ||
+                combined.Contains("WATER") || combined.Contains("DOCK") || id == "S04" || id == "S05" || id == "S10";
+        if (region == "MOUNTAIN")
+            return combined.Contains("MOUNTAIN") || combined.Contains("PASS") || id == "S06" || id == "S08";
+        if (region == "PLAIN")
+            return id == "S07" || id == "S09" || id == "S11" || id == "S13";
+        return true;
+    }
+
+    static string NormalizeWeatherRegion(string region, string type)
+    {
+        string r = string.IsNullOrEmpty(region) ? string.Empty : region.Trim().ToUpperInvariant();
+        string t = string.IsNullOrEmpty(type) ? string.Empty : type.Trim().ToUpperInvariant();
+        if (!string.IsNullOrEmpty(r) && r != "ALL") return r;
+        if (t == "HEAVY_RAIN") return "WATER";
+        if (t == "MOUNTAIN_FOG") return "MOUNTAIN";
+        if (t == "HOT") return "PLAIN";
+        return "ALL";
+    }
+
+    static LycheeReplayWeatherState FirstWeather(LycheeReplayWeatherState[] list)
+    {
+        if (list == null) return null;
+        for (int i = 0; i < list.Length; i++)
+            if (list[i] != null && !string.IsNullOrEmpty(list[i].type)) return list[i];
+        return null;
+    }
+
+    static Vector2 ClampToMap(Vector2 local, float inset)
+    {
+        float half = MapSize * 0.5f - inset;
+        return new Vector2(Mathf.Clamp(local.x, -half, half), Mathf.Clamp(local.y, -half, half));
+    }
+
+    static Sprite WeatherSprite(string type)
+    {
+        string fileName = WeatherIconFile(type);
+        if (string.IsNullOrEmpty(fileName)) return null;
+        if (weatherSpriteCache.TryGetValue(fileName, out Sprite cached)) return cached;
+        Sprite sprite = LoadThemeSprite(fileName);
+        if (sprite != null || LycheeThemeCache.Preloaded) weatherSpriteCache[fileName] = sprite;
+        return sprite;
+    }
+
+    static string WeatherIconFile(string type)
+    {
+        if (type == "HOT") return "icon_weather_hot.png";
+        if (type == "MOUNTAIN_FOG") return "icon_weather_fog.png";
+        if (type == "HEAVY_RAIN") return "icon_weather_rain.png";
+        return "EventIcons/icon_event_weather.png";
+    }
+
+    static Color WeatherColor(string type)
+    {
+        if (type == "HOT") return new Color(0.90f, 0.44f, 0.10f, 0.86f);
+        if (type == "HEAVY_RAIN") return new Color(0.14f, 0.36f, 0.78f, 0.86f);
+        if (type == "MOUNTAIN_FOG") return new Color(0.58f, 0.64f, 0.66f, 0.86f);
+        return WeatherBadgeBg;
+    }
+
+    static string WeatherSymbol(string type)
+    {
+        if (type == "HOT") return "☀";
+        if (type == "HEAVY_RAIN") return "雨";
+        if (type == "MOUNTAIN_FOG") return "雾";
+        return "云";
     }
 
     static void PlaceIcon(Image icon, Sprite sprite, Color color, Vector2 size, float rotationZ, Vector2 local)
@@ -759,6 +966,23 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
                 new Rect(0f, 0f, texture.width, texture.height),
                 new Vector2(0.5f, 0.5f),
                 100f);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    static Sprite LoadThemeSprite(string fileName)
+    {
+        try
+        {
+            byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
+            if (bytes == null || bytes.Length == 0) return null;
+            Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!texture.LoadImage(bytes)) return null;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            return Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
         }
         catch (Exception)
         {

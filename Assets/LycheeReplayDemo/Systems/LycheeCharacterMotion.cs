@@ -1317,6 +1317,8 @@ public class LycheeCharacterMotion : MonoBehaviour
         }
         disabledApplied = false;
 
+        if (player != null && !player.IsPlaying) return;
+
         float deltaTime = Time.deltaTime;
         if (deltaTime <= 0f) return;
         foreach (CharacterRig rig in rigs)
