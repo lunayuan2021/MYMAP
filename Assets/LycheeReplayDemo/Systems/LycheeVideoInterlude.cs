@@ -23,7 +23,8 @@ using UnityEngine.InputSystem.UI;
 public sealed class LycheeVideoInterlude : MonoBehaviour
 {
     const float PrepareTimeout = 12f;     // 视频准备超时（WebGL 首次解码慢，对齐开场演出的 12s）
-    const float CooldownSeconds = 20f;    // 两次插播之间的最小真实间隔，避免连环打断
+    const float RepeatWindowSeconds = 18f;   // 同一段短片在此窗口内不重复播（去掉重复的那一个）；不同短片不受限、照播。
+    const int SquadDispatchMaxPlays = 2;     // 小分队出发短片每场只播前 N 次（当机制介绍，之后不再打扰）。
     const float FadeSeconds = 0.45f;
     const int ClearObstacleCardConflictGraceRounds = 3;
     // 插播短片要在天气氛围层(125)之上，但在运行时 HUD(130/140)之下；
@@ -43,12 +44,15 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         { "GUARD_BREAK", "break_guard.mp4" },             // 破卡
         { "VERIFY_GATE_START", "gate_verification.mp4" }, // 宫门验核
         { "WEATHER_START", "weather_start.mp4" },         // 天气开始
+        { "SQUAD_DISPATCH", "squad_dispatch.mp4" },       // 小分队出发（每场只播前 SquadDispatchMaxPlays 次）
     };
 
     LycheeReplayPlayer player;
     readonly HashSet<string> knownMissing = new HashSet<string>(); // 确认缺失/坏的文件名，不再尝试
+    readonly Dictionary<string, float> lastPlayByClip = new Dictionary<string, float>(); // 每段短片上次播放的真实时刻 → 同片去重
+    int squadDispatchPlays;             // 本场已播过的小分队出发短片次数（封顶 SquadDispatchMaxPlays）
+    int lastSeenRound = int.MinValue;   // 上次事件回合，检测大幅倒带（重播/循环）以复位本场计数
     bool busy;            // 正在准备或播放插播
-    float lastEndTime = -999f;
     bool skipRequested;
     bool cardWindowActive;
     int suppressClearObstacleUntilRound = -1;
@@ -90,15 +94,22 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         if (player == null) return;
         if (player.IsApplyingForcedFrame) return;
 
+        // 大幅倒带（重播 / 循环回开头）：复位本场计数，新一轮重新计「前N次」和同片去重。
+        if (round < lastSeenRound - 5) { squadDispatchPlays = 0; lastPlayByClip.Clear(); }
+        lastSeenRound = round;
+
         TrackCardWindowState(message, round);
 
-        if (busy) return;
-        if (Time.time - lastEndTime < CooldownSeconds) return;
-        if (ShouldSuppressClearObstacleInterlude(message, round)) return;
+        if (busy) return;                                          // 一次只播一个；播放期间回放暂停，不会有新事件挤进来
+        if (ShouldSuppressForContest(message, round)) return;      // 对抗出牌窗口期间一律不插播，绝不打断逐拍出牌
         string fileName = ResolveInterludeVideo(message);
         if (string.IsNullOrEmpty(fileName)) return;
         if (knownMissing.Contains(fileName)) return;
-        StartCoroutine(RunInterlude(fileName));
+        // 同一段短片在窗口内不重复播（去掉重复的那一个）；不同短片不受影响、照播。
+        if (lastPlayByClip.TryGetValue(fileName, out float last) && Time.time - last < RepeatWindowSeconds) return;
+        // 小分队出发短片每场只播前 N 次。
+        if (message.type == "SQUAD_DISPATCH" && squadDispatchPlays >= SquadDispatchMaxPlays) return;
+        StartCoroutine(RunInterlude(fileName, message.type));
     }
 
     void TrackCardWindowState(LycheeReplayMessage message, int round)
@@ -132,10 +143,12 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
             suppressClearObstacleUntilRound = untilRound;
     }
 
-    bool ShouldSuppressClearObstacleInterlude(LycheeReplayMessage message, int round)
+    // 对抗保护：对抗出牌窗口期（START~END）+ 数回合缓冲内，除"对抗自己的开场短片"外一律不插播，
+    // 保证逐拍出牌/窗口争夺完整不被任何短片打断（用户要求：不能和对抗冲突）。
+    bool ShouldSuppressForContest(LycheeReplayMessage message, int round)
     {
-        return message.type == "OBSTACLE_CLEAR" &&
-            (cardWindowActive || round <= suppressClearObstacleUntilRound);
+        if (message.type == "WINDOW_CONTEST_START") return false; // 对抗开场短片本身放行
+        return cardWindowActive || round <= suppressClearObstacleUntilRound;
     }
 
     static string ResolveInterludeVideo(LycheeReplayMessage message)
@@ -156,7 +169,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         return EventVideo.TryGetValue(message.type, out string fileName) ? fileName : null;
     }
 
-    IEnumerator RunInterlude(string fileName)
+    IEnumerator RunInterlude(string fileName, string eventType)
     {
         busy = true;
         EnsureCanvas();
@@ -190,7 +203,9 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
             yield break;
         }
 
-        // 2. 确认能播：暂停回放、淡黑、播视频
+        // 2. 确认能播：先登记"已播"（同片去重 + 小分队封顶都按真正播出计），再暂停回放、淡黑、播视频
+        lastPlayByClip[fileName] = Time.time;
+        if (eventType == "SQUAD_DISPATCH") squadDispatchPlays++;
         bool wasPlaying = player.IsPlaying;
         player.SetPlaying(false);
         skipRequested = false;
@@ -218,7 +233,6 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         IsPresentationVisible = false;
         IsPresentationActive = false;
         if (wasPlaying) player.SetPlaying(true);
-        lastEndTime = Time.time;
         busy = false;
     }
 

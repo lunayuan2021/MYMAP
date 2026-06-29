@@ -52,6 +52,10 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
     const int StationLabelOrder = 23000;
     const int StationPlaqueInkOrder = 22999;
     const int StationPlaqueGoldOrder = 22998;
+    // 主队/小分队头顶标签的墨底（仅墨、无鎏金边），排在站名牌匾之下、默认透明物之上。
+    const string TransientLabelName = "Label";
+    const int TransientLabelOrder = 21000;
+    const int TransientPlaqueInkOrder = 20999;
 
     // 唐风调色板：墨 #1A1714（牌匾底 a0.78）、鎏金 #D4AF5C、描边取近墨的深色
     static readonly Color InkColor = new Color(0x1A / 255f, 0x17 / 255f, 0x14 / 255f, 0.78f);
@@ -278,6 +282,18 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
             entry.plaqueInk.SetPropertyBlock(entry.inkBlock);
             entry.plaqueGold.SetPropertyBlock(entry.goldBlock);
         }
+        else if (!entry.persistent && source.gameObject.name == TransientLabelName
+                 && quadMesh != null && inkMaterial != null)
+        {
+            // 主队/小分队头顶标签（CreateLabel 命名 "Label"）：只垫一层半透明墨底（无鎏金边），
+            // 让白字在草地/地形上看得清（用户点4：原来没背景、又小又细）。
+            entry.plaqueInk = CreatePlaqueQuad(source.transform, "Plaque_Ink", inkMaterial, PlaqueInkZ);
+            if (entry.tmpRenderer != null) entry.tmpRenderer.sortingOrder = TransientLabelOrder;
+            entry.plaqueInk.sortingOrder = TransientPlaqueInkOrder;
+            entry.inkBlock = new MaterialPropertyBlock();
+            entry.inkBlock.SetColor(plaqueColorId, InkColor);
+            entry.plaqueInk.SetPropertyBlock(entry.inkBlock);
+        }
 
         // 原 TextMesh 只关渲染不销毁：各系统继续往它写字/改色，本系统每帧镜像；缺字体时可整体回退
         if (entry.sourceRenderer != null) entry.sourceRenderer.enabled = false;
@@ -358,9 +374,12 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
                 entry.inkBlock.SetColor(plaqueColorId,
                     new Color(InkColor.r, InkColor.g, InkColor.b, InkColor.a * alpha));
                 entry.plaqueInk.SetPropertyBlock(entry.inkBlock);
-                entry.goldBlock.SetColor(plaqueColorId,
-                    new Color(GoldColor.r, GoldColor.g, GoldColor.b, GoldColor.a * alpha));
-                entry.plaqueGold.SetPropertyBlock(entry.goldBlock);
+                if (entry.plaqueGold != null)
+                {
+                    entry.goldBlock.SetColor(plaqueColorId,
+                        new Color(GoldColor.r, GoldColor.g, GoldColor.b, GoldColor.a * alpha));
+                    entry.plaqueGold.SetPropertyBlock(entry.goldBlock);
+                }
             }
         }
     }
@@ -373,7 +392,8 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
         float width = preferred.x + PlaquePadX * 2f;
         float height = preferred.y + PlaquePadY * 2f;
         entry.plaqueInk.transform.localScale = new Vector3(width, height, 1f);
-        entry.plaqueGold.transform.localScale = new Vector3(width * GoldOversize, height * GoldOversize, 1f);
+        if (entry.plaqueGold != null)
+            entry.plaqueGold.transform.localScale = new Vector3(width * GoldOversize, height * GoldOversize, 1f);
     }
 
     // ====================================================================

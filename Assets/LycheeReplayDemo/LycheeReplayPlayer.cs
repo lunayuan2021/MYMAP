@@ -1650,6 +1650,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
         LycheeReplayPayload payload = message.payload ?? new LycheeReplayPayload();
 
+        // 冰鉴 / 马 / 荔枝转坏 三类特效事件：实测触发车队常在画面外（视口 x>1，跑到屏幕右侧外），
+        // 特效虽已生成却根本看不到（用户反馈一个都没看见）。这里短暂柔和聚焦触发车队（~2.6s、拉到 ~17m），
+        // 让特效真正出现在画面里。RESOURCE_USE 这里特指"使用"补给（冰鉴/快马/短驿马），不是领取。
+        if ((message.type == "RESOURCE_USE" &&
+             (payload.resourceType == "ICE_BOX" || payload.resourceType == "FAST_HORSE" || payload.resourceType == "SHORT_HORSE"))
+            || message.type == "GOOD_TO_BAD")
+        {
+            Transform fxConvoy = GetConvoyRoot(payload.playerId);
+            if (fxConvoy != null) SetEventFocus(fxConvoy, 2.6f, 17f);
+        }
+
         // 任一对抗事件(开始/逐拍亮牌/结束/平局)都给回放减速续期：让每一拍出牌各占 ~2.6s、看得清；
         // 末拍后再多撑一拍把结算卡也留住，之后自然恢复原速。
         if (message.type == "WINDOW_CONTEST_START" || message.type == "WINDOW_CARD_REVEAL" ||
@@ -1711,8 +1722,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             int dispatchedCount = SquadMemberCount(payload);
             if (runtimeHud != null)
             {
-                string teamName = TeamName(payload.playerId);
-                runtimeHud.ShowDispatch(teamName + "小分队 x" + dispatchedCount + " 正在 " + CleanNode(payload.targetNodeId) + " " + SquadActionCn(payload.action));
+                // 用干净队名（红队/蓝队），不带 #2002·blue-l4 内部串——状态条窄，verbose 名会撑爆溢出。
+                runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 派出小分队 x" + dispatchedCount + " · 正在 " + DisplayNode(payload.targetNodeId) + " 执行 " + SquadActionCn(payload.action));
             }
             ShowKeyEventIllustration(message, payload, round);
             ShowObstacleCauseCue(payload.targetNodeId);
@@ -1736,10 +1747,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (runtimeHud != null)
             {
                 string actCn = SquadActionCn(string.IsNullOrEmpty(payload.action) ? message.type : payload.action);
-                string verb = message.type == "SQUAD_FAILED" ? "失败" : "完成";
+                string verb = message.type == "SQUAD_FAILED" ? "未能完成" : "完成";
                 string extra = (message.type.Contains("WEAKEN") || message.type.Contains("REINFORCE"))
                     ? "  防御 " + payload.defenseBefore + " → " + payload.defenseAfter : "";
-                runtimeHud.ShowDispatch(TeamName(payload.playerId) + "小分队" + verb + " " + CleanNode(payload.targetNodeId) + " " + actCn + extra);
+                // 「XX队小分队 在 站点名 完成/未能完成 动作」——带站点中文名。
+                runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 小分队 在 " + DisplayNode(payload.targetNodeId) + " " + verb + " " + actCn + extra);
             }
             if (message.type == "SQUAD_CLEAR" || message.type == "SQUAD_CLEAR_SUCCESS")
                 ResolveSquadResult(payload, round, true);
@@ -1933,6 +1945,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             subtitle = team + " 获取 " + target + " " + ResourceName(payload.resourceType);
             left = ResourceName(payload.resourceType);
             right = "库存更新";
+            // 底部条用「队色·队名 · 资源名」替代回合号 R x（用户点2）。用干净队名（红队/蓝队），不带内部串。
+            center = TeamColoredFooter(payload.playerId, TeamShortName(payload.playerId) + " · " + ResourceName(payload.resourceType));
         }
         else if (type == "RESOURCE_USE")
         {
@@ -2101,6 +2115,8 @@ public class LycheeReplayPlayer : MonoBehaviour
             subtitle = team + " 完成宫门核验，获得交付资格";
             left = target;
             right = payload.verifiedEffectiveRound > 0 ? "R" + payload.verifiedEffectiveRound + " 生效" : "已生效";
+            // 底部条用「队色·队名 · 核验完成」替代回合号 R x（用户点3）。用干净队名（红队/蓝队）。
+            center = TeamColoredFooter(payload.playerId, TeamShortName(payload.playerId) + " · 核验完成");
             imageIndex = 2;
         }
         else if (type == "DELIVER_SUCCESS")
@@ -3428,6 +3444,24 @@ public class LycheeReplayPlayer : MonoBehaviour
         return nodeId;
     }
 
+    // 事件卡底部条用的「队色文字」：把队色转成 #RRGGBB 富文本包裹，RuntimeHud 底部条遇到 <color 直接原样显示。
+    string TeamColoredFooter(int playerId, string text)
+    {
+        Color c = TeamColor(playerId);
+        return "<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">" + text + "</color>";
+    }
+
+    // 干净的队名「红队 / 蓝队」（camp 0=红/1=蓝），底部条用——TeamName 带 #2002·blue-l4 内部串太杂。
+    string TeamShortName(int playerId)
+    {
+        if (frames.Count > 0 && frames[frameIndex].players != null)
+        {
+            LycheeReplayPlayerState ps = frames[frameIndex].players.FirstOrDefault(c => c != null && c.playerId == playerId);
+            if (ps != null) return ps.camp == 0 ? "红队" : "蓝队";
+        }
+        return "队伍";
+    }
+
     Color TeamColor(int playerId)
     {
         if (frames.Count > 0 && frames[frameIndex].players != null)
@@ -3794,7 +3828,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         label.anchor = TextAnchor.MiddleCenter;
         label.alignment = TextAlignment.Center;
         label.fontSize = 32;
-        label.characterSize = 0.055f;
+        label.characterSize = 0.072f;   // 放大（原 0.055），主队/小分队头顶名字看得清（用户点4）
+        label.fontStyle = FontStyle.Bold; // 加粗，原来太细
         label.color = color;
         return label;
     }

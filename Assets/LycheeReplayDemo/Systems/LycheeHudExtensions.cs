@@ -133,6 +133,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     CanvasGroup controlGroup;
     Slider seekSlider;
     Text roundLabel;
+    // ---- 任务计数框（已公开 / 已完成 / 已失效）----
+    CanvasGroup taskStatsGroup;
+    Text taskStatsText;
+    int lastTaskStatsKey = int.MinValue;
     Text playButtonLabel;
     Dropdown speedDropdown;
     string playGlyph = "播放";
@@ -232,6 +236,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     void Start()
     {
         if (controlGroup != null) StartCoroutine(PanelEnterRoutine(controlGroup, 0.05f));
+        if (taskStatsGroup != null) StartCoroutine(PanelEnterRoutine(taskStatsGroup, 0.08f));
         if (feedGroup != null) StartCoroutine(PanelEnterRoutine(feedGroup, 0.12f));
     }
 
@@ -279,6 +284,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             TriggerRushTransition(current.round);
         CheckFreshnessThresholds(previous, current);
         ExplainStationaryStates(previous, current);
+        UpdateTaskStats(current);
     }
 
     // ================= 构建 =================
@@ -300,8 +306,51 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         BuildFeed(canvasRect);
         BuildWeatherBanner(canvasRect);
         BuildControls(canvasRect);
+        BuildTaskStats(canvasRect);
         BuildMechanicTicker(canvasRect);
         BuildRushOverlay(canvasRect);
+    }
+
+    // 任务计数框：紧贴控制条下方（控制条 pos(16,-16)、高 104 → 底边 y=-120，再留 8px）。
+    void BuildTaskStats(Transform parent)
+    {
+        RectTransform panel = MakeRect("TaskStatsPanel", parent);
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -128f), new Vector2(500f, 34f));
+        taskStatsGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        taskStatsGroup.alpha = 0f;
+        taskStatsGroup.interactable = false;
+        taskStatsGroup.blocksRaycasts = false;
+        Image bg = panel.gameObject.AddComponent<Image>();
+        bg.raycastTarget = false;
+        ApplyPanelSkin(bg);
+
+        taskStatsText = MakeText("TaskStatsText", panel, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleCenter);
+        SetRect(taskStatsText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-24f, 0f));
+        taskStatsText.text = "已公开 0   已完成 0   已失效 0";
+    }
+
+    // 从当前帧任务表统计：已公开=列表内全部、已完成=completed、已失效=failed。逐帧只在数字变化时刷新文本。
+    void UpdateTaskStats(LycheeReplayFrame frame)
+    {
+        if (taskStatsText == null) return;
+        int published = 0, completed = 0, expired = 0;
+        if (frame != null && frame.tasks != null)
+        {
+            published = frame.tasks.Length;
+            foreach (LycheeReplayTaskState t in frame.tasks)
+            {
+                if (t == null) continue;
+                if (t.completed) completed++;
+                else if (t.failed) expired++;
+            }
+        }
+        int key = (published * 1000 + completed) * 1000 + expired;
+        if (key == lastTaskStatsKey) return;
+        lastTaskStatsKey = key;
+        taskStatsText.text =
+            "已公开 <color=#FFD24A>" + published + "</color>   " +
+            "已完成 <color=#5FE08A>" + completed + "</color>   " +
+            "已失效 <color=#E0604C>" + expired + "</color>";
     }
 
     static void EnsureEventSystem()
@@ -586,8 +635,12 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 用户(点6/点8)：跟队伍绑定的事件要写明是哪队(谁的好果变坏/谁进入XX节点…)，队名按队色(红/蓝)上色，白字不明显。
         string actor = FeedTeamPrefix(payload != null ? payload.playerId : 0);
         // 类别符号不再拼进文本：交给 CreateFeedEntry 用专属 PNG 图标呈现（缺图才回退文字符号）。
-        string label = "回合 " + round + "  " + actor +
-            (string.IsNullOrEmpty(node) ? "" : node + " · ") + FeedEventDetail(type, payload, node);
+        // 小分队事件单独成句、写明站点名+动作（用户点5/点6）：
+        //   出发→「X队 派出小分队 出发 站点名 执行 动作」；完成/失败→「X队 小分队 在 站点名 完成/未能完成 动作」。
+        string label = SquadFeedLabel(round, type, payload, actor, node);
+        if (label == null)
+            label = "回合 " + round + "  " + actor +
+                (string.IsNullOrEmpty(node) ? "" : node + " · ") + FeedEventDetail(type, payload, node);
         Color color = FeedColor(type);
         string dedupKey = BuildNotificationDedupKey(type, payload);
         if (ShouldSkipConsecutiveNotification(ref lastFeedDedupKey, dedupKey)) return;
@@ -748,6 +801,28 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (player != null && player.TryGetStationPosition(nodeId, out _, out string displayName) && !string.IsNullOrEmpty(displayName))
             return displayName;
         return nodeId;
+    }
+
+    // 小分队事件专属文案（出发/完成/失败各成一句、明确站点名与动作）；非小分队事件返回 null 走通用格式。
+    static string SquadFeedLabel(int round, string type, LycheeReplayPayload payload, string actor, string node)
+    {
+        if (string.IsNullOrEmpty(type)) return null;
+        string station = string.IsNullOrEmpty(node) ? "目标点" : node;
+        string actionRaw = payload == null ? null : (!string.IsNullOrEmpty(payload.action) ? payload.action : payload.tactic);
+        string actionCn = string.IsNullOrEmpty(actionRaw) ? "清障" : ActionName(actionRaw);
+        switch (type)
+        {
+            case "SQUAD_DISPATCH":
+                return "回合 " + round + "  " + actor + "派出小分队 出发 " + station + " 执行 " + actionCn;
+            case "SQUAD_CLEAR":
+            case "SQUAD_CLEAR_SUCCESS":
+            case "OBSTACLE_CLEAR":
+                return "回合 " + round + "  " + actor + "小分队 在 " + station + " 完成 " + actionCn;
+            case "SQUAD_FAILED":
+                return "回合 " + round + "  " + actor + "小分队 在 " + station + " 未能完成 " + actionCn;
+            default:
+                return null;
+        }
     }
 
     static string FeedEventDetail(string type, LycheeReplayPayload payload, string nodeName)

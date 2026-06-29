@@ -58,9 +58,12 @@ card_bing_zheng.png
 card_qiang_xing.png
 card_xian_gong.png
 card_yan_die.png
+decal_ice_frost.png
+decal_wind_gust.png
 defeat_banner.png
 event_icon_mapping.json
 icon_bounty.png
+icon_event_lychee_spoiled.png
 icon_guard.png
 icon_resource_boatright.png
 icon_resource_fasthorse.png

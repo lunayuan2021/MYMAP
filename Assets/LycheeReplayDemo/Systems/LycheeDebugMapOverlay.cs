@@ -27,6 +27,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
 
     GUIStyle panelStyle, headStyle, rowStyle, tagStyle, tagConvoyStyle, tagSquadStyle, buttonStyle;
     Texture2D panelBg;
+    Texture2D tagBg;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap()
@@ -59,6 +60,12 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         rowStyle = new GUIStyle(GUIStyle.none);
         rowStyle.normal.textColor = Color.white;
         tagStyle = new GUIStyle(GUIStyle.none) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+        // 世界标签加半透明深色底 + 内边距：原来纯文字压在草地/地形上几乎看不清（用户点2）。
+        tagBg = new Texture2D(1, 1);
+        tagBg.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.66f));
+        tagBg.Apply();
+        tagStyle.normal.background = tagBg;
+        tagStyle.padding = new RectOffset(8, 8, 4, 4);
         tagStyle.normal.textColor = new Color(1f, 0.95f, 0.6f);          // 站点：暖黄
         tagConvoyStyle = new GUIStyle(tagStyle);
         tagConvoyStyle.normal.textColor = new Color(0.55f, 1f, 0.7f);    // 车队：青绿
@@ -110,11 +117,13 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         float ui = UiScale();
         ApplyScaledFonts(ui);
 
-        // 按钮和坐标面板统一放右侧；面板展开时仍避开右上小地图，短视频/开场期间整体隐藏。
+        // 调测按钮挪到「顶部、右上小地图左侧」：原来在右侧 top≈302 处，正好压住右列的小分队条/事件卡，
+        // 遮挡事件看不清（用户点3）。改贴顶、让到小地图左边，既不挡右列事件、也不挡左上控制条。
         float margin = 16f * ui;
         float bw = 112f * ui, bh = 34f * ui;
-        float left = Mathf.Max(margin, Screen.width - bw - margin);
-        float top = Mathf.Clamp(302f * ui, margin, Mathf.Max(margin, Screen.height - bh - margin));
+        float minimapAllowance = 280f * ui;   // 右上小地图大致占宽，按钮让到它左侧
+        float left = Mathf.Clamp(Screen.width - bw - margin - minimapAllowance, margin, Mathf.Max(margin, Screen.width - bw - margin));
+        float top = margin;
         Rect btn = new Rect(left, top, bw, bh);
         if (GUI.Button(btn, show ? "调测:开" : "调测地图", buttonStyle))
         {
@@ -125,7 +134,8 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         if (Time.unscaledTime - lastScan > 2f) RescanStations();
 
         DrawWorldTags();
-        DrawPanel(top + bh + 8f * ui, margin, ui);
+        // 面板展开时从右上小地图下方开始，避免盖住小地图（按钮已上移到顶部，不能再用 top+bh 推算）。
+        DrawPanel(Mathf.Max(top + bh + 8f * ui, 300f * ui), margin, ui);
     }
 
     static bool ShouldHideForPresentation()

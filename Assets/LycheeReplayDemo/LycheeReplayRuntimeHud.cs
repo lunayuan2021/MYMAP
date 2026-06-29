@@ -729,8 +729,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatRedCard.text = redCard;
         combatBlueCard.text = blueCard;
         bool teamRelated = IsTeamResultEvent(title, subtitle, score);
-        combatScore.text = teamRelated
-            ? TeamBannerText(title, subtitle, score)
+        // 预格式化底部条（含 <color> 富文本）原样显示：资源获取/宫门核验完成卡用队色「队名·资源名 / 队名·核验完成」
+        // 替代回合号 R x（用户点2/3）。只有这两类会带 <color>，不影响对抗卡的常规底部条。
+        bool preformattedFooter = !string.IsNullOrEmpty(score) && score.Contains("<color");
+        combatScore.text = preformattedFooter ? score
+            : teamRelated ? TeamBannerText(title, subtitle, score)
             : GlobalBannerText(redCard, blueCard, score, title, subtitle);
         // 新内容上屏先清掉上一拍的翻面/脉冲残留：亮牌路径会在 ShowCombatReveal 里随后重启翻面
         ResetCardFx(redCardFx);
@@ -1390,9 +1393,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatCategoryFrame.raycastTarget = false;
         combatCategoryFrame.enabled = false;
 
-        RectTransform titleRibbon = Rect("CombatTitleRibbon", panel, new Vector2(0.5f, 1f), new Vector2(0f, -64f), new Vector2(398f, 40f), new Vector2(0.5f, 1f));
+        // 标题条上移贴顶、底色加深：盖住分类边框顶部那个图标纹章，让标题直接占据顶部（用户：图标不要、标题放上面）。
+        RectTransform titleRibbon = Rect("CombatTitleRibbon", panel, new Vector2(0.5f, 1f), new Vector2(0f, -8f), new Vector2(424f, 46f), new Vector2(0.5f, 1f));
         Image titleBg = titleRibbon.gameObject.AddComponent<Image>();
-        titleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.74f);
+        titleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.94f);
         titleBg.raycastTarget = false;
         combatTitle = Text("CombatTitle", titleRibbon, 26, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
         SetRect(combatTitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(370f, 32f), new Vector2(0.5f, 0.5f));
@@ -1401,7 +1405,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatTitle.resizeTextMaxSize = 26;
         AddTextShadow(combatTitle);
 
-        combatImage = Rect("CombatIllustration", panel, new Vector2(0.5f, 1f), new Vector2(0f, -122f), new Vector2(480f, 128f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>();
+        // 标题上移贴顶后，插画上移、加大占满边框内容区（preserveAspect 不变形，只是可用框更大）。
+        combatImage = Rect("CombatIllustration", panel, new Vector2(0.5f, 1f), new Vector2(0f, -64f), new Vector2(508f, 212f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>();
         combatImage.color = Color.white;
         combatImage.preserveAspect = true;
         combatImage.raycastTarget = false;
@@ -1431,6 +1436,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         combatScore.resizeTextForBestFit = true;
         combatScore.resizeTextMinSize = 20;
         combatScore.resizeTextMaxSize = 34;
+        combatScore.supportRichText = true;   // 底部条要支持 <color> 队色富文本（资源获取/核验完成卡）
         AddTextShadow(combatScore);
         SetGroup(combatGroup, false, 0f);
     }
@@ -1589,7 +1595,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         // 小分队状态条固定在右上角小地图(顶右锚 -24/-20、260 大)正下方：
         // 小地图底 ≈ -280，这里顶边 -300，事件卡顶边 -370，三者在各种窗口高度下保持纵向间隔。
-        RectTransform panel = Rect("DispatchToast", parent, new Vector2(1f, 1f), new Vector2(-24f, -300f), new Vector2(420f, 46f), new Vector2(1f, 1f));
+        RectTransform panel = Rect("DispatchToast", parent, new Vector2(1f, 1f), new Vector2(-24f, -300f), new Vector2(520f, 46f), new Vector2(1f, 1f));
         toastRect = panel;
         toastBasePos = panel.anchoredPosition;
         toastGroup = panel.gameObject.AddComponent<CanvasGroup>();
@@ -1600,9 +1606,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 矮条用更大的 border 缩放：512px 贴图的 18% 边在 50 高的条上必须压薄才不挤爆四角
         ApplyPanelFrame(panel, 6f);
         toastText = Text("ToastText", panel, 16, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(394f, 30f), new Vector2(0.5f, 0.5f));
+        SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(496f, 30f), new Vector2(0.5f, 0.5f));
         toastText.resizeTextForBestFit = true;
-        toastText.resizeTextMinSize = 12;
+        toastText.resizeTextMinSize = 11;   // 长文案多一档收缩空间，配合加宽到 520 + 干净队名防溢出
         toastText.resizeTextMaxSize = 16;
         SetGroup(toastGroup, false, 0f);
     }
@@ -1750,17 +1756,20 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     }
 
     /// <summary>事件卡分类边框九宫格 Sprite（CardBorders/border_event_&lt;category&gt;.png，border 取 18%）；缺失返回 null。</summary>
+    // 事件卡（右侧事件窗口）统一用用户做的 card_frame.png 九宫格边框；不再按类别分 CardBorders。
+    // 这样 panel_frame.png 只服务控制条/提示条/徽章等其它面板，互不串味（用户：右边窗口边框要换、其它别动）。
+    // card_frame.png 缺失则返回 null → 自动回退通用 panel_frame，不会裸框。
     static Sprite GetCategoryBorderSprite(string category)
     {
-        if (string.IsNullOrEmpty(category)) return null;
-        if (categoryBorderCache.TryGetValue(category, out Sprite cached) && cached != null) return cached;
-        Texture2D texture = LoadThemeTexture("CardBorders/border_event_" + category + ".png");
+        const string key = "__card_frame";
+        if (categoryBorderCache.TryGetValue(key, out Sprite cached) && cached != null) return cached;
+        Texture2D texture = LoadThemeTexture("card_frame.png");
         if (texture == null) return null;
         float borderX = texture.width * 0.18f;
         float borderY = texture.height * 0.18f;
         Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
             new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(borderX, borderY, borderX, borderY));
-        categoryBorderCache[category] = sprite;
+        categoryBorderCache[key] = sprite;
         return sprite;
     }
 

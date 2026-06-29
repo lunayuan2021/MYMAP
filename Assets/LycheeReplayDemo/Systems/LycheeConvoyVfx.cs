@@ -306,6 +306,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         EnsureSharedAssets();
         // 冰蓝光环（干净的环、不是杂乱粒子）：表达"车队周围冰蓝特效"。
         StartCoroutine(AnimateRing(rig.fxRoot, "IceBoxRing", new Color(0.55f, 0.90f, 1f, 0.60f), 1.7f, 0.6f, 3.0f, 0.12f));
+        // 脚下"霜环"地贴：平铺一张冰霜贴图在车队脚下（用户做的 decal_ice_frost.png）；贴图缺失则自动跳过、光环兜底。
+        StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_ice_frost.png", Color.white, 3.8f, 1.1f));
         // 主视觉：车队上方弹出"冰鉴"资源图标贴图 + 文字。
         StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 2.0f));
     }
@@ -325,6 +327,8 @@ public class LycheeConvoyVfx : MonoBehaviour
             0.5f,
             fastHorse ? 2.5f : 1.95f,
             0.09f));
+        // 脚下"疾风"地贴：平铺一张风纹贴图在车队脚下（用户做的 decal_wind_gust.png）；贴图缺失则自动跳过、光环兜底。
+        StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_wind_gust.png", Color.white, fastHorse ? 4.2f : 3.4f, fastHorse ? 1.1f : 0.95f));
         // 主视觉：车队上方弹出快马/短驿马图标贴图 + 文字。
         StartCoroutine(EventIconRoutine(
             rig.fxRoot,
@@ -339,13 +343,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
-        // 荔枝转坏没有现成图标，用醒目的"荔枝转坏"文字牌（暗红底）当贴图弹在车队上方，居中显眼。
-        StartCoroutine(LabelPlaqueRoutine(
-            rig.fxRoot,
-            "荔枝转坏",
-            new Color(0.34f, 0.05f, 0.03f, 0.88f),
-            new Color(1f, 0.78f, 0.42f, 1f),
-            new Vector3(0f, 1.65f, 0f), 0.5f, 1.05f, 2.0f));
+        // 荔枝转坏图标已就位：与冰鉴/快马一致，车队上方弹「荔枝转坏」图标贴图 + 文字（贴图缺失时回退纯文字牌）。
+        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_event_lychee_spoiled.png", "荔枝转坏", new Color(1f, 0.80f, 0.46f, 1f), 2.0f));
     }
 
     IEnumerator AnimateRing(Transform parent, string objectName, Color baseColor, float duration, float startScale, float endScale, float y)
@@ -471,6 +470,62 @@ public class LycheeConvoyVfx : MonoBehaviour
     }
 
     /// <summary>
+    /// 脚下平铺地贴：把一张贴图水平铺在车队脚下（如疾风风纹），放大淡出。贴图缺失则什么都不做（光环兜底）。
+    /// 走 URP/Unlit 透明材质（与场景同管线，构建里不会变洋红）。
+    /// </summary>
+    IEnumerator GroundDecalRoutine(Transform parent, string textureFile, Color tint, float maxScale, float duration)
+    {
+        if (parent == null || string.IsNullOrEmpty(textureFile)) yield break;
+        Texture2D tex = LycheeLoadThemeTexture(textureFile);
+        if (tex == null) yield break;   // 没这张贴图就不显示，PlayHorseVfx 仍有光环
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        if (shader == null) yield break;
+        Material mat = new Material(shader) { name = "LycheeGroundDecalMat" };
+        ConfigureTransparentMaterial(mat);
+        if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
+        else if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", tex);
+
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = "GroundDecal";
+        Collider col = quad.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        quad.transform.SetParent(parent, false);
+        // 抬到红蓝队色圈(TeamRing y≈0.05)之上，避免被它压住/z-fight（用户反馈贴地花纹看不到，被圈挡了）。
+        quad.transform.localPosition = new Vector3(0f, 0.25f, 0f);
+        quad.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);  // 平铺到水平面、法线朝上
+        MeshRenderer mr = quad.GetComponent<MeshRenderer>();
+        if (mr != null)
+        {
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / Mathf.Max(0.05f, duration));
+            // 「从车队中心闪大」：前 22% 快速从一个小尺寸放大到 maxScale，alpha 先猛地冲亮再淡出。
+            float scale = Mathf.Lerp(maxScale * 0.25f, maxScale, EaseOutCubic(Mathf.Clamp01(t / 0.22f)));
+            float inA = Mathf.Clamp01(t / 0.08f);
+            float outA = Mathf.Clamp01((t - 0.28f) / 0.72f);
+            float alpha = inA * (1f - outA) * tint.a;
+            quad.transform.localScale = new Vector3(scale, scale, 1f);
+            Color c = new Color(tint.r, tint.g, tint.b, alpha);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", c);
+            else if (mat.HasProperty("_Color")) mat.SetColor("_Color", c);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(quad);
+        Destroy(mat);
+    }
+
+    /// <summary>
     /// 通用「事件贴图牌」：在车队正上方弹出一张图标贴图（冰鉴/快马的资源图标 PNG）+ 一行说明文字，
     /// 弹入→上浮→淡出。用户明确要"看得懂的贴图"而非粒子，所以这是三个事件的主视觉。
     /// 贴图走 URP/Unlit 透明材质（与 3D 场景同管线、构建里绝不会被裁成洋红）；贴图缺失则只显示文字牌兜底。
@@ -482,12 +537,13 @@ public class LycheeConvoyVfx : MonoBehaviour
 
         GameObject root = new GameObject("LycheeEventIcon");
         root.transform.SetParent(parent, false);
-        Vector3 start = new Vector3(0f, 1.65f, 0f);   // 车队正上方居中，足够显眼
+        // 抬到 2.85：实测 1.65 时图标被马车模型挡住、从 2.5D 斜视角根本看不到（用户反复反馈看不到的真因）。
+        Vector3 start = new Vector3(0f, 2.85f, 0f);   // 车队头顶、模型之上，斜视角清楚可见
         root.transform.localPosition = start;
         LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
         billboard.referenceDistance = 26f;
-        billboard.minScale = 0.85f;
-        billboard.maxScale = 2.0f;
+        billboard.minScale = 0.9f;
+        billboard.maxScale = 2.8f;
         billboard.distanceScale = false;
 
         Material iconMaterial = null;
@@ -533,7 +589,7 @@ public class LycheeConvoyVfx : MonoBehaviour
             float inT = Ease01(t / 0.14f);
             float outT = Ease01((t - 0.72f) / 0.28f);
             float alpha = inT * (1f - outT);
-            float pop = Mathf.Lerp(0.55f, 1f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));
+            float pop = Mathf.Lerp(0.8f, 1.55f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));   // 放大：实测原来 max1.0 太小
             root.transform.localPosition = start + Vector3.up * (0.45f * EaseOutCubic(t));
             root.transform.localScale = Vector3.one * pop;
             if (iconMaterial != null)
