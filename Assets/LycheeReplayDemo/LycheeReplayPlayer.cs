@@ -57,6 +57,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     const float MaxPlaybackDeltaSeconds = 1f / 30f;
     // 窗口争夺逐拍：对抗期间每回合至少 hold 这么久，让出牌(每拍 1 回合、原 0.2s 一闪而过)各自看清。
     const float ContestRoundSeconds = 2.6f;
+    const float EventPulseClusterRadius = 2.4f;
+    const float EventPulseSlotSpacing = 2.15f;
     float contestSlowUntil = -999f;   // 最近一次对抗事件起算的减速截止时刻(unscaledTime)；每个对抗事件续期。
 
     LycheeReplayFrame startFrame;
@@ -77,6 +79,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     readonly Dictionary<string, float> obstacleCueCooldown = new Dictionary<string, float>();
     readonly List<SquadVisual> squads = new List<SquadVisual>();
     readonly List<GameObject> eventEffects = new List<GameObject>();
+    readonly Dictionary<GameObject, Vector3> eventEffectBasePositions = new Dictionary<GameObject, Vector3>();
+    readonly List<GameObject> removalEventBuffer = new List<GameObject>();
     readonly Dictionary<string, int> processCardRoundByKey = new Dictionary<string, int>();
 
     MapElevationData elevation;
@@ -1233,7 +1237,10 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (frame.messages != null && (force || index > lastEventFrame))
             {
                 foreach (LycheeReplayMessage message in frame.messages)
+                {
+                    if (force) RestoreContestStartBeforeReveal(index, message);
                     HandleEvent(message, frame.round);
+                }
                 lastEventFrame = index;
             }
         }
@@ -1244,6 +1251,27 @@ public class LycheeReplayPlayer : MonoBehaviour
         ApplyObstacles(frame);
         RoundApplied?.Invoke(previousApplied, frame);
         lastAppliedFrame = frame;
+    }
+
+    void RestoreContestStartBeforeReveal(int targetIndex, LycheeReplayMessage message)
+    {
+        if (message == null || message.type != "WINDOW_CARD_REVEAL" || message.payload == null) return;
+        string contestId = message.payload.contestId;
+        if (string.IsNullOrEmpty(contestId)) return;
+
+        for (int i = targetIndex - 1; i >= 0; i--)
+        {
+            LycheeReplayFrame frame = frames[i];
+            if (frame == null || frame.messages == null) continue;
+            for (int j = frame.messages.Length - 1; j >= 0; j--)
+            {
+                LycheeReplayMessage candidate = frame.messages[j];
+                if (candidate == null || candidate.type != "WINDOW_CONTEST_START" || candidate.payload == null) continue;
+                if (candidate.payload.contestId != contestId) continue;
+                HandleEvent(candidate, frame.round);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -1666,7 +1694,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (message.type == "WINDOW_CONTEST_DRAW")
         {
             if (runtimeHud != null)
-                runtimeHud.ShowCombatDraw(round, payload.redPoint, payload.bluePoint);
+                runtimeHud.ShowCombatDraw(round, payload.redPoint, payload.bluePoint, payload.restRound);
             hasContestFocus = false;
             return;
         }
@@ -1754,7 +1782,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (combatEvent)
                 SetEventFocus(station.transform.position, 3.8f, 15f);
             if (ShouldShowWorldPulse(message.type))
-                SpawnEventPulse(station.transform.position, WorldEventLabel(message.type, payload), EventColor(message.type), ResolveEventIcon(message.type, payload));
+                SpawnEventPulse(station.transform.position, WorldEventLabel(message.type, payload), EventColor(message.type), ResolveEventIcon(message.type, payload), EventPulseStatus(message.type));
         }
     }
 
@@ -1777,6 +1805,37 @@ public class LycheeReplayPlayer : MonoBehaviour
             eventType == "INVALID_ACTION")
             return true;
         return false;
+    }
+
+    static string EventPulseStatus(string eventType)
+    {
+        if (string.IsNullOrEmpty(eventType)) return null;
+        if (eventType == "ACTION_REJECTED" ||
+            eventType == "INVALID_ACTION" ||
+            eventType == "SQUAD_FAILED" ||
+            eventType == "PROCESS_INTERRUPT" ||
+            eventType == "TASK_EXPIRE" ||
+            eventType == "TASK_TARGET_LOST" ||
+            eventType.Contains("TARGET_LOST") ||
+            eventType.EndsWith("_EXPIRE", StringComparison.Ordinal) ||
+            eventType.EndsWith("_EXPIRED", StringComparison.Ordinal) ||
+            eventType.EndsWith("_FAIL", StringComparison.Ordinal) ||
+            eventType.EndsWith("_FAILED", StringComparison.Ordinal))
+            return "fail";
+        if (eventType == "TASK_COMPLETE" ||
+            eventType == "BOUNTY_COMPLETE" ||
+            eventType == "BOUNTY_CLAIM" ||
+            eventType == "RESOURCE_CLAIM" ||
+            eventType == "VERIFY_GATE_COMPLETE" ||
+            eventType == "PROCESS_COMPLETE" ||
+            eventType == "OBSTACLE_CLEAR" ||
+            eventType == "SQUAD_CLEAR" ||
+            eventType == "SQUAD_CLEAR_SUCCESS" ||
+            eventType == "DELIVER_SUCCESS" ||
+            eventType.EndsWith("_SUCCESS", StringComparison.Ordinal) ||
+            eventType.EndsWith("_COMPLETE", StringComparison.Ordinal))
+            return "success";
+        return null;
     }
 
     void ShowKeyEventIllustration(LycheeReplayMessage message, LycheeReplayPayload payload, int round)
@@ -2826,8 +2885,6 @@ public class LycheeReplayPlayer : MonoBehaviour
         shape.position = new Vector3(0f, 2.7f, 0f);
         falling.Play();
 
-        TextMesh label = CreateLabel(root.transform, "落石阻路\n需要清障", new Color(1f, 0.76f, 0.28f, 1f));
-        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
         SpawnEventPulse(position, "落石阻路", new Color(1f, 0.63f, 0.20f, 1f));
         eventEffects.Add(root);
         Destroy(root, 2.6f);
@@ -2858,8 +2915,6 @@ public class LycheeReplayPlayer : MonoBehaviour
                 new Vector3(2.8f + i, 3.6f - i * 0.25f, 4.2f));
         }
 
-        TextMesh label = CreateLabel(root.transform, "断桥阻路\n需要修复", new Color(1f, 0.76f, 0.28f, 1f));
-        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
         SpawnEventPulse(position, "断桥阻路", new Color(1f, 0.62f, 0.18f, 1f));
         eventEffects.Add(root);
         Destroy(root, 2.6f);
@@ -2894,8 +2949,6 @@ public class LycheeReplayPlayer : MonoBehaviour
                 new Vector3(1.8f + i * 0.25f, 2.2f, 2.6f - i * 0.2f));
         }
 
-        TextMesh label = CreateLabel(root.transform, "码头堵塞\n需要疏通", new Color(1f, 0.78f, 0.32f, 1f));
-        label.transform.localPosition = new Vector3(0f, 1.75f, 0f);
         SpawnEventPulse(position, "码头堵塞", new Color(1f, 0.70f, 0.24f, 1f));
         eventEffects.Add(root);
         Destroy(root, 2.6f);
@@ -3161,26 +3214,87 @@ public class LycheeReplayPlayer : MonoBehaviour
         return material;
     }
 
-    void SpawnEventPulse(Vector3 position, string text, Color color, Sprite icon = null)
+    void SpawnEventPulse(Vector3 position, string text, Color color, Sprite icon = null, string status = null)
     {
         PruneEventEffects();
         GameObject root = new GameObject("Event_" + text);
         root.transform.SetParent(eventRoot, false);
         root.transform.position = position + Vector3.up * 0.25f;
-        // 去掉红黄粒子烟花（喷在角色同层、像放烟花，会挡住主角）：节点事件改为头顶清晰图标展示。
-        // 有图标用图标 billboard（抬高+放大+深色底衬）；无图标时退化为抬高的文字，同样不挡人。
-        if (icon != null)
-            CreateEventIconBillboard(root.transform, icon);
-        else
-            CreateLabel(root.transform, text, color).transform.localPosition = new Vector3(0f, 3.0f, 0f);
+        // 节点事件只保留图标 billboard；无图标时不再额外打白字，避免覆盖地图与事件卡信息重复。
+        if (icon == null)
+        {
+            Destroy(root);
+            return;
+        }
+        CreateEventIconBillboard(root.transform, icon, status);
         eventEffects.Add(root);
+        eventEffectBasePositions[root] = position;
+        ReflowEventPulseCluster(position);
         Destroy(root, 1.8f);
+    }
+
+    void ReflowEventPulseCluster(Vector3 basePosition)
+    {
+        PruneEventEffects();
+
+        List<GameObject> cluster = new List<GameObject>();
+        float radiusSqr = EventPulseClusterRadius * EventPulseClusterRadius;
+        foreach (GameObject effect in eventEffects)
+        {
+            if (effect == null) continue;
+            if (!eventEffectBasePositions.TryGetValue(effect, out Vector3 effectBase))
+                effectBase = effect.transform.position;
+            if ((effectBase - basePosition).sqrMagnitude <= radiusSqr)
+                cluster.Add(effect);
+        }
+
+        int total = cluster.Count;
+        if (total <= 1)
+        {
+            if (total == 1 && eventEffectBasePositions.TryGetValue(cluster[0], out Vector3 onlyBase))
+                cluster[0].transform.position = onlyBase + Vector3.up * 0.25f;
+            return;
+        }
+
+        Vector3 right = Vector3.right;
+        Camera camera = Camera.main;
+        if (camera != null)
+        {
+            right = camera.transform.right;
+            right.y = 0f;
+            if (right.sqrMagnitude < 0.001f) right = camera.transform.right;
+        }
+        right.Normalize();
+
+        for (int i = 0; i < total; i++)
+        {
+            GameObject effect = cluster[i];
+            if (effect == null) continue;
+            if (!eventEffectBasePositions.TryGetValue(effect, out Vector3 effectBase))
+                effectBase = effect.transform.position - Vector3.up * 0.25f;
+            float offset = (i - (total - 1) * 0.5f) * EventPulseSlotSpacing;
+            effect.transform.position = effectBase + Vector3.up * 0.25f + right * offset;
+        }
     }
 
     void PruneEventEffects()
     {
         for (int i = eventEffects.Count - 1; i >= 0; i--)
-            if (eventEffects[i] == null) eventEffects.RemoveAt(i);
+        {
+            if (eventEffects[i] == null)
+            {
+                eventEffects.RemoveAt(i);
+                continue;
+            }
+            if (!eventEffectBasePositions.ContainsKey(eventEffects[i]))
+                eventEffectBasePositions[eventEffects[i]] = eventEffects[i].transform.position;
+        }
+
+        removalEventBuffer.Clear();
+        foreach (GameObject effect in eventEffectBasePositions.Keys)
+            if (effect == null || !eventEffects.Contains(effect)) removalEventBuffer.Add(effect);
+        foreach (GameObject effect in removalEventBuffer)
+            eventEffectBasePositions.Remove(effect);
     }
 
     void ClearEventEffects()
@@ -3188,6 +3302,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         for (int i = eventEffects.Count - 1; i >= 0; i--)
             if (eventEffects[i] != null) Destroy(eventEffects[i]);
         eventEffects.Clear();
+        eventEffectBasePositions.Clear();
     }
 
     void SeekFrame(int index)
@@ -3742,6 +3857,15 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (string.IsNullOrEmpty(t)) return null;
         if (t.Contains("WEATHER")) return WeatherIconPath(payload == null ? null : payload.weatherType);
+        if (t == "SQUAD_FAILED" || t == "SQUAD_FAIL")
+        {
+            string action = payload == null
+                ? string.Empty
+                : (payload.action ?? payload.tactic ?? payload.rushTactic ?? string.Empty);
+            action = action.Trim().ToUpperInvariant();
+            if (action.Contains("CLEAR"))
+                return "EventIcons/icon_event_clear_obstacle.png";
+        }
         string mapped = LycheeEventIconMap.ResolveFile(t, false);
         if (!string.IsNullOrEmpty(mapped)) return mapped;
         if (t == "MATCH_START" || t == "NODE_ENTER") return "icon_task.png";
@@ -3811,7 +3935,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             {
                 texture.wrapMode = TextureWrapMode.Clamp;
                 sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
-                    new Vector2(0.5f, 0.5f), 160f);
+                    new Vector2(0.5f, 0.5f), Mathf.Max(texture.width, texture.height));
             }
             else
             {
@@ -3891,16 +4015,16 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     Sprite eventIconBackingSprite;
 
-    void CreateEventIconBillboard(Transform parent, Sprite icon)
+    void CreateEventIconBillboard(Transform parent, Sprite icon, string status)
     {
         GameObject iconObject = new GameObject("EventIcon");
         iconObject.transform.SetParent(parent, false);
         iconObject.transform.localPosition = new Vector3(0f, 4.0f, 0f);  // 抬到角色头顶之上，不挡主角
-        iconObject.transform.localScale = Vector3.one * 1.8f;            // 放大，远景也看得清
+        iconObject.transform.localScale = Vector3.one * 1.9f;            // 与世界常驻徽章同级尺寸，避免事件完成后突然变巨
         // 深色软圆底衬：图标在杂乱草地/碎石路上更跳出
         GameObject backing = new GameObject("EventIconBacking");
         backing.transform.SetParent(iconObject.transform, false);
-        backing.transform.localScale = Vector3.one * 1.4f;
+        backing.transform.localScale = Vector3.one * 1.22f;
         SpriteRenderer backRenderer = backing.AddComponent<SpriteRenderer>();
         backRenderer.sprite = EventIconBackingSprite();
         backRenderer.color = new Color(0.05f, 0.05f, 0.08f, 0.6f);
@@ -3908,8 +4032,39 @@ public class LycheeReplayPlayer : MonoBehaviour
         SpriteRenderer iconRenderer = iconObject.AddComponent<SpriteRenderer>();
         iconRenderer.sprite = icon;
         iconRenderer.sortingOrder = 30000;
+        CreateEventStatusMark(iconObject.transform, status);
         LycheeReplayBillboard billboard = iconObject.AddComponent<LycheeReplayBillboard>();
         billboard.maxScale = 2.6f; // 远景拉远时图标也保持可辨识
+    }
+
+    void CreateEventStatusMark(Transform parent, string status)
+    {
+        if (string.IsNullOrEmpty(status)) return;
+        bool success = status == "success";
+        GameObject root = new GameObject(success ? "EventStatusSuccess" : "EventStatusFail");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = new Vector3(0.42f, 0.42f, -0.04f);
+        root.transform.localScale = Vector3.one * 0.42f;
+
+        SpriteRenderer backRenderer = root.AddComponent<SpriteRenderer>();
+        backRenderer.sprite = EventIconBackingSprite();
+        backRenderer.color = success
+            ? new Color(0.02f, 0.34f, 0.10f, 0.94f)
+            : new Color(0.42f, 0.04f, 0.03f, 0.94f);
+        backRenderer.sortingOrder = 30001;
+
+        GameObject textObject = new GameObject("StatusGlyph");
+        textObject.transform.SetParent(root.transform, false);
+        textObject.transform.localPosition = new Vector3(0f, 0.01f, -0.04f);
+        TextMesh mark = textObject.AddComponent<TextMesh>();
+        mark.text = success ? "✓" : "×";
+        mark.anchor = TextAnchor.MiddleCenter;
+        mark.alignment = TextAlignment.Center;
+        mark.fontSize = 64;
+        mark.characterSize = 0.065f;
+        mark.color = Color.white;
+        MeshRenderer renderer = mark.GetComponent<MeshRenderer>();
+        if (renderer != null) renderer.sortingOrder = 30002;
     }
 
     /// <summary>事件图标的深色软圆底衬贴图（程序化生成一次并缓存）。</summary>

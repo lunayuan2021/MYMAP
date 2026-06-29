@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 调测地图叠层：左上角回放控制条下方放一个「调测地图」按钮，点开后
+/// 调测地图叠层：右侧放一个「调测地图」按钮，点开后
 ///   ① 右侧列出每个站点的世界坐标 + 格坐标；
 ///   ② 实时列出红蓝车队 + 在途小分队的移动世界坐标；
 ///   ③ 在 3D 地图上每个站点 / 车队 / 小分队处直接贴一个坐标小标签。
@@ -110,11 +110,11 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         float ui = UiScale();
         ApplyScaledFonts(ui);
 
-        // 按钮放在左上角回放控制条(16,16,500x104)下方，避免压住右上小地图和中间插播视频。
+        // 按钮和坐标面板统一放右侧；面板展开时仍避开右上小地图，短视频/开场期间整体隐藏。
         float margin = 16f * ui;
-        float bw = 104f * ui, bh = 34f * ui;
-        float left = 16f * ui;
-        float top = (16f + 104f + 8f) * ui;
+        float bw = 112f * ui, bh = 34f * ui;
+        float left = Mathf.Max(margin, Screen.width - bw - margin);
+        float top = Mathf.Clamp(302f * ui, margin, Mathf.Max(margin, Screen.height - bh - margin));
         Rect btn = new Rect(left, top, bw, bh);
         if (GUI.Button(btn, show ? "调测:开" : "调测地图", buttonStyle))
         {
@@ -125,7 +125,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         if (Time.unscaledTime - lastScan > 2f) RescanStations();
 
         DrawWorldTags();
-        DrawPanel(top + bh + 6f * ui, margin, ui);
+        DrawPanel(top + bh + 8f * ui, margin, ui);
     }
 
     static bool ShouldHideForPresentation()
@@ -179,7 +179,7 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
     // 右侧文本面板：回合 + 红蓝车队 + 在途小分队 实时坐标 + 站点坐标列表
     void DrawPanel(float top, float margin, float ui)
     {
-        float pw = 312f * ui;
+        float pw = Mathf.Min(360f * ui, Screen.width - margin * 2f);
         float ph = Mathf.Max(180f * ui, Screen.height - top - margin);
         Rect panel = new Rect(Screen.width - pw - margin, top, pw, ph);
         GUILayout.BeginArea(panel, panelStyle);

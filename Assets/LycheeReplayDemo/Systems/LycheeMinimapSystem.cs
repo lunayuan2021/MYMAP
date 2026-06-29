@@ -27,6 +27,9 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     // 内容比面板小一圈：minimap_frame.png 的罗盘/铜镜装饰环画在面板外缘，
     // 内容若与面板同大会被纹样压住（"边框嵌进地图"）。
     const float MapSize = 208f;
+    const float ExpandedMapSize = 238f;
+    const float NormalBorderThickness = 3f;
+    const float ExpandedBorderThickness = 1f;
     const int MinimapTextureSize = 512;
     const float RenderInterval = 0.6f;
     const float CameraHeight = 90f;
@@ -138,6 +141,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     // 俯视相机实际正交半径：按站点包围盒动态求得，保证首末站（尤其右上角终点 S15）不被裁切。
     // 默认值仅作兜底；Awake 里用 ComputeMapOrthoSize() 覆盖。
     float mapOrthoSize = CameraOrthoSize;
+    float mapVisualSize = MapSize;
 
     LycheeReplayFrame currentFrame;
     bool rushActive;
@@ -398,7 +402,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             "MinimapPanel",
             canvasObject.transform,
             new Vector2(1f, 1f),
-            new Vector2(-16f, -16f),
+            new Vector2(-24f, -20f),
             new Vector2(PanelSize, PanelSize),
             new Vector2(1f, 1f));
         Image background = panel.gameObject.AddComponent<Image>();
@@ -468,6 +472,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         themeFrameImage.raycastTarget = false;
         themeFrameImage.enabled = false;
         UpgradeThemeFrame();
+        ApplyExpandedFrameState();
     }
 
     bool minimapExpanded = false;
@@ -486,9 +491,39 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         else
         {
             panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
-            panel.anchoredPosition = new Vector2(-16f, -16f);
+            panel.anchoredPosition = new Vector2(-24f, -20f);
             panel.localScale = Vector3.one;          // 收回右上角小图
         }
+        ApplyExpandedFrameState();
+    }
+
+    void ApplyExpandedFrameState()
+    {
+        mapVisualSize = minimapExpanded ? ExpandedMapSize : MapSize;
+        Vector2 mapSize = new Vector2(mapVisualSize, mapVisualSize);
+        if (mapImage != null) mapImage.rectTransform.sizeDelta = mapSize;
+        if (nodeIconLayer != null) nodeIconLayer.sizeDelta = mapSize;
+        if (weatherLayer != null) weatherLayer.sizeDelta = mapSize;
+        if (convoyLayer != null) convoyLayer.sizeDelta = mapSize;
+        SetBorderThickness(minimapExpanded ? ExpandedBorderThickness : NormalBorderThickness);
+        if (themeFrameImage != null)
+            themeFrameImage.enabled = themeFrameResolved && !minimapExpanded;
+    }
+
+    void SetBorderThickness(float thickness)
+    {
+        if (borderImages.Count < 4) return;
+        SetBorderSize(borderImages[0], new Vector2(PanelSize, thickness));
+        SetBorderSize(borderImages[1], new Vector2(PanelSize, thickness));
+        SetBorderSize(borderImages[2], new Vector2(thickness, PanelSize));
+        SetBorderSize(borderImages[3], new Vector2(thickness, PanelSize));
+    }
+
+    static void SetBorderSize(Image border, Vector2 size)
+    {
+        if (border == null) return;
+        RectTransform rect = border.rectTransform;
+        if (rect != null) rect.sizeDelta = size;
     }
 
     // 场景缺 EventSystem 时补一个，否则小地图(及一切 UI)点击都不触发。与 LycheeVideoInterlude 同款。
@@ -620,7 +655,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         if (TryWorldToLayer(anchor, out Vector2 local))
             weatherMarker.anchoredPosition = ClampToMap(local, 16f);
         else
-            weatherMarker.anchoredPosition = new Vector2(-MapSize * 0.32f, MapSize * 0.32f);
+            weatherMarker.anchoredPosition = new Vector2(-mapVisualSize * 0.32f, mapVisualSize * 0.32f);
 
         Sprite sprite = WeatherSprite(weather.type);
         if (weatherMarkerIcon != null)
@@ -660,7 +695,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         weatherMarkerIcon.preserveAspect = true;
         weatherMarkerIcon.raycastTarget = false;
 
-        weatherMarkerText = iconRt.gameObject.AddComponent<Text>();
+        RectTransform textRt = CreateRect("WeatherText", weatherMarker, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(24f, 24f), new Vector2(0.5f, 0.5f));
+        weatherMarkerText = textRt.gameObject.AddComponent<Text>();
         weatherMarkerText.font = Resources.Load<Font>("Fonts/LXGWWenKai-Regular") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         weatherMarkerText.fontSize = 22;
         weatherMarkerText.fontStyle = FontStyle.Bold;
@@ -731,9 +767,9 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         return null;
     }
 
-    static Vector2 ClampToMap(Vector2 local, float inset)
+    Vector2 ClampToMap(Vector2 local, float inset)
     {
-        float half = MapSize * 0.5f - inset;
+        float half = mapVisualSize * 0.5f - inset;
         return new Vector2(Mathf.Clamp(local.x, -half, half), Mathf.Clamp(local.y, -half, half));
     }
 
@@ -880,16 +916,16 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             Vector3 viewport = minimapCamera.WorldToViewportPoint(world);
             if (viewport.z < 0f) return false;
             local = new Vector2(
-                (Mathf.Clamp01(viewport.x) - 0.5f) * MapSize,
-                (Mathf.Clamp01(viewport.y) - 0.5f) * MapSize);
+                (Mathf.Clamp01(viewport.x) - 0.5f) * mapVisualSize,
+                (Mathf.Clamp01(viewport.y) - 0.5f) * mapVisualSize);
             return true;
         }
         // 相机缺失时按正交参数手动映射，保证图标层仍可用。
         float extent = mapOrthoSize * 2f;
         if (extent <= 0.0001f) return false;
         local = new Vector2(
-            (Mathf.Clamp01((world.x - mapCenter.x) / extent + 0.5f) - 0.5f) * MapSize,
-            (Mathf.Clamp01((world.z - mapCenter.z) / extent + 0.5f) - 0.5f) * MapSize);
+            (Mathf.Clamp01((world.x - mapCenter.x) / extent + 0.5f) - 0.5f) * mapVisualSize,
+            (Mathf.Clamp01((world.z - mapCenter.z) / extent + 0.5f) - 0.5f) * mapVisualSize);
         return true;
     }
 
@@ -939,9 +975,10 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         if (frameSprite != null)
         {
             themeFrameImage.sprite = frameSprite;
-            themeFrameImage.enabled = true;
+            themeFrameImage.enabled = !minimapExpanded;
             themeFrameImage.transform.SetAsLastSibling();
             themeFrameResolved = true;
+            ApplyExpandedFrameState();
             return;
         }
     }

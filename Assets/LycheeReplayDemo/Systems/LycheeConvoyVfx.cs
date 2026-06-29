@@ -77,11 +77,13 @@ public class LycheeConvoyVfx : MonoBehaviour
     void OnEnable()
     {
         LycheeReplayPlayer.RoundApplied += OnRoundApplied;
+        LycheeReplayPlayer.ReplayEventRaised += OnReplayEvent;
     }
 
     void OnDisable()
     {
         LycheeReplayPlayer.RoundApplied -= OnRoundApplied;
+        LycheeReplayPlayer.ReplayEventRaised -= OnReplayEvent;
     }
 
     IEnumerator Start()
@@ -99,6 +101,7 @@ public class LycheeConvoyVfx : MonoBehaviour
     void OnDestroy()
     {
         LycheeReplayPlayer.RoundApplied -= OnRoundApplied;
+        LycheeReplayPlayer.ReplayEventRaised -= OnReplayEvent;
         foreach (ConvoyVfxRig rig in rigs)
         {
             if (rig != null && rig.fxRoot != null)
@@ -144,6 +147,29 @@ public class LycheeConvoyVfx : MonoBehaviour
             rig.targetFreshness = state.freshness;
             rig.waterMode = IsWaterEdge(state.routeEdgeId);
         }
+    }
+
+    void OnReplayEvent(LycheeReplayMessage message, int round)
+    {
+        if (Disabled || message == null || message.payload == null) return;
+        if (player == null) player = GetComponent<LycheeReplayPlayer>();
+        if (!built) BuildRigs();
+        if (!built || disabledApplied) return;
+
+        LycheeReplayPayload payload = message.payload;
+        if (payload.playerId <= 0) return;
+
+        if (message.type == "RESOURCE_USE")
+        {
+            string resource = payload.resourceType ?? string.Empty;
+            if (resource == "ICE_BOX") PlayIceBoxVfx(payload.playerId);
+            else if (resource == "FAST_HORSE") PlayHorseVfx(payload.playerId, true);
+            else if (resource == "SHORT_HORSE") PlayHorseVfx(payload.playerId, false);
+            return;
+        }
+
+        if (message.type == "GOOD_TO_BAD")
+            PlaySpoilVfx(payload.playerId);
     }
 
     ConvoyVfxRig FindRig(int playerId)
@@ -271,6 +297,348 @@ public class LycheeConvoyVfx : MonoBehaviour
             if (rig.ringMaterial.HasProperty("_EmissionColor"))
                 rig.ringMaterial.SetColor("_EmissionColor", new Color(color.r, color.g, color.b) * 1.5f);
         }
+    }
+
+    void PlayIceBoxVfx(int playerId)
+    {
+        ConvoyVfxRig rig = FindRig(playerId);
+        if (rig == null || rig.fxRoot == null) return;
+        EnsureSharedAssets();
+        // 冰蓝光环（干净的环、不是杂乱粒子）：表达"车队周围冰蓝特效"。
+        StartCoroutine(AnimateRing(rig.fxRoot, "IceBoxRing", new Color(0.55f, 0.90f, 1f, 0.60f), 1.7f, 0.6f, 3.0f, 0.12f));
+        // 主视觉：车队上方弹出"冰鉴"资源图标贴图 + 文字。
+        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 2.0f));
+    }
+
+    void PlayHorseVfx(int playerId, bool fastHorse)
+    {
+        ConvoyVfxRig rig = FindRig(playerId);
+        if (rig == null || rig.fxRoot == null) return;
+        EnsureSharedAssets();
+
+        // 脚下风环（干净的环，表达"疾驰加速"），不再撒杂乱的尘土/风线粒子。
+        StartCoroutine(AnimateRing(
+            rig.fxRoot,
+            fastHorse ? "FastHorseGustRing" : "ShortHorseGustRing",
+            new Color(1f, 0.86f, 0.46f, fastHorse ? 0.46f : 0.36f),
+            fastHorse ? 1.0f : 0.78f,
+            0.5f,
+            fastHorse ? 2.5f : 1.95f,
+            0.09f));
+        // 主视觉：车队上方弹出快马/短驿马图标贴图 + 文字。
+        StartCoroutine(EventIconRoutine(
+            rig.fxRoot,
+            fastHorse ? "icon_resource_fasthorse.png" : "icon_resource_shorthorse.png",
+            fastHorse ? "快马" : "短驿马",
+            new Color(1f, 0.90f, 0.55f, 1f),
+            fastHorse ? 2.0f : 1.8f));
+    }
+
+    void PlaySpoilVfx(int playerId)
+    {
+        ConvoyVfxRig rig = FindRig(playerId);
+        if (rig == null || rig.fxRoot == null) return;
+        EnsureSharedAssets();
+        // 荔枝转坏没有现成图标，用醒目的"荔枝转坏"文字牌（暗红底）当贴图弹在车队上方，居中显眼。
+        StartCoroutine(LabelPlaqueRoutine(
+            rig.fxRoot,
+            "荔枝转坏",
+            new Color(0.34f, 0.05f, 0.03f, 0.88f),
+            new Color(1f, 0.78f, 0.42f, 1f),
+            new Vector3(0f, 1.65f, 0f), 0.5f, 1.05f, 2.0f));
+    }
+
+    IEnumerator AnimateRing(Transform parent, string objectName, Color baseColor, float duration, float startScale, float endScale, float y)
+    {
+        if (parent == null || ringMesh == null) yield break;
+        Material material = CreateEffectMaterial(objectName + "Mat", baseColor);
+        if (material == null) yield break;
+
+        GameObject ringObject = new GameObject(objectName);
+        ringObject.transform.SetParent(parent, false);
+        ringObject.transform.localPosition = new Vector3(0f, y, 0f);
+        MeshFilter filter = ringObject.AddComponent<MeshFilter>();
+        filter.sharedMesh = ringMesh;
+        MeshRenderer renderer = ringObject.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, duration));
+            float eased = EaseOutCubic(t);
+            ringObject.transform.localScale = Vector3.one * Mathf.Lerp(startScale, endScale, eased);
+            Color color = baseColor;
+            color.a = baseColor.a * (1f - Ease01(t));
+            SetMaterialColor(material, color);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(ringObject);
+        Destroy(material);
+    }
+
+    void SpawnBurstParticles(
+        Transform parent,
+        string objectName,
+        Vector3 localPosition,
+        Quaternion localRotation,
+        Color color,
+        float duration,
+        float lifetimeMin,
+        float lifetimeMax,
+        float speedMin,
+        float speedMax,
+        float sizeMin,
+        float sizeMax,
+        int count,
+        ParticleSystemShapeType shapeType,
+        float radius,
+        Vector3 velocity,
+        ParticleSystemRenderMode renderMode,
+        float lengthScale)
+    {
+        if (parent == null) return;
+        GameObject particleObject = new GameObject(objectName);
+        particleObject.transform.SetParent(parent, false);
+        particleObject.transform.localPosition = localPosition;
+        particleObject.transform.localRotation = localRotation;
+
+        ParticleSystem particles = particleObject.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        ParticleSystem.MainModule main = particles.main;
+        main.duration = Mathf.Max(0.05f, duration);
+        main.loop = false;
+        main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(lifetimeMin, lifetimeMax);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(speedMin, speedMax);
+        main.startSize = new ParticleSystem.MinMaxCurve(sizeMin, sizeMax);
+        main.startColor = color;
+        main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+        main.maxParticles = Mathf.Max(12, count * 2);
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)Mathf.Clamp(count, 1, 200)) });
+
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType = shapeType;
+        shape.radius = Mathf.Max(0.01f, radius);
+        if (shapeType == ParticleSystemShapeType.Cone)
+        {
+            shape.angle = 10f;
+            shape.radiusThickness = 0.65f;
+        }
+
+        ParticleSystem.VelocityOverLifetimeModule velocityModule = particles.velocityOverLifetime;
+        velocityModule.enabled = velocity.sqrMagnitude > 0.0001f;
+        velocityModule.space = ParticleSystemSimulationSpace.Local;
+        velocityModule.x = velocity.x;
+        velocityModule.y = velocity.y;
+        velocityModule.z = velocity.z;
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLifetime = particles.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        Gradient gradient = new Gradient();
+        gradient.SetKeys(
+            new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new[]
+            {
+                new GradientAlphaKey(0f, 0f),
+                new GradientAlphaKey(1f, 0.16f),
+                new GradientAlphaKey(0f, 1f)
+            });
+        colorOverLifetime.color = gradient;
+
+        ApplyParticleMaterial(particles);
+        ParticleSystemRenderer particleRenderer = particles.GetComponent<ParticleSystemRenderer>();
+        if (particleRenderer != null)
+        {
+            particleRenderer.renderMode = renderMode;
+            particleRenderer.lengthScale = Mathf.Max(1f, lengthScale);
+            particleRenderer.velocityScale = renderMode == ParticleSystemRenderMode.Stretch ? 0.35f : 0f;
+            particleRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            particleRenderer.receiveShadows = false;
+        }
+
+        particles.Play();
+        Destroy(particleObject, duration + lifetimeMax + 0.35f);
+    }
+
+    /// <summary>
+    /// 通用「事件贴图牌」：在车队正上方弹出一张图标贴图（冰鉴/快马的资源图标 PNG）+ 一行说明文字，
+    /// 弹入→上浮→淡出。用户明确要"看得懂的贴图"而非粒子，所以这是三个事件的主视觉。
+    /// 贴图走 URP/Unlit 透明材质（与 3D 场景同管线、构建里绝不会被裁成洋红）；贴图缺失则只显示文字牌兜底。
+    /// </summary>
+    IEnumerator EventIconRoutine(Transform parent, string textureFile, string caption, Color captionColor, float duration)
+    {
+        if (parent == null) yield break;
+        Texture2D tex = string.IsNullOrEmpty(textureFile) ? null : LycheeLoadThemeTexture(textureFile);
+
+        GameObject root = new GameObject("LycheeEventIcon");
+        root.transform.SetParent(parent, false);
+        Vector3 start = new Vector3(0f, 1.65f, 0f);   // 车队正上方居中，足够显眼
+        root.transform.localPosition = start;
+        LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
+        billboard.referenceDistance = 26f;
+        billboard.minScale = 0.85f;
+        billboard.maxScale = 2.0f;
+        billboard.distanceScale = false;
+
+        Material iconMaterial = null;
+        GameObject iconQuad = null;
+        if (tex != null)
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader != null)
+            {
+                iconMaterial = new Material(shader) { name = "LycheeEventIconMat" };
+                ConfigureTransparentMaterial(iconMaterial);
+                if (iconMaterial.HasProperty("_BaseMap")) iconMaterial.SetTexture("_BaseMap", tex);
+                else if (iconMaterial.HasProperty("_MainTex")) iconMaterial.SetTexture("_MainTex", tex);
+                if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", Color.white);
+                else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", Color.white);
+
+                iconQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                iconQuad.name = "EventIconQuad";
+                iconQuad.transform.SetParent(root.transform, false);
+                iconQuad.transform.localScale = new Vector3(1.15f, 1.15f, 1f);
+                Collider iconCollider = iconQuad.GetComponent<Collider>();
+                if (iconCollider != null) Destroy(iconCollider);
+                MeshRenderer iconRenderer = iconQuad.GetComponent<MeshRenderer>();
+                if (iconRenderer != null)
+                {
+                    iconRenderer.sharedMaterial = iconMaterial;
+                    iconRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                    iconRenderer.receiveShadows = false;
+                }
+            }
+        }
+
+        float capY = iconQuad != null ? -0.80f : 0f;   // 有图就把文字放图下方，没图就居中
+        TextMesh shadow = CreatePlaqueText(root.transform, "EventIconCapShadow", new Vector3(0.02f, capY - 0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), caption);
+        TextMesh cap = CreatePlaqueText(root.transform, "EventIconCap", new Vector3(0f, capY, -0.022f), captionColor, caption);
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / duration);
+            float inT = Ease01(t / 0.14f);
+            float outT = Ease01((t - 0.72f) / 0.28f);
+            float alpha = inT * (1f - outT);
+            float pop = Mathf.Lerp(0.55f, 1f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));
+            root.transform.localPosition = start + Vector3.up * (0.45f * EaseOutCubic(t));
+            root.transform.localScale = Vector3.one * pop;
+            if (iconMaterial != null)
+            {
+                if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", new Color(1f, 1f, 1f, alpha));
+                else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", new Color(1f, 1f, 1f, alpha));
+            }
+            if (shadow != null) shadow.color = new Color(0.03f, 0.02f, 0.015f, 0.82f * alpha);
+            if (cap != null) cap.color = new Color(captionColor.r, captionColor.g, captionColor.b, alpha);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (iconQuad != null) Destroy(iconQuad);
+        if (iconMaterial != null) Destroy(iconMaterial);
+        Destroy(root);
+    }
+
+    /// <summary>
+    /// 通用「事件文字牌」：在车队上方弹出一块带文字的牌子并上浮淡出。荔枝转坏（无对应图标）用它。
+    /// </summary>
+    IEnumerator LabelPlaqueRoutine(Transform parent, string label, Color plaqueColor, Color textColor,
+        Vector3 startLocal, float rise, float baseScale, float duration)
+    {
+        if (parent == null || string.IsNullOrEmpty(label)) yield break;
+        Material plaqueMaterial = CreateEffectMaterial("LycheeEventPlaqueMat", plaqueColor);
+        if (plaqueMaterial == null) yield break;
+
+        GameObject root = new GameObject("LycheeEventPlaque");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = startLocal;
+        root.transform.localScale = Vector3.one * baseScale;
+        LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
+        billboard.referenceDistance = 26f;
+        billboard.minScale = 0.72f;
+        billboard.maxScale = 1.6f;
+        billboard.distanceScale = false;
+
+        GameObject bg = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        bg.name = "PlaqueBg";
+        bg.transform.SetParent(root.transform, false);
+        // 牌面随字数加宽：2 字（冰鉴/快马）窄一点，4 字（荔枝转坏）才需要满宽。
+        float bgWidth = 0.62f + 0.30f * label.Length;
+        bg.transform.localScale = new Vector3(bgWidth, 0.52f, 1f);
+        Collider collider = bg.GetComponent<Collider>();
+        if (collider != null) Destroy(collider);
+        MeshRenderer bgRenderer = bg.GetComponent<MeshRenderer>();
+        if (bgRenderer != null)
+        {
+            bgRenderer.sharedMaterial = plaqueMaterial;
+            bgRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            bgRenderer.receiveShadows = false;
+        }
+
+        TextMesh shadow = CreatePlaqueText(root.transform, "PlaqueTextShadow", new Vector3(0.02f, -0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), label);
+        TextMesh text = CreatePlaqueText(root.transform, "PlaqueText", new Vector3(0f, 0f, -0.022f), textColor, label);
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / duration);
+            float inT = Ease01(t / 0.14f);
+            float outT = Ease01((t - 0.70f) / 0.30f);
+            float alpha = inT * (1f - outT);
+            root.transform.localPosition = startLocal + Vector3.up * (rise * EaseOutCubic(t));
+            root.transform.localScale = Vector3.one * Mathf.Lerp(baseScale * 0.82f, baseScale, EaseOutCubic(Mathf.Clamp01(t / 0.22f)));
+
+            SetMaterialColor(plaqueMaterial, new Color(plaqueColor.r, plaqueColor.g, plaqueColor.b, plaqueColor.a * alpha));
+            if (shadow != null) shadow.color = new Color(0.03f, 0.02f, 0.015f, 0.82f * alpha);
+            if (text != null) text.color = new Color(textColor.r, textColor.g, textColor.b, alpha);
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(root);
+        Destroy(plaqueMaterial);
+    }
+
+    TextMesh CreatePlaqueText(Transform parent, string objectName, Vector3 localPosition, Color color, string label)
+    {
+        GameObject textObject = new GameObject(objectName);
+        textObject.transform.SetParent(parent, false);
+        textObject.transform.localPosition = localPosition;
+        TextMesh text = textObject.AddComponent<TextMesh>();
+        text.text = label;
+        text.font = Resources.Load<Font>("Fonts/LXGWWenKai-Regular") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.fontSize = 58;
+        text.characterSize = 0.042f;
+        text.anchor = TextAnchor.MiddleCenter;
+        text.alignment = TextAlignment.Center;
+        text.color = color;
+        return text;
+    }
+
+    static float Ease01(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t * t * (3f - 2f * t);
+    }
+
+    static float EaseOutCubic(float t)
+    {
+        t = 1f - Mathf.Clamp01(t);
+        return 1f - t * t * t;
     }
 
     static Color FreshnessColor(float freshness)
@@ -489,6 +857,31 @@ public class LycheeConvoyVfx : MonoBehaviour
             material.SetColor("_EmissionColor", FreshGreen * 1.5f);
         }
         return material;
+    }
+
+    static Material CreateEffectMaterial(string materialName, Color color)
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        if (shader == null) return null;
+        Material material = new Material(shader) { name = materialName };
+        ConfigureTransparentMaterial(material);
+        SetMaterialColor(material, color);
+        return material;
+    }
+
+    static void SetMaterialColor(Material material, Color color)
+    {
+        if (material == null) return;
+        if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+        if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+        if (material.HasProperty("_EmissionColor"))
+        {
+            material.EnableKeyword("_EMISSION");
+            Color emission = new Color(color.r, color.g, color.b, 1f) * Mathf.Clamp01(color.a) * 1.4f;
+            material.SetColor("_EmissionColor", emission);
+        }
     }
 
     static void ConfigureTransparentMaterial(Material material)

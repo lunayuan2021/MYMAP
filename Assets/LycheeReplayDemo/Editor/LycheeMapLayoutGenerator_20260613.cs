@@ -30,8 +30,8 @@ using UnityEngine.SceneManagement;
 ///   x_world = (x - gridW/2)*tile，z_world = (gridH/2 - y)*tile（80x60 tile=1 即 (x-40, 30-y)）。
 /// 高度策略：道路/彩带/锚点顶点高度采样现役地形 MapElevationData（地形是不动的设计层），自动贴合。
 ///
-/// 回放绑定（分场景方案）：给每张图场景里的 LycheeReplayPlayer.streamingReplayPath 写各自的回放路径
-///   （默认 "Tournament/&lt;key&gt;.txt"），切场景即换回放，零运行时耦合；母版保持 "replay.txt" 不变。
+/// 回放绑定（分场景方案）：Map_medium 固定读取 StreamingAssets/replay.txt；
+///   其余分图场景写各自的 "Tournament/&lt;key&gt;.txt"，切场景即换回放。
 /// 生成的场景自动登记进 Build Settings（LycheeTournamentController 分场景切换需要）。
 ///
 /// 安全约束：① 输出绝不等于母版主场景（防覆盖硬校验）；② 不删任何贴合脚本的 .done（避免唤醒
@@ -63,7 +63,9 @@ public static class LycheeMapLayoutGenerator_20260613
     const float RoadOverlayWidth = 0.34f, WaterOverlayWidth = 0.36f, MountainOverlayWidth = 0.32f, BranchOverlayWidth = 0.30f;
     const float OverlayLift = 0.045f;    // 彩带高于路面，避免被压进路面/地表
     const bool EnableOverlayRibbons = false; // 去彩带总开关：false=不生成/不重画路彩带与水路蓝线，并禁用母版现有彩带（重跑也不回来）
-    const float RoadTuckUnder = 0.35f;   // 路头在建筑足迹内降到驿站地面下这么多 → 建筑盖住路头（不留缺口/不盖楼）
+    // 陆地站点路头只做极浅下压。旧值 0.35 会把节点入口整段路压进草地下，
+    // 在武关/潼关/关中平原这类后半段节点周围形成肉眼可见断路。
+    const float RoadTuckUnder = 0.015f;
     const float RoadUnderRiver = 0.22f;  // 路与河重叠处把路面降到河床（CarvedY）之下这么多 → 河床/水面盖住路（道路在最底层）
     const float AnchorLift = 0.018f;     // 锚点贴地抬升，与原生成器一致
     const float CoordEps = 0.001f;       // 网格坐标相等判定阈值
@@ -202,12 +204,13 @@ public static class LycheeMapLayoutGenerator_20260613
 
         ApplyLayout(RuntimeConfigFolder + "/map1_config.json",
             OutSceneFolder + "/" + OfficialMap1SceneName + ".unity",
-            "map1", "Tournament/map1.txt", BaselineConfigPath, sceneNames);
+            "map1", "replay.txt", BaselineConfigPath, sceneNames);
     }
 
     /// <summary>
     /// 锦标赛批量生成：按字母序把 N 份 config 生成 Map_medium(map1), Map_map2..Map_mapN 场景，
-    /// 每张图 streamingReplayPath="Tournament/mapN.txt"，并把全 5 张图场景名写进每张图的
+    /// Map_medium 固定 streamingReplayPath="replay.txt"，其余图 streamingReplayPath="Tournament/mapN.txt"；
+    /// 并把全 5 张图场景名写进每张图的
     /// LycheeTournamentController.perMapScenes（切场景链就绪）。第一张正式图（map_1）即 Map_medium。
     /// </summary>
     public static void BuildTournament(string[] configPaths)
@@ -219,11 +222,11 @@ public static class LycheeMapLayoutGenerator_20260613
         {
             ApplyLayout(configPaths[i],
                 OutSceneFolder + "/" + sceneNames[i] + ".unity",
-                keys[i], "Tournament/" + keys[i] + ".txt",
+                keys[i], i == 0 ? "replay.txt" : "Tournament/" + keys[i] + ".txt",
                 BaselineConfigPath, sceneNames);
         }
         Debug.Log($"[MapLayout] 锦标赛 {n} 张图已生成：{string.Join(", ", sceneNames)}。" +
-            $"回放放 StreamingAssets/Tournament/map1.txt..map{n}.txt；map_1 = {OfficialMap1SceneName}。");
+            $"map_1 = {OfficialMap1SceneName} 固定读取 StreamingAssets/replay.txt；其余回放放 StreamingAssets/Tournament/mapN.txt。");
     }
 
     // ============================================================ 可编程入口

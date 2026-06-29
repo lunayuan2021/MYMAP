@@ -2,13 +2,18 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+#if UNITY_WEBGL && !UNITY_EDITOR
+using System.Runtime.InteropServices;
+#endif
 using UnityEngine;
 using UnityEngine.Networking;
 
 /// <summary>
 /// 音频导演：统一管理回放的 BGM（双源交叉淡入淡出）、事件音效与环境循环音。
-/// 所有素材运行时从 StreamingAssets/Audio/ 加载（BGM/ 与 SFX/ 子目录），
-/// 同名文件依次尝试 .wav/.ogg/.mp3；文件缺失一律静默跳过，绝不影响回放本身。
+/// 所有素材运行时从 StreamingAssets/Audio/ 加载（BGM/ 与 SFX/ 子目录），统一为 .ogg：
+/// WebGL 运行时无法解码 MP3（UnityWebRequestMultimedia 下 MP3 会"加载成功"却 0 采样=静音），
+/// 而 OGG/WAV 才能在浏览器里实时解码——素材全部转成 OGG 后只请求 .ogg，既能播放又不再产生
+/// .wav/.mp3 探测的 404。文件缺失一律静默跳过，绝不影响回放本身。
 /// 通过 RuntimeInitializeOnLoadMethod 自举挂到 LycheeReplayPlayer 所在 GameObject。
 /// </summary>
 [DisallowMultipleComponent]
@@ -75,6 +80,13 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     AudioClip currentBgmClip;
     string desiredBgmKey = BgmNormalKey;
     bool initialized;
+#if UNITY_WEBGL && !UNITY_EDITOR
+    bool webAudioUnlockTried;
+    float nextWebAudioUnlockProbe;
+
+    [DllImport("__Internal")]
+    static extern void LycheeResumeAudioContext();
+#endif
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap()
@@ -160,6 +172,7 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         if (!initialized) return;
         try
         {
+            TryResumeWebAudio();
             UpdateBgm();
             UpdateAmbient();
         }
@@ -308,6 +321,32 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         }
     }
 
+    void TryResumeWebAudio()
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        if (Time.unscaledTime < nextWebAudioUnlockProbe) return;
+        bool firstProbe = !webAudioUnlockTried;
+        bool userGesture = Input.GetMouseButtonDown(0) || Input.touchCount > 0 || Input.anyKeyDown;
+        if (!firstProbe && !userGesture) return;
+
+        webAudioUnlockTried = true;
+        nextWebAudioUnlockProbe = Time.unscaledTime + 0.5f;
+        try { LycheeResumeAudioContext(); } catch (Exception) { }
+
+        // 某些浏览器在 AudioContext 恢复后不会自动续起先前被挂起的 AudioSource，补一次播放兜底。
+        ResumeSourceIfNeeded(bgmSourceA, bgmWeightA);
+        ResumeSourceIfNeeded(bgmSourceB, bgmWeightB);
+#endif
+    }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    static void ResumeSourceIfNeeded(AudioSource source, float weight)
+    {
+        if (source == null || source.clip == null || source.isPlaying || weight <= 0f) return;
+        try { source.Play(); } catch (Exception) { }
+    }
+#endif
+
     // ---------------- 环境循环 ----------------
 
     void UpdateWeatherTargets(LycheeReplayFrame frame)
@@ -430,11 +469,11 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         public AudioType audioType;
     }
 
+    // 素材已统一为 .ogg（WebGL 唯一既能实时解码又紧凑的格式）。只请求 .ogg：命中即播放、不再
+    // 探测不存在的 .wav/.mp3 而刷 404，也避免 MP3 在 WebGL 下"成功但 0 采样"的静音陷阱。
     static readonly WebGLAudioCandidate[] WebGLAudioCandidates =
     {
-        new WebGLAudioCandidate { extension = ".wav", audioType = AudioType.WAV },
-        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS },
-        new WebGLAudioCandidate { extension = ".mp3", audioType = AudioType.MPEG }
+        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS }
     };
 #endif
 

@@ -89,6 +89,18 @@ public class LycheeReplayNodeState
     public int processRound;
     public string processType;
     public string obstacleType;
+    public LycheeReplayObstacleResidueState obstacleResidue;
+}
+
+[Serializable]
+public class LycheeReplayObstacleResidueState
+{
+    public int clearedByPlayerId;
+    public string clearedByTeamId;
+    public int clearRound;
+    public int untilRound;
+    public int remainRound;
+    public int taxRound;
 }
 
 [Serializable]
@@ -291,6 +303,7 @@ public class LycheeReplayPayload
     public int timeTax;
     public int processRound;
     public int remainingRound;
+    public int restRound;
     public int durationRound;
     public int startRound;
     public int expireRound;

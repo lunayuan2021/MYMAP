@@ -19,9 +19,16 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     const string RootName = "Lychee_WorldMarkers";
     const float GuardCollapseSeconds = 0.4f;
-    const float PillarFadeSeconds = 0.5f;
+    const float PillarFadeSeconds = 1.1f;
     const float RingFlashSeconds = 0.5f;
-    const float ResourceHoverHeight = 2.6f;
+    const float ResourceHoverHeight = 4.55f;
+    const float StationBadgeSlotSpacing = 1.92f;
+    const float BadgeSpriteScale = 1.48f;
+    const float ObstaclePlaqueWidth = 1.18f;
+    const float ObstaclePlaqueHeight = 0.38f;
+    const float ObstacleResultFlashSeconds = 0.55f;
+    const int BadgeSpriteOrder = 24000;
+    const int BadgeTextOrder = 24004;
     const int RingSegments = 32;
     const float RingRadius = 0.8f;
 
@@ -52,11 +59,14 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     {
         public GameObject root;
         public TextMesh count;
+        public TextMesh statusMark;
         public int lastCount = int.MinValue;
+        public bool resultMarked;
     }
 
     sealed class ResourceMarker
     {
+        public string nodeId;
         public GameObject root;
         public Transform row;
         public float bobSeed;
@@ -69,15 +79,25 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public Transform pillar;
         public Material pillarMaterial;
         public TextMesh label;
+        public TextMesh statusMark;
         public Color baseColor;
         public float fadeStart = -1f;
     }
 
     sealed class ObstacleBadge
     {
+        public string nodeId;
         public GameObject root;
         public Transform iconRoot;
+        public SpriteRenderer iconRenderer;
+        public TextMesh statusMark;
+        public bool cleared;
+        public bool resultMarked;
+        public bool resultSuccess;
+        public float resultFlashStart = -1f;
         public float bobSeed;
+        // 盖章底色 = 真正完成清障那一队的队色（默认中性金，收到带队号的事件后改写）。
+        public Color teamColor = GoldColor;
     }
 
     sealed class ProgressRing
@@ -108,6 +128,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     readonly HashSet<string> activeKeyBuffer = new HashSet<string>();
     readonly HashSet<string> iconSeenBuffer = new HashSet<string>();
+    readonly HashSet<string> knownObstacleNodes = new HashSet<string>();
+    readonly HashSet<string> activeObstacleNodes = new HashSet<string>();
     readonly List<string> removalBuffer = new List<string>();
     readonly List<int> ringRemovalBuffer = new List<int>();
     readonly List<(string type, int count)> stockBuffer = new List<(string, int)>();
@@ -202,12 +224,23 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             case "VERIFY_GATE_START":
                 CreateProgressRing(payload, round, true);
                 break;
+            case "RESOURCE_CLAIM":
+                MarkResourceBadgeResult(payload, true);
+                break;
             case "PROCESS_COMPLETE":
             case "VERIFY_GATE_COMPLETE":
                 FinishRingForPlayer(payload, true);
                 break;
             case "PROCESS_INTERRUPT":
                 FinishRingForPlayer(payload, false);
+                break;
+            case "SQUAD_CLEAR":
+            case "SQUAD_CLEAR_SUCCESS":
+            case "OBSTACLE_CLEAR":
+                MarkObstacleBadgeResult(payload, true);
+                break;
+            case "SQUAD_FAILED":
+                MarkObstacleBadgeResult(payload, false);
                 break;
         }
     }
@@ -345,7 +378,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
         removalBuffer.Clear();
         foreach (KeyValuePair<string, ResourceMarker> pair in resources)
-            if (!activeKeyBuffer.Contains(pair.Key)) removalBuffer.Add(pair.Key);
+            if (!activeKeyBuffer.Contains(pair.Key) && !HasMarkedResourceIcons(pair.Value)) removalBuffer.Add(pair.Key);
         foreach (string key in removalBuffer)
         {
             ResourceMarker marker = resources[key];
@@ -385,6 +418,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         row.transform.localPosition = new Vector3(0f, ResourceHoverHeight, 0f);
         return new ResourceMarker
         {
+            nodeId = nodeId,
             root = root,
             row = row.transform,
             bobSeed = Mathf.Abs(nodeId.GetHashCode() % 628) * 0.01f
@@ -416,7 +450,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
         removalBuffer.Clear();
         foreach (KeyValuePair<string, ResourceIcon> pair in marker.icons)
-            if (!iconSeenBuffer.Contains(pair.Key)) removalBuffer.Add(pair.Key);
+            if (!iconSeenBuffer.Contains(pair.Key) && (pair.Value == null || !pair.Value.resultMarked)) removalBuffer.Add(pair.Key);
         foreach (string key in removalBuffer)
         {
             ResourceIcon icon = marker.icons[key];
@@ -424,14 +458,44 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             marker.icons.Remove(key);
         }
 
+        LayoutStationBadgeRow(marker);
+    }
+
+    void LayoutStationBadgeRow(ResourceMarker marker)
+    {
+        if (marker == null || marker.row == null) return;
+
+        ObstacleBadge obstacle = null;
+        bool includeObstacle = !string.IsNullOrEmpty(marker.nodeId)
+            && obstacleBadges.TryGetValue(marker.nodeId, out obstacle)
+            && obstacle != null
+            && obstacle.root != null;
+
+        int total = marker.icons.Count + (includeObstacle ? 1 : 0);
+        if (total <= 0) return;
+
         int index = 0;
-        int total = marker.icons.Count;
         foreach (string type in ResourceOrder)
         {
             if (!marker.icons.TryGetValue(type, out ResourceIcon icon) || icon == null || icon.root == null) continue;
-            icon.root.transform.localPosition = new Vector3((index - (total - 1) * 0.5f) * 1.75f, 0f, 0f);
+            icon.root.transform.localPosition = BadgeSlotPosition(index, total);
             index++;
         }
+
+        if (includeObstacle)
+        {
+            Transform obstacleTransform = obstacle.root.transform;
+            if (obstacleTransform.parent != marker.row)
+                obstacleTransform.SetParent(marker.row, false);
+            obstacleTransform.localPosition = BadgeSlotPosition(index, total);
+            obstacleTransform.localRotation = Quaternion.identity;
+            obstacleTransform.localScale = Vector3.one;
+        }
+    }
+
+    static Vector3 BadgeSlotPosition(int index, int total)
+    {
+        return new Vector3((index - (total - 1) * 0.5f) * StationBadgeSlotSpacing, 0f, 0f);
     }
 
     ResourceIcon CreateResourceIcon(ResourceMarker marker, string type)
@@ -440,16 +504,17 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         GameObject iconRoot = new GameObject("Icon_" + type);
         iconRoot.transform.SetParent(marker.row, false);
         iconRoot.AddComponent<LycheeReplayBillboard>();
+        iconRoot.AddComponent<LycheeLabelUpgradeOptOut>();
 
         Sprite sprite = LycheeLoadThemeSprite(ResourceSpriteFile(type));
         if (sprite != null)
         {
             GameObject spriteObject = new GameObject("Sprite");
             spriteObject.transform.SetParent(iconRoot.transform, false);
-            // 1.7：用户反馈"荆襄大驿徽章太小"，在正交 35 镜头下放大一档才看得清
-            spriteObject.transform.localScale = Vector3.one * 1.7f;
+            spriteObject.transform.localScale = Vector3.one * BadgeSpriteScale;
             SpriteRenderer spriteRenderer = spriteObject.AddComponent<SpriteRenderer>();
             spriteRenderer.sprite = sprite;
+            spriteRenderer.sortingOrder = BadgeSpriteOrder;
         }
         else
         {
@@ -460,14 +525,54 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 ResourceFallbackChar(type), Color.white, 30, 0.08f, false);
         }
 
-        // 中文名标签：图标下方，让人一眼看懂这是什么资源（用户要求"带中文解释"）
-        // 字号 30→42（约 +40%）：用户反馈这类资源名标签太小看不清。
-        CreateWorldLabel(iconRoot.transform, new Vector3(0f, -1.05f, -0.02f),
-            ResourceChineseName(type), new Color(1f, 0.93f, 0.72f), 42, 0.075f, true);
-
-        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.7f, -0.7f, -0.02f),
+        TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.88f, 0.54f, -0.02f),
             string.Empty, GoldColor, 28, 0.07f, false);
-        return new ResourceIcon { root = iconRoot, count = count };
+        MeshRenderer countRenderer = count == null ? null : count.GetComponent<MeshRenderer>();
+        if (countRenderer != null) countRenderer.sortingOrder = BadgeTextOrder;
+
+        TextMesh status = CreateStatusMark(iconRoot.transform, new Vector3(0.42f, 0.42f, -0.04f), true);
+        if (status != null) status.gameObject.SetActive(false);
+        return new ResourceIcon { root = iconRoot, count = count, statusMark = status };
+    }
+
+    bool HasMarkedResourceIcons(ResourceMarker marker)
+    {
+        if (marker == null || marker.icons == null) return false;
+        foreach (ResourceIcon icon in marker.icons.Values)
+            if (icon != null && icon.root != null && icon.resultMarked)
+                return true;
+        return false;
+    }
+
+    void MarkResourceBadgeResult(LycheeReplayPayload payload, bool success)
+    {
+        if (payload == null || string.IsNullOrEmpty(payload.resourceType)) return;
+        string nodeId = ResultNodeId(payload);
+        if (string.IsNullOrEmpty(nodeId)) return;
+
+        if (!resources.TryGetValue(nodeId, out ResourceMarker marker) || marker == null || marker.root == null)
+        {
+            if (marker != null) resources.Remove(nodeId);
+            marker = CreateResourceMarker(nodeId);
+            if (marker == null) return;
+            resources[nodeId] = marker;
+        }
+
+        if (!marker.icons.TryGetValue(payload.resourceType, out ResourceIcon icon) || icon == null || icon.root == null)
+        {
+            icon = CreateResourceIcon(marker, payload.resourceType);
+            if (icon == null) return;
+            marker.icons[payload.resourceType] = icon;
+        }
+
+        icon.resultMarked = true;
+        ApplyStatusMark(icon.statusMark, success, ResolveTeamColor(payload));
+        LayoutStationBadgeRow(marker);
+        if (marker.root != null)
+        {
+            Color pulseColor = success ? CompletePulseColor : new Color(1f, 0.30f, 0.22f, 1f);
+            SpawnPulse(marker.root.transform.position + Vector3.up * ResourceHoverHeight, pulseColor);
+        }
     }
 
     void UpdateResourceBob(float time)
@@ -480,19 +585,6 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             marker.row.localPosition = new Vector3(0f, y, 0f);
         }
     }
-
-    /// <summary>资源中文名（站点徽章下方标签，让人一眼看懂）。</summary>
-    static string ResourceChineseName(string type) => type switch
-    {
-        "ICE_BOX" => "冰盒",
-        "FAST_HORSE" => "快马",
-        "SHORT_HORSE" => "驽马",
-        "PASS_TOKEN" => "通关牒",
-        "OFFICIAL_PERMIT" => "官凭",
-        "INTEL" => "情报",
-        "BOAT_RIGHT" => "船引",
-        _ => "物资"
-    };
 
     static string ResourceSpriteFile(string type) => type switch
     {
@@ -530,33 +622,26 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         _ => GoldColor
     };
 
-    // ------------------------------------------------------------------ 2b. 清障 / 障碍任务常驻徽章
+    // ------------------------------------------------------------------ 2b. 障碍常驻徽章
 
     void RefreshObstacleBadges(LycheeReplayFrame frame)
     {
-        activeKeyBuffer.Clear();
+        activeObstacleNodes.Clear();
         if (frame.nodes != null)
         {
             foreach (LycheeReplayNodeState node in frame.nodes)
             {
                 if (node == null || string.IsNullOrEmpty(node.nodeId)) continue;
                 if (node.hasObstacle)
-                    activeKeyBuffer.Add(node.nodeId);
+                    knownObstacleNodes.Add(node.nodeId);
+                bool known = knownObstacleNodes.Contains(node.nodeId);
+                if (!known) continue;
+                if (node.hasObstacle)
+                    activeObstacleNodes.Add(node.nodeId);
             }
         }
 
-        if (frame.tasks != null)
-        {
-            foreach (LycheeReplayTaskState task in frame.tasks)
-            {
-                if (task == null || !IsActiveTask(task) || !IsClearObstacleTask(task)) continue;
-                string nodeId = !string.IsNullOrEmpty(task.targetNodeId) ? task.targetNodeId : task.nodeId;
-                if (!string.IsNullOrEmpty(nodeId))
-                    activeKeyBuffer.Add(nodeId);
-            }
-        }
-
-        foreach (string nodeId in activeKeyBuffer)
+        foreach (string nodeId in knownObstacleNodes)
         {
             obstacleBadges.TryGetValue(nodeId, out ObstacleBadge badge);
             if (badge == null || badge.root == null)
@@ -565,16 +650,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 badge = CreateObstacleBadge(nodeId);
                 if (badge != null) obstacleBadges[nodeId] = badge;
             }
-        }
-
-        removalBuffer.Clear();
-        foreach (KeyValuePair<string, ObstacleBadge> pair in obstacleBadges)
-            if (!activeKeyBuffer.Contains(pair.Key)) removalBuffer.Add(pair.Key);
-        foreach (string key in removalBuffer)
-        {
-            ObstacleBadge badge = obstacleBadges[key];
-            if (badge != null && badge.root != null) Destroy(badge.root);
-            obstacleBadges.Remove(key);
+            ApplyObstacleBadgeState(badge, activeObstacleNodes.Contains(nodeId));
+            if (resources.TryGetValue(nodeId, out ResourceMarker resourceMarker))
+                LayoutStationBadgeRow(resourceMarker);
         }
     }
 
@@ -583,16 +661,24 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         if (player == null || string.IsNullOrEmpty(nodeId)) return null;
 
         Transform anchor = null;
-        if (player.TryGetStationAnchor(nodeId, out MapStationAnchor station) && station != null)
-            anchor = station.eventAnchor != null ? station.eventAnchor :
-                (station.obstacleAnchor != null ? station.obstacleAnchor :
+        bool useResourceRow = resources.TryGetValue(nodeId, out ResourceMarker resourceMarker)
+            && resourceMarker != null
+            && resourceMarker.row != null;
+        if (!useResourceRow && player.TryGetStationAnchor(nodeId, out MapStationAnchor station) && station != null)
+            anchor = station.obstacleAnchor != null ? station.obstacleAnchor :
+                (station.eventAnchor != null ? station.eventAnchor :
                 (station.modelSlot != null ? station.modelSlot : station.transform));
 
-        GameObject root = new GameObject("ObstacleClearBadge_" + nodeId);
-        if (anchor != null)
+        GameObject root = new GameObject("ObstacleBadge_" + nodeId);
+        if (useResourceRow)
+        {
+            root.transform.SetParent(resourceMarker.row, false);
+            root.transform.localPosition = Vector3.zero;
+        }
+        else if (anchor != null)
         {
             root.transform.SetParent(anchor, false);
-            root.transform.localPosition = new Vector3(0f, 3.15f, 0f);
+            root.transform.localPosition = new Vector3(0f, ResourceHoverHeight, 0f);
         }
         else
         {
@@ -602,39 +688,114 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 return null;
             }
             root.transform.SetParent(markerRoot, false);
-            root.transform.position = position + Vector3.up * 3.15f;
+            root.transform.position = position + Vector3.up * ResourceHoverHeight;
         }
-        root.transform.localScale = Vector3.one * 1.15f;
+        root.transform.localScale = Vector3.one;
         LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
-        billboard.maxScale = 1.7f;
+        billboard.maxScale = 1.25f;
         billboard.nearFadeStart = 7.5f;
         billboard.nearFadeEnd = 3.8f;
 
-        GameObject iconRoot = new GameObject("ClearObstacleIcon");
+        GameObject iconRoot = new GameObject("ObstacleIcon");
         iconRoot.transform.SetParent(root.transform, false);
         iconRoot.transform.localPosition = Vector3.zero;
+        iconRoot.AddComponent<LycheeLabelUpgradeOptOut>();
+        SpriteRenderer spriteRenderer = null;
 
         Sprite sprite = LycheeLoadThemeSprite("EventIcons/icon_event_clear_obstacle");
         if (sprite != null)
         {
-            SpriteRenderer renderer = iconRoot.AddComponent<SpriteRenderer>();
-            renderer.sprite = sprite;
-            renderer.sortingOrder = 24000;
+            GameObject spriteObject = new GameObject("Sprite");
+            spriteObject.transform.SetParent(iconRoot.transform, false);
+            spriteObject.transform.localScale = Vector3.one * BadgeSpriteScale;
+            spriteRenderer = spriteObject.AddComponent<SpriteRenderer>();
+            spriteRenderer.sprite = sprite;
+            spriteRenderer.sortingOrder = BadgeSpriteOrder;
+            spriteRenderer.color = Color.white;
         }
         else
         {
             Material material = GetUnlitMaterial("clear_badge_fallback", new Color(1f, 0.74f, 0.24f, 1f), false);
             CreateBarCube(iconRoot.transform, "PickaxeA", new Vector3(-0.15f, 0f, 0f), new Vector3(0f, 0f, 45f), new Vector3(0.08f, 1.0f, 0.08f), material);
             CreateBarCube(iconRoot.transform, "PickaxeB", new Vector3(0.15f, 0f, 0f), new Vector3(0f, 0f, -45f), new Vector3(0.08f, 1.0f, 0.08f), material);
-            CreateWorldLabel(iconRoot.transform, new Vector3(0f, -0.74f, -0.02f), "清障", GoldColor, 42, 0.06f, false);
+            CreatePlaqueLabel(iconRoot.transform, new Vector3(0f, -0.86f, -0.03f),
+                "清障", ObstaclePlaqueWidth, ObstaclePlaqueHeight, 40, 0.17f);
         }
+
+        TextMesh status = CreateStatusMark(iconRoot.transform, new Vector3(0.42f, 0.42f, -0.04f), true);
+        if (status != null) status.gameObject.SetActive(false);
 
         return new ObstacleBadge
         {
+            nodeId = nodeId,
             root = root,
             iconRoot = iconRoot.transform,
+            iconRenderer = spriteRenderer,
+            statusMark = status,
             bobSeed = Mathf.Abs(nodeId.GetHashCode() % 628) * 0.01f
         };
+    }
+
+    static void ApplyObstacleBadgeState(ObstacleBadge badge, bool active)
+    {
+        if (badge == null) return;
+        badge.cleared = !active;
+        if (badge.root != null && !badge.root.activeSelf) badge.root.SetActive(true);
+        if (badge.iconRenderer != null)
+            badge.iconRenderer.color = Color.white;
+        if (badge.statusMark != null && !badge.resultMarked)
+        {
+            if (active)
+            {
+                // 障碍还在 → 收起盖章整块（含底色块根节点），避免遗留色块。
+                Transform smRoot = badge.statusMark.transform.parent;
+                if (smRoot != null) smRoot.gameObject.SetActive(false);
+            }
+            else
+            {
+                ApplyStatusMark(badge.statusMark, true, badge.teamColor);
+            }
+        }
+    }
+
+    void MarkObstacleBadgeResult(LycheeReplayPayload payload, bool success)
+    {
+        string nodeId = ResultNodeId(payload);
+        if (string.IsNullOrEmpty(nodeId)) return;
+
+        knownObstacleNodes.Add(nodeId);
+        if (!obstacleBadges.TryGetValue(nodeId, out ObstacleBadge badge) || badge == null || badge.root == null)
+        {
+            badge = CreateObstacleBadge(nodeId);
+            if (badge == null) return;
+            obstacleBadges[nodeId] = badge;
+        }
+
+        badge.resultMarked = true;
+        badge.resultSuccess = success;
+        badge.resultFlashStart = Time.time;
+        badge.teamColor = ResolveTeamColor(payload);
+        if (badge.iconRenderer != null) badge.iconRenderer.color = Color.white;
+        ApplyStatusMark(badge.statusMark, success, badge.teamColor);
+        if (badge.root != null)
+            SpawnPulse(badge.root.transform.position, success ? CompletePulseColor : new Color(1f, 0.30f, 0.22f, 1f));
+    }
+
+    // 事件归属的队色：有队号就取该队队色（与回放其余队色一致），否则中性金。
+    Color ResolveTeamColor(LycheeReplayPayload payload)
+    {
+        if (player != null && payload != null && payload.playerId > 0)
+            return player.TeamColorOf(payload.playerId);
+        return GoldColor;
+    }
+
+    static string ResultNodeId(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        if (!string.IsNullOrEmpty(payload.targetNodeId)) return payload.targetNodeId;
+        if (!string.IsNullOrEmpty(payload.nodeId)) return payload.nodeId;
+        if (!string.IsNullOrEmpty(payload.toNodeId)) return payload.toNodeId;
+        return null;
     }
 
     void UpdateObstacleBadges(float time)
@@ -643,33 +804,23 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         {
             ObstacleBadge badge = pair.Value;
             if (badge == null || badge.root == null || badge.iconRoot == null) continue;
-            float y = Mathf.Sin(time * 1.65f + badge.bobSeed) * 0.12f;
+            float y = badge.cleared ? 0f : Mathf.Sin(time * 1.65f + badge.bobSeed) * 0.12f;
             badge.iconRoot.localPosition = new Vector3(0f, y, 0f);
-            float pulse = 1f + Mathf.Sin(time * 2.2f + badge.bobSeed) * 0.04f;
+            float pulse = badge.cleared ? 0.96f : 1f + Mathf.Sin(time * 2.2f + badge.bobSeed) * 0.04f;
+            if (badge.resultFlashStart >= 0f)
+            {
+                float t = (time - badge.resultFlashStart) / ObstacleResultFlashSeconds;
+                if (t >= 1f)
+                {
+                    badge.resultFlashStart = -1f;
+                }
+                else
+                {
+                    pulse *= 1f + Mathf.Sin(t * Mathf.PI) * 0.22f;
+                }
+            }
             badge.iconRoot.localScale = Vector3.one * pulse;
         }
-    }
-
-    static bool IsActiveTask(LycheeReplayTaskState task)
-    {
-        if (task == null) return false;
-        return task.status == "ACTIVE" || task.active;
-    }
-
-    static bool IsClearObstacleTask(LycheeReplayTaskState task)
-    {
-        if (task == null) return false;
-        return IsClearToken(task.templateId) ||
-            IsClearToken(task.taskTemplateId) ||
-            IsClearToken(task.processType) ||
-            IsClearToken(task.name);
-    }
-
-    static bool IsClearToken(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return false;
-        string upper = value.ToUpperInvariant();
-        return upper.Contains("CLEAR") || upper.Contains("OBSTACLE") || value.Contains("清障");
     }
 
     // ------------------------------------------------------------------ 3. 任务 / 悬赏光柱
@@ -780,12 +931,15 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 6.6f, 0f),
             string.Empty, color, 32, 0.06f, true);
+        TextMesh status = CreateStatusMark(root.transform, new Vector3(0.72f, 6.2f, -0.04f), true);
+        if (status != null) status.gameObject.SetActive(false);
         return new PillarMarker
         {
             root = root,
             pillar = pillar.transform,
             pillarMaterial = material,
             label = label,
+            statusMark = status,
             baseColor = color
         };
     }
@@ -794,6 +948,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     {
         if (marker == null || marker.fadeStart >= 0f) return;
         marker.fadeStart = Time.time;
+        ApplyStatusMark(marker.statusMark, completed);
         if (completed && marker.root != null)
             SpawnPulse(marker.root.transform.position + Vector3.up * 1.2f, CompletePulseColor);
     }
@@ -842,13 +997,23 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             labelColor.a = factor;
             marker.label.color = labelColor;
         }
+        if (marker.statusMark != null)
+        {
+            Color statusColor = marker.statusMark.color;
+            statusColor.a = factor;
+            marker.statusMark.color = statusColor;
+        }
     }
 
-    void DestroyPillar(PillarMarker marker)
+    void DestroyPillar(PillarMarker marker, bool immediate = false)
     {
         if (marker == null) return;
         if (marker.pillarMaterial != null) Destroy(marker.pillarMaterial);
-        if (marker.root != null) Destroy(marker.root);
+        if (marker.root != null)
+        {
+            if (immediate) DestroyMarkerRoot(marker.root);
+            else Destroy(marker.root);
+        }
     }
 
     static string TaskLabelText(LycheeReplayTaskState task, int round)
@@ -1057,25 +1222,33 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     void ClearAllMarkers()
     {
         foreach (GuardMarker marker in guards.Values)
-            if (marker != null && marker.root != null) Destroy(marker.root);
+            if (marker != null && marker.root != null) DestroyMarkerRoot(marker.root);
         guards.Clear();
 
         foreach (ResourceMarker marker in resources.Values)
-            if (marker != null && marker.root != null) Destroy(marker.root);
+            if (marker != null && marker.root != null) DestroyMarkerRoot(marker.root);
         resources.Clear();
 
-        foreach (PillarMarker marker in taskPillars.Values) DestroyPillar(marker);
+        foreach (PillarMarker marker in taskPillars.Values) DestroyPillar(marker, true);
         taskPillars.Clear();
-        foreach (PillarMarker marker in bountyPillars.Values) DestroyPillar(marker);
+        foreach (PillarMarker marker in bountyPillars.Values) DestroyPillar(marker, true);
         bountyPillars.Clear();
 
         foreach (ObstacleBadge badge in obstacleBadges.Values)
-            if (badge != null && badge.root != null) Destroy(badge.root);
+            if (badge != null && badge.root != null) DestroyMarkerRoot(badge.root);
         obstacleBadges.Clear();
+        knownObstacleNodes.Clear();
+        activeObstacleNodes.Clear();
 
         foreach (ProgressRing ring in rings.Values)
-            if (ring != null && ring.root != null) Destroy(ring.root);
+            if (ring != null && ring.root != null) DestroyMarkerRoot(ring.root);
         rings.Clear();
+    }
+
+    static void DestroyMarkerRoot(GameObject root)
+    {
+        if (root == null) return;
+        DestroyImmediate(root);
     }
 
     void SpawnPulse(Vector3 position, Color color)
@@ -1098,8 +1271,35 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         ParticleSystem.ShapeModule shape = particles.shape;
         shape.shapeType = ParticleSystemShapeType.Sphere;
         shape.radius = 0.5f;
+        // 关键：粒子渲染器必须显式给材质。默认粒子材质在 URP 下 shader 解析为 NULL → 整团粒子渲成洋红方块
+        // （用户截图里资源徽章旁那几个品红色块就是它）。统一用 URP 透明材质，命中即按 startColor 着色。
+        ParticleSystemRenderer pulseRenderer = particles.GetComponent<ParticleSystemRenderer>();
+        if (pulseRenderer != null)
+        {
+            Material pulseMat = GetPulseMaterial();
+            if (pulseMat != null) pulseRenderer.sharedMaterial = pulseMat;
+            pulseRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            pulseRenderer.receiveShadows = false;
+        }
         particles.Play();
         Destroy(root, 0.9f);
+    }
+
+    // 脉冲粒子材质（透明、白底，按粒子 startColor 着色）。URP/Particles/Unlit 优先，逐级回退，
+    // 缓存复用——避免每次脉冲都新建材质，也避免默认粒子材质在 URP 下变洋红。
+    Material GetPulseMaterial()
+    {
+        if (materialCache.TryGetValue("__markerPulse", out Material cached) && cached != null) return cached;
+        Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        if (shader == null) return null;
+        Material material = new Material(shader) { name = "LycheeMarkerPulseMat" };
+        LycheeMakeTransparent(material);
+        if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
+        if (material.HasProperty("_Color")) material.SetColor("_Color", Color.white);
+        materialCache["__markerPulse"] = material;
+        return material;
     }
 
     static void CreateBarCube(
@@ -1147,6 +1347,136 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         label.color = color;
         labelObject.AddComponent<LycheeChineseLabel>();
         return label;
+    }
+
+    TextMesh CreatePlaqueLabel(
+        Transform parent,
+        Vector3 localPosition,
+        string text,
+        float width,
+        float height,
+        int fontSize,
+        float characterSizeOverride = -1f)
+    {
+        GameObject root = new GameObject("PlaqueLabel");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = localPosition;
+        root.AddComponent<LycheeLabelUpgradeOptOut>();
+
+        GameObject plateObject = new GameObject("Plate");
+        plateObject.transform.SetParent(root.transform, false);
+        plateObject.transform.localScale = new Vector3(width, height, 1f);
+        SpriteRenderer plate = plateObject.AddComponent<SpriteRenderer>();
+        plate.sprite = EventPlaqueSprite();
+        plate.color = new Color(0.30f, 0.20f, 0.07f, 0.94f);
+        plate.sortingOrder = 24001;
+
+        int textLength = string.IsNullOrEmpty(text) ? 1 : text.Length;
+        float characterSize = characterSizeOverride > 0f
+            ? characterSizeOverride
+            : (textLength >= 4 ? 0.07f : (textLength == 3 ? 0.082f : 0.095f));
+        TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.03f),
+            text, new Color(1f, 0.91f, 0.66f, 1f), fontSize, characterSize, false);
+        MeshRenderer labelRenderer = label.GetComponent<MeshRenderer>();
+        if (labelRenderer != null) labelRenderer.sortingOrder = 24003;
+
+        return label;
+    }
+
+    static TextMesh CreateStatusMark(Transform parent, Vector3 localPosition, bool success)
+    {
+        GameObject root = new GameObject("StatusMark");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = localPosition;
+        root.transform.localScale = Vector3.one * 0.62f;
+
+        SpriteRenderer back = root.AddComponent<SpriteRenderer>();
+        back.sprite = EventPlaqueSprite();
+        back.color = success
+            ? new Color(0.04f, 0.30f, 0.11f, 0.96f)
+            : new Color(0.42f, 0.06f, 0.04f, 0.96f);
+        back.sortingOrder = 24010;
+
+        TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 0.01f, -0.03f),
+            success ? "✓" : "×", Color.white, 58, 0.07f, false);
+        MeshRenderer labelRenderer = label.GetComponent<MeshRenderer>();
+        if (labelRenderer != null) labelRenderer.sortingOrder = 24011;
+        // 整块盖章（含底色块 SpriteRenderer）默认隐藏：过去只 SetActive(false) 返回的 label 子物体、
+        // 根节点的底色块仍亮着，于是每个徽章右下角常驻一块"统一的绿色"色块（用户要去掉的就是它）。
+        // 关掉根节点 → 盖章在「完成并 ApplyStatusMark」之前完全不显示。
+        root.SetActive(false);
+        return label;
+    }
+
+    // 显示盖章：先把根节点（底色块所在）激活，再激活 ✓/× 文字——只 SetActive 文字救不活被隐藏的根。
+    static void ShowStatusMarkRoot(TextMesh mark)
+    {
+        if (mark == null) return;
+        Transform root = mark.transform.parent;
+        if (root != null && !root.gameObject.activeSelf) root.gameObject.SetActive(true);
+        mark.gameObject.SetActive(true);
+    }
+
+    static void ApplyStatusMark(TextMesh mark, bool success)
+    {
+        if (mark == null) return;
+        ShowStatusMarkRoot(mark);
+        mark.text = success ? "✓" : "×";
+        mark.color = Color.white;
+        SpriteRenderer back = mark.transform.parent == null ? null : mark.transform.parent.GetComponent<SpriteRenderer>();
+        if (back != null)
+        {
+            back.color = success
+                ? new Color(0.04f, 0.30f, 0.11f, 0.96f)
+                : new Color(0.42f, 0.06f, 0.04f, 0.96f);
+        }
+    }
+
+    // 队色版盖章：底色块改成「哪队完成的就用哪队的颜色」，不再是统一的绿/红。
+    // ✓/× 符号本身继续区分成败，队色只表明是哪一队盖的章（用户诉求）。
+    static void ApplyStatusMark(TextMesh mark, bool success, Color teamColor)
+    {
+        if (mark == null) return;
+        ShowStatusMarkRoot(mark);
+        mark.text = success ? "✓" : "×";
+        mark.color = Color.white;
+        SpriteRenderer back = mark.transform.parent == null ? null : mark.transform.parent.GetComponent<SpriteRenderer>();
+        if (back != null) back.color = StampPlaqueColor(teamColor, success);
+    }
+
+    // 盖章底色块：以队色为基调，成功偏亮一档、失败压暗一档，保证白色 ✓/× 在两种情况下都清楚。
+    static Color StampPlaqueColor(Color teamColor, bool success)
+    {
+        float mul = success ? 0.66f : 0.42f;
+        return new Color(teamColor.r * mul, teamColor.g * mul, teamColor.b * mul, 0.96f);
+    }
+
+    static Sprite eventPlaqueSprite;
+
+    static Sprite EventPlaqueSprite()
+    {
+        if (eventPlaqueSprite != null) return eventPlaqueSprite;
+        const int width = 128;
+        const int height = 48;
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        Color[] pixels = new Color[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float nx = Mathf.Abs((x + 0.5f) / width - 0.5f) * 2f;
+                float ny = Mathf.Abs((y + 0.5f) / height - 0.5f) * 2f;
+                float edge = Mathf.Max(nx, ny);
+                float alpha = edge > 0.98f ? 0f : 1f;
+                pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        texture.name = "LycheeEventPlaqueSprite";
+        eventPlaqueSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), width);
+        eventPlaqueSprite.name = "LycheeEventPlaqueSprite";
+        return eventPlaqueSprite;
     }
 
     Material GetLitMaterial(string key, Color baseColor, Color emissionColor)

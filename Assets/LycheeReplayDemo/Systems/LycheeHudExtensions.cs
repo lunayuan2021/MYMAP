@@ -109,6 +109,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     readonly Dictionary<int, int> lastTickerFreshRoundByPlayer = new Dictionary<int, int>();
     readonly Dictionary<int, int> lastStateExplainRoundByPlayer = new Dictionary<int, int>();
     string tickerCurrentLabel;
+    string lastFeedDedupKey;
+    string lastTickerDedupKey;
     float tickerStart;
     float tickerDuration = 6f;
     float tickerTextWidth = 800f;
@@ -132,7 +134,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     Slider seekSlider;
     Text roundLabel;
     Text playButtonLabel;
-    Text speedButtonLabel;
+    Dropdown speedDropdown;
     string playGlyph = "播放";
     string pauseGlyph = "暂停";
     bool suppressSlider;
@@ -421,14 +423,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         playGlyph = "播放";
         pauseGlyph = "暂停";
 
-        // 按钮行（自面板左缘起，按钮间隔 12px）：重播 16..112 / 播放 124..196 / 速度 208..284。
+        // 按钮行（自面板左缘起，按钮间隔 12px）：重播 16..112 / 播放 124..196 / 速度下拉 208..318。
         MakeButton(panel, "ReplayButton", replayLabel, new Vector2(16f, -16f), new Vector2(96f, 36f), OnReplayClicked, out _);
         MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(124f, -16f), new Vector2(72f, 36f), OnPlayPauseClicked, out playButtonLabel);
-        MakeButton(panel, "SpeedButton", SpeedLabels[speedIndex], new Vector2(208f, -16f), new Vector2(76f, 36f), OnSpeedClicked, out speedButtonLabel);
+        speedDropdown = MakeSpeedDropdown(panel, new Vector2(208f, -16f), new Vector2(110f, 36f));
 
         roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleRight);
-        // 回合标签右对齐 308..484，与速度按钮右缘（284）保持 24px 净空。
-        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(176f, 36f));
+        // 回合标签右对齐 338..484，与速度下拉右缘（318）保持 20px 净空。
+        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(146f, 36f));
         roundLabel.text = "R 0 / 0";
 
         seekSlider = BuildSeekSlider(panel);
@@ -587,6 +589,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         string label = "回合 " + round + "  " + actor +
             (string.IsNullOrEmpty(node) ? "" : node + " · ") + FeedEventDetail(type, payload, node);
         Color color = FeedColor(type);
+        string dedupKey = BuildNotificationDedupKey(type, payload);
+        if (ShouldSkipConsecutiveNotification(ref lastFeedDedupKey, dedupKey)) return;
         if (feedPaused)
         {
             pendingFeed.Add(new PendingFeed { label = label, color = color, eventType = type, iconPath = FeedIconPath(type, payload) });
@@ -684,6 +688,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     void UpdateFeed(float now)
     {
+        if (IsReplayPausedForHud() && !IsPresentationActiveForHud()) return;
         if (feedPaused && rushRoutine == null)
         {
             feedPaused = false;
@@ -747,6 +752,15 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     static string FeedEventDetail(string type, LycheeReplayPayload payload, string nodeName)
     {
+        // 资源类写明是哪种资源（冰鉴/快马/短驿马…），否则泛化的「资源使用」看不出用了什么。
+        if (type == "RESOURCE_USE")
+            return "使用" + ResourceName(payload == null ? null : payload.resourceType);
+        if (type == "RESOURCE_CLAIM")
+            return "获取" + ResourceName(payload == null ? null : payload.resourceType);
+        if (type == "WINDOW_CONTEST_DRAW")
+            return ContestDrawText(payload);
+        if (type == "PROCESS_PROGRESS" && IsRestingProcess(payload))
+            return RestingProgressText(payload);
         if (IsProcessEvent(type))
         {
             string action = StationProcessAction(payload, nodeName);
@@ -783,7 +797,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (message == null || string.IsNullOrEmpty(message.type)) return;
         if (TryBuildMechanicText(message, round, out string text, out Color color))
+        {
+            string dedupKey = BuildNotificationDedupKey(message.type, message.payload);
+            if (ShouldSkipConsecutiveNotification(ref lastTickerDedupKey, dedupKey)) return;
             PushTicker(text, color);
+        }
     }
 
     void PushTicker(string label, Color color)
@@ -796,6 +814,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     void UpdateTicker(float now)
     {
         if (tickerGroup == null || tickerText == null || tickerTextRect == null) return;
+        if (IsReplayPausedForHud() && !IsPresentationActiveForHud()) return;
         if (tickerCurrentLabel == null && tickerQueue.Count > 0)
             StartNextTicker(now);
 
@@ -846,8 +865,18 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             text = "回合 " + round + " " + team + " 出现好果转坏" + fruit + "：好果数和鲜度都会影响最终分，低鲜度会拖低结算。";
             return true;
         }
+        if (type == "WINDOW_CONTEST_DRAW")
+        {
+            text = "回合 " + round + " " + ContestDrawText(payload) + "。";
+            return true;
+        }
         if (type == "PROCESS_PROGRESS")
         {
+            if (IsRestingProcess(payload))
+            {
+                text = "回合 " + round + " " + RestingProgressText(payload) + "。";
+                return true;
+            }
             string left = payload.remainingRound >= 0 ? "，剩余 " + payload.remainingRound + " 回合" : "";
             text = "回合 " + round + " " + team + " 停留在 " + SafeNode(node) + "：" + ProcessName(payload.processType) + left + reward + "；该行动完成后会恢复推进。";
             return true;
@@ -1109,7 +1138,50 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (value == "WIN_HORSE_WINDOW") return "争马换乘";
         if (value == "WIN_DOCK_WINDOW") return "码头争船";
         if (value == "BREAK_GUARD") return "破关";
+        if (value == "RESTING") return "平局休整";
         return "站点处理";   // 兜底改中文
+    }
+
+    static bool IsRestingProcess(LycheeReplayPayload payload)
+    {
+        return payload != null && payload.processType == "RESTING";
+    }
+
+    static string RestingProgressText(LycheeReplayPayload payload)
+    {
+        int remaining = payload == null ? 0 : payload.remainingRound;
+        if (remaining <= 0) return "平局休整结束";
+        return "平局休整中，剩 " + remaining + " 帧";
+    }
+
+    static string ContestDrawText(LycheeReplayPayload payload)
+    {
+        int rest = payload == null ? 0 : payload.restRound;
+        if (rest <= 0 && payload != null) rest = payload.remainingRound > 0 ? payload.remainingRound : payload.durationRound;
+        if (rest <= 0 && payload != null) rest = payload.totalRounds;
+        if (rest <= 0) rest = 3;
+        return "窗口平局，双方休整 " + rest + " 帧，休整中";
+    }
+
+    static string BuildNotificationDedupKey(string type, LycheeReplayPayload payload)
+    {
+        payload = payload ?? new LycheeReplayPayload();
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        if (string.IsNullOrEmpty(nodeId)) nodeId = payload.fromNodeId;
+        // 故意不纳入 remainingRound/restRound/score 这类「每回合都在变的倒计时/分数」字段：
+        // 否则「平局休整中（还剩 3 帧→2→1）」每回合 key 都不同，连续去重失效、同一条提示刷屏。
+        // 只用事件身份（类型/队伍/节点/处理/资源/动作/错误码）做 key，让同一状态的连发塌缩成一条，
+        // 直到出现一条「不一样的事件」才再次放行（用户诉求：平局休整只显示一遍）。
+        return type + "|" + payload.playerId + "|" + nodeId + "|" + payload.processType + "|" +
+            payload.resourceType + "|" + payload.action + "|" + payload.errorCode;
+    }
+
+    static bool ShouldSkipConsecutiveNotification(ref string lastKey, string key)
+    {
+        if (string.IsNullOrEmpty(key)) return false;
+        if (lastKey == key) return true;
+        lastKey = key;
+        return false;
     }
 
     static string ActionName(string value)
@@ -1328,6 +1400,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             string wanted = player.IsPlaying ? pauseGlyph : playGlyph;
             if (playButtonLabel.text != wanted) playButtonLabel.text = wanted;
         }
+        if (speedDropdown != null && speedDropdown.value != speedIndex)
+            speedDropdown.SetValueWithoutNotify(speedIndex);
     }
 
     void OnReplayClicked()
@@ -1344,11 +1418,22 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         UpdateControls();
     }
 
-    void OnSpeedClicked()
+    void OnSpeedChanged(int index)
     {
-        speedIndex = (speedIndex + 1) % SpeedSeconds.Length;
+        speedIndex = Mathf.Clamp(index, 0, SpeedSeconds.Length - 1);
         if (player != null) player.secondsPerRound = SpeedSeconds[speedIndex];
-        if (speedButtonLabel != null) speedButtonLabel.text = SpeedLabels[speedIndex];
+    }
+
+    bool IsReplayPausedForHud()
+    {
+        return player != null && !player.IsPlaying && !sliderHeld && !playStateCaptured;
+    }
+
+    static bool IsPresentationActiveForHud()
+    {
+        return LycheeVideoInterlude.IsPresentationActive ||
+            LycheeVideoInterlude.IsPresentationVisible ||
+            LycheeOpeningShowcase.AnyShowing;
     }
 
     void OnSliderChanged(float value)
@@ -2192,6 +2277,84 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
         return text;
+    }
+
+    Dropdown MakeSpeedDropdown(RectTransform parent, Vector2 anchoredPosition, Vector2 size)
+    {
+        GameObject go = new GameObject("SpeedDropdown", typeof(RectTransform), typeof(Image), typeof(Dropdown));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        SetRect(rt, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), anchoredPosition, size);
+
+        Image image = go.GetComponent<Image>();
+        image.color = new Color(0.16f, 0.14f, 0.11f, 0.97f);
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = new Color(DarkGoldEdge.r, DarkGoldEdge.g, DarkGoldEdge.b, 0.72f);
+        outline.effectDistance = new Vector2(1f, -1f);
+
+        Text caption = MakeText("Label", rt, 20, FontStyle.Bold, GoldTitle, TextAnchor.MiddleCenter);
+        SetRect(caption.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(-8f, 0f), new Vector2(-28f, 0f));
+        caption.text = SpeedLabels[speedIndex];
+
+        Text arrow = MakeText("Arrow", rt, 18, FontStyle.Bold, GoldTitle, TextAnchor.MiddleCenter);
+        SetRect(arrow.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(-8f, 0f), new Vector2(22f, 0f));
+        arrow.text = "v";
+
+        RectTransform template = MakeRect("Template", rt);
+        SetRect(template, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(0f, 126f));
+        Image templateBg = template.gameObject.AddComponent<Image>();
+        templateBg.color = new Color(0.09f, 0.08f, 0.06f, 0.98f);
+        Outline templateOutline = template.gameObject.AddComponent<Outline>();
+        templateOutline.effectColor = new Color(DarkGoldEdge.r, DarkGoldEdge.g, DarkGoldEdge.b, 0.72f);
+        templateOutline.effectDistance = new Vector2(1f, -1f);
+        ScrollRect scroll = template.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+
+        RectTransform viewport = MakeRect("Viewport", template);
+        SetRect(viewport, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+        Image viewportImage = viewport.gameObject.AddComponent<Image>();
+        viewportImage.color = new Color(0f, 0f, 0f, 0.05f);
+        Mask mask = viewport.gameObject.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        RectTransform content = MakeRect("Content", viewport);
+        float rowHeight = 30f;
+        SetRect(content, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, SpeedLabels.Length * rowHeight));
+
+        RectTransform item = MakeRect("Item", content);
+        SetRect(item, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -rowHeight * 0.5f), new Vector2(0f, rowHeight));
+        Image itemBg = item.gameObject.AddComponent<Image>();
+        itemBg.color = new Color(0.16f, 0.12f, 0.09f, 0.92f);
+        Toggle itemToggle = item.gameObject.AddComponent<Toggle>();
+        itemToggle.targetGraphic = itemBg;
+
+        RectTransform checkmark = MakeRect("Item Checkmark", item);
+        SetRect(checkmark, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(8f, 0f), new Vector2(10f, 10f));
+        Image checkImage = checkmark.gameObject.AddComponent<Image>();
+        checkImage.color = GoldTitle;
+        itemToggle.graphic = checkImage;
+
+        Text itemLabel = MakeText("Item Label", item, 18, FontStyle.Bold, GoldTitle, TextAnchor.MiddleCenter);
+        SetRect(itemLabel.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(6f, 0f), new Vector2(-24f, 0f));
+
+        scroll.viewport = viewport;
+        scroll.content = content;
+        template.gameObject.SetActive(false);
+
+        Dropdown dropdown = go.GetComponent<Dropdown>();
+        dropdown.targetGraphic = image;
+        dropdown.template = template;
+        dropdown.captionText = caption;
+        dropdown.itemText = itemLabel;
+        dropdown.options.Clear();
+        for (int i = 0; i < SpeedLabels.Length; i++)
+            dropdown.options.Add(new Dropdown.OptionData(SpeedLabels[i]));
+        dropdown.SetValueWithoutNotify(speedIndex);
+        dropdown.RefreshShownValue();
+        dropdown.onValueChanged.AddListener(OnSpeedChanged);
+        return dropdown;
     }
 
     Button MakeButton(RectTransform parent, string goName, string label, Vector2 anchoredPosition, Vector2 size, UnityEngine.Events.UnityAction onClick, out Text labelText)

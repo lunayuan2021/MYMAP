@@ -512,6 +512,8 @@ static class LycheeWebGLBuild_20260612
             "        }\n" +
             "        if (!isNaN(requestedDpr) && requestedDpr > 0) renderDpr = Math.min(4, Math.max(0.75, requestedDpr));\n" +
             "        config.devicePixelRatio = renderDpr;\n" +
+            "        window.__lycheeResumeAudio = function(){ try { var ctx = (typeof WEBAudio !== 'undefined' && WEBAudio && WEBAudio.audioContext) ? WEBAudio.audioContext : null; if (!ctx && typeof Module !== 'undefined' && Module) ctx = Module.webAudioContext || Module.audioContext || null; if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume(); } catch(e) {} };\n" +
+            "        ['pointerdown','touchstart','keydown'].forEach(function(t){ window.addEventListener(t, window.__lycheeResumeAudio, { passive: true }); });\n" +
             "        createUnityInstance(canvas, config, (progress) => {");
         html = html.Replace(
             "alert(message);",

@@ -25,6 +25,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     const float PrepareTimeout = 12f;     // 视频准备超时（WebGL 首次解码慢，对齐开场演出的 12s）
     const float CooldownSeconds = 20f;    // 两次插播之间的最小真实间隔，避免连环打断
     const float FadeSeconds = 0.45f;
+    const int ClearObstacleCardConflictGraceRounds = 3;
     // 插播短片要在天气氛围层(125)之上，但在运行时 HUD(130/140)之下；
     // 否则左侧事件流、右侧事件卡和中央窗口争夺会被视频盖住。
     const int CanvasSortingOrder = 128;
@@ -49,6 +50,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     bool busy;            // 正在准备或播放插播
     float lastEndTime = -999f;
     bool skipRequested;
+    bool cardWindowActive;
+    int suppressClearObstacleUntilRound = -1;
 
     GameObject canvasRoot;
     CanvasGroup group;
@@ -83,14 +86,56 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
 
     void OnReplayEvent(LycheeReplayMessage message, int round)
     {
-        if (player == null || busy) return;
-        if (player.IsApplyingForcedFrame) return;
         if (message == null || string.IsNullOrEmpty(message.type)) return;
+        if (player == null) return;
+        if (player.IsApplyingForcedFrame) return;
+
+        TrackCardWindowState(message, round);
+
+        if (busy) return;
         if (Time.time - lastEndTime < CooldownSeconds) return;
+        if (ShouldSuppressClearObstacleInterlude(message, round)) return;
         string fileName = ResolveInterludeVideo(message);
         if (string.IsNullOrEmpty(fileName)) return;
         if (knownMissing.Contains(fileName)) return;
         StartCoroutine(RunInterlude(fileName));
+    }
+
+    void TrackCardWindowState(LycheeReplayMessage message, int round)
+    {
+        if (message.type == "WINDOW_CONTEST_START")
+        {
+            cardWindowActive = true;
+            ExtendClearObstacleSuppression(round + ClearObstacleCardConflictGraceRounds);
+            return;
+        }
+
+        if (message.type == "WINDOW_CARD_REVEAL")
+        {
+            ExtendClearObstacleSuppression(round + ClearObstacleCardConflictGraceRounds);
+            return;
+        }
+
+        if (message.type == "WINDOW_CONTEST_END" ||
+            message.type == "WINDOW_CONTEST_DRAW" ||
+            message.type == "WINDOW_CARD_WIN" ||
+            message.type == "WINDOW_CARD_DRAW")
+        {
+            cardWindowActive = false;
+            ExtendClearObstacleSuppression(round + ClearObstacleCardConflictGraceRounds);
+        }
+    }
+
+    void ExtendClearObstacleSuppression(int untilRound)
+    {
+        if (untilRound > suppressClearObstacleUntilRound)
+            suppressClearObstacleUntilRound = untilRound;
+    }
+
+    bool ShouldSuppressClearObstacleInterlude(LycheeReplayMessage message, int round)
+    {
+        return message.type == "OBSTACLE_CLEAR" &&
+            (cardWindowActive || round <= suppressClearObstacleUntilRound);
     }
 
     static string ResolveInterludeVideo(LycheeReplayMessage message)

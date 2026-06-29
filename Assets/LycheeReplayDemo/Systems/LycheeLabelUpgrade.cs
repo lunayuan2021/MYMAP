@@ -4,6 +4,14 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>
+/// 标记某些运行时自绘 UI 文本不要被世界标签 TMP 升级器接管。
+/// 例如徽章牌匾内部文字已经按牌匾局部空间精确缩放，再套 TMP 会出现大字叠小字。
+/// </summary>
+public sealed class LycheeLabelUpgradeOptOut : MonoBehaviour
+{
+}
+
+/// <summary>
 /// 世界标签精致化系统（运行时自举）：用户反馈白字 TextMesh 发虚、远景标签拥挤。
 /// 三件事，全部只动渲染层、不动任何写入方：
 /// 1. TMP 镜像 —— LycheeTmpFontBake_20260613 烘出的 SDF 字体在 Resources 时，给每个 TextMesh
@@ -41,6 +49,9 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
     const float PlaqueGoldZ = 0.05f;    // 金边再靠后一点
     const int InkQueue = 2998;          // 牌匾排在 TMP 文字（3000）之前：金→墨→文字固定次序，
     const int GoldQueue = 2997;         // 免得靠几厘米的 z 偏移做距离排序在远处抖动
+    const int StationLabelOrder = 23000;
+    const int StationPlaqueInkOrder = 22999;
+    const int StationPlaqueGoldOrder = 22998;
 
     // 唐风调色板：墨 #1A1714（牌匾底 a0.78）、鎏金 #D4AF5C、描边取近墨的深色
     static readonly Color InkColor = new Color(0x1A / 255f, 0x17 / 255f, 0x14 / 255f, 0.78f);
@@ -197,9 +208,14 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
         for (int i = 0; i < found.Length; i++)
         {
             TextMesh source = found[i];
-            if (source == null || entries.ContainsKey(source)) continue;
+            if (source == null || entries.ContainsKey(source) || ShouldSkip(source)) continue;
             Upgrade(source);
         }
+    }
+
+    static bool ShouldSkip(TextMesh source)
+    {
+        return source != null && source.GetComponentInParent<LycheeLabelUpgradeOptOut>() != null;
     }
 
     void Upgrade(TextMesh source)
@@ -245,12 +261,16 @@ public sealed class LycheeLabelUpgrade : MonoBehaviour
             lastText = tmp.text,
             lastFontSize = tmp.fontSize,
         };
+        if (entry.persistent && entry.tmpRenderer != null)
+            entry.tmpRenderer.sortingOrder = StationLabelOrder;
 
         if (entry.persistent && quadMesh != null && inkMaterial != null && goldMaterial != null)
         {
             // 牌匾：墨底 + 鎏金边双 Quad；颜色走 MPB，两块牌匾共享各自材质不再实例化
             entry.plaqueGold = CreatePlaqueQuad(source.transform, "Plaque_Gold", goldMaterial, PlaqueGoldZ);
             entry.plaqueInk = CreatePlaqueQuad(source.transform, "Plaque_Ink", inkMaterial, PlaqueInkZ);
+            entry.plaqueGold.sortingOrder = StationPlaqueGoldOrder;
+            entry.plaqueInk.sortingOrder = StationPlaqueInkOrder;
             entry.inkBlock = new MaterialPropertyBlock();
             entry.goldBlock = new MaterialPropertyBlock();
             entry.inkBlock.SetColor(plaqueColorId, InkColor);
