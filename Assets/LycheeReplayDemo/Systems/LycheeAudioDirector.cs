@@ -1,19 +1,17 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 #if UNITY_WEBGL && !UNITY_EDITOR
 using System.Runtime.InteropServices;
 #endif
 using UnityEngine;
-using UnityEngine.Networking;
 
 /// <summary>
 /// 音频导演：统一管理回放的 BGM（双源交叉淡入淡出）、事件音效与环境循环音。
-/// 所有素材运行时从 StreamingAssets/Audio/ 加载（BGM/ 与 SFX/ 子目录），统一为 .ogg：
-/// WebGL 运行时无法解码 MP3（UnityWebRequestMultimedia 下 MP3 会"加载成功"却 0 采样=静音），
-/// 而 OGG/WAV 才能在浏览器里实时解码——素材全部转成 OGG 后只请求 .ogg，既能播放又不再产生
-/// .wav/.mp3 探测的 404。文件缺失一律静默跳过，绝不影响回放本身。
+/// 素材改为从 Resources 加载 Unity 导入的 AudioClip（Assets/LycheeReplayDemo/Resources/LycheeAudio/<BGM|SFX>/），
+/// 不再从 StreamingAssets 流式拉 .ogg：流式 OGG 在 Safari 解不了码=全静音，且服务器对 .ogg 二次 gzip 会整坏=各浏览器都静音。
+/// 导入的 AudioClip 由 Unity 自带 WASM 音频引擎解码、烘进 .data，所有浏览器一致可放、不经服务器单独请求。
+/// 另兜底 EnsureAudioListener：没有 Listener 整个工程一点声音都没有。文件缺失一律静默跳过，绝不影响回放本身。
 /// 通过 RuntimeInitializeOnLoadMethod 自举挂到 LycheeReplayPlayer 所在 GameObject。
 /// </summary>
 [DisallowMultipleComponent]
@@ -157,6 +155,7 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     void Start()
     {
         if (!initialized) return;
+        EnsureAudioListener();   // 没有 Listener 整个工程就一点声音都没有，先保一道
         try
         {
             StartCoroutine(LoadAllClipsRoutine());
@@ -427,83 +426,32 @@ public sealed class LycheeAudioDirector : MonoBehaviour
 
     // ---------------- 加载 ----------------
 
+    // 改为从 Resources 加载 Unity 导入的 AudioClip（不再从 StreamingAssets 流式拉 .ogg）。
+    // 原因：流式 OGG 在 Safari 解不了码（全静音），且服务器若对 .ogg 二次 gzip 会整坏文件（各浏览器都静音）。
+    // 导入的 AudioClip 由 Unity 自带的 WASM 音频引擎解码、烘进 .data 文件，所有浏览器一致可放、且不经服务器单独请求。
+    // 文件在 Assets/LycheeReplayDemo/Resources/LycheeAudio/<BGM|SFX>/<名字>.ogg。
     IEnumerator LoadAllClipsRoutine()
     {
-        yield return LoadGroupRoutine("BGM", BgmClipNames);
-        yield return LoadGroupRoutine("SFX", SfxClipNames);
+        LoadGroupFromResources("BGM", BgmClipNames);
+        LoadGroupFromResources("SFX", SfxClipNames);
         Debug.Log(
-            "LycheeAudioDirector 音频加载完成: " + clips.Count + "/" +
+            "LycheeAudioDirector 音频加载完成(Resources): " + clips.Count + "/" +
             (BgmClipNames.Length + SfxClipNames.Length) + " 个（缺失文件已静默跳过）。",
             this);
+        yield break;
     }
 
-    IEnumerator LoadGroupRoutine(string subFolder, string[] baseNames)
+    void LoadGroupFromResources(string subFolder, string[] baseNames)
     {
-        if (baseNames == null) yield break;
+        if (baseNames == null) return;
         for (int i = 0; i < baseNames.Length; i++)
         {
             string baseName = baseNames[i];
             if (string.IsNullOrEmpty(baseName) || clips.ContainsKey(baseName)) continue;
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-            // WebGL 无法 File.Exists 探测扩展名，按 .wav/.ogg/.mp3 顺序逐个请求，命中即停
-            string directoryUrl = Application.streamingAssetsPath + "/Audio/" + subFolder + "/";
-            for (int c = 0; c < WebGLAudioCandidates.Length; c++)
-            {
-                string url = directoryUrl + baseName + WebGLAudioCandidates[c].extension;
-                yield return TryLoadClipRoutine(url, WebGLAudioCandidates[c].audioType, baseName);
-                if (clips.ContainsKey(baseName)) break;
-            }
-#else
-            string path = LycheeResolveAudioPath(subFolder, baseName, out AudioType audioType);
-            if (string.IsNullOrEmpty(path)) continue;
-            yield return TryLoadClipRoutine(LycheeFileUrl(path), audioType, baseName);
-#endif
-        }
-    }
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-    struct WebGLAudioCandidate
-    {
-        public string extension;
-        public AudioType audioType;
-    }
-
-    // 素材已统一为 .ogg（WebGL 唯一既能实时解码又紧凑的格式）。只请求 .ogg：命中即播放、不再
-    // 探测不存在的 .wav/.mp3 而刷 404，也避免 MP3 在 WebGL 下"成功但 0 采样"的静音陷阱。
-    static readonly WebGLAudioCandidate[] WebGLAudioCandidates =
-    {
-        new WebGLAudioCandidate { extension = ".ogg", audioType = AudioType.OGGVORBIS }
-    };
-#endif
-
-    IEnumerator TryLoadClipRoutine(string url, AudioType audioType, string baseName)
-    {
-        UnityWebRequest request = null;
-        try
-        {
-            request = UnityWebRequestMultimedia.GetAudioClip(url, audioType);
-        }
-        catch (Exception)
-        {
-            request = null;
-        }
-        if (request == null) yield break;
-
-        using (request)
-        {
-            yield return request.SendWebRequest();
             try
             {
-                if (request.result == UnityWebRequest.Result.Success)
-                {
-                    AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
-                    if (clip != null)
-                    {
-                        clip.name = "LycheeAudio_" + baseName;
-                        clips[baseName] = clip;
-                    }
-                }
+                AudioClip clip = Resources.Load<AudioClip>("LycheeAudio/" + subFolder + "/" + baseName);
+                if (clip != null) clips[baseName] = clip;
             }
             catch (Exception)
             {
@@ -511,48 +459,20 @@ public sealed class LycheeAudioDirector : MonoBehaviour
         }
     }
 
-    /// <summary>按 .wav/.ogg/.mp3 顺序解析 StreamingAssets/Audio/&lt;子目录&gt;/&lt;文件名&gt; 的实际路径，全部缺失返回 null。</summary>
-    static string LycheeResolveAudioPath(string subFolder, string baseName, out AudioType audioType)
-    {
-        audioType = AudioType.WAV;
-        try
-        {
-            string directory = Path.Combine(Application.streamingAssetsPath, "Audio", subFolder);
-            string wavPath = Path.Combine(directory, baseName + ".wav");
-            if (File.Exists(wavPath))
-            {
-                audioType = AudioType.WAV;
-                return wavPath;
-            }
-            string oggPath = Path.Combine(directory, baseName + ".ogg");
-            if (File.Exists(oggPath))
-            {
-                audioType = AudioType.OGGVORBIS;
-                return oggPath;
-            }
-            string mp3Path = Path.Combine(directory, baseName + ".mp3");
-            if (File.Exists(mp3Path))
-            {
-                audioType = AudioType.MPEG;
-                return mp3Path;
-            }
-        }
-        catch (Exception)
-        {
-        }
-        return null;
-    }
-
-    /// <summary>本地绝对路径转 file:// URL（转义空格等字符，失败时退回简单拼接）。</summary>
-    static string LycheeFileUrl(string path)
+    /// <summary>兜底确保场景里有一个 AudioListener——没有它整个工程一点声音都没有（BGM+音效全哑）。
+    /// 场景里没序列化 Listener，平时靠 LycheeCinematicDirector 给相机加；这里再保一道，且避免重复。</summary>
+    void EnsureAudioListener()
     {
         try
         {
-            return new Uri(path).AbsoluteUri;
+            if (FindFirstObjectByType<AudioListener>() != null) return;
+            Camera cam = Camera.main;
+            if (cam == null) cam = FindFirstObjectByType<Camera>();
+            GameObject host = cam != null ? cam.gameObject : gameObject;
+            if (host.GetComponent<AudioListener>() == null) host.AddComponent<AudioListener>();
         }
         catch (Exception)
         {
-            return "file://" + path;
         }
     }
 
