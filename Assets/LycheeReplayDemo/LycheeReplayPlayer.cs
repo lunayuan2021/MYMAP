@@ -1650,16 +1650,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         latestEvent = "回合" + round + "  " + LycheeHudExtensions.EventNameCn(message.type);
         LycheeReplayPayload payload = message.payload ?? new LycheeReplayPayload();
 
-        // 冰鉴 / 马 / 荔枝转坏 三类特效事件：实测触发车队常在画面外（视口 x>1，跑到屏幕右侧外），
-        // 特效虽已生成却根本看不到（用户反馈一个都没看见）。这里短暂柔和聚焦触发车队（~2.6s、拉到 ~17m），
-        // 让特效真正出现在画面里。RESOURCE_USE 这里特指"使用"补给（冰鉴/快马/短驿马），不是领取。
-        if ((message.type == "RESOURCE_USE" &&
-             (payload.resourceType == "ICE_BOX" || payload.resourceType == "FAST_HORSE" || payload.resourceType == "SHORT_HORSE"))
-            || message.type == "GOOD_TO_BAD")
-        {
-            Transform fxConvoy = GetConvoyRoot(payload.playerId);
-            if (fxConvoy != null) SetEventFocus(fxConvoy, 2.6f, 17f);
-        }
+        // 冰鉴 / 马 / 荔枝转坏 三类资源特效事件【不聚焦镜头】：用户明确要求不要改镜头约束、不要拉近，
+        // 改用"把特效本身做明显"（恒定屏幕尺寸的头顶徽记 + 高对比光环/光柱 + 大地面爆裂）在原机位也看得清，
+        // 而不是把镜头拉到车队。所以这里不再调用 SetEventFocus。对抗/小队/站点的聚焦保持原样（在下方）。
 
         // 任一对抗事件(开始/逐拍亮牌/结束/平局)都给回放减速续期：让每一拍出牌各占 ~2.6s、看得清；
         // 末拍后再多撑一拍把结算卡也留住，之后自然恢复原速。

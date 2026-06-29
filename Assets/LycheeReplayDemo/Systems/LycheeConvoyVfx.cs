@@ -304,12 +304,15 @@ public class LycheeConvoyVfx : MonoBehaviour
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
+        Color iceTint = new Color(0.55f, 0.90f, 1f);
+        // 冰蓝光柱：从车队立起的竖直光柱，远机位也能一眼锁定（不挂 billboard，保持世界竖直）。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, iceTint, 8.0f, 1.9f, 1.7f));
         // 冰蓝光环（干净的环、不是杂乱粒子）：表达"车队周围冰蓝特效"。
         StartCoroutine(AnimateRing(rig.fxRoot, "IceBoxRing", new Color(0.55f, 0.90f, 1f, 0.60f), 1.7f, 0.6f, 3.0f, 0.12f));
         // 脚下"霜环"地贴：平铺一张冰霜贴图在车队脚下（用户做的 decal_ice_frost.png）；贴图缺失则自动跳过、光环兜底。
         StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_ice_frost.png", Color.white, 3.8f, 1.1f));
-        // 主视觉：车队上方弹出"冰鉴"资源图标贴图 + 文字。
-        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 2.0f));
+        // 主视觉：车队上方弹出"冰鉴"资源图标贴图 + 文字 + 冰蓝光环。
+        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 2.0f, iceTint));
     }
 
     void PlayHorseVfx(int playerId, bool fastHorse)
@@ -318,6 +321,9 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
 
+        Color horseTint = fastHorse ? new Color(1f, 0.86f, 0.46f) : new Color(0.95f, 0.70f, 0.30f);
+        // 金色光柱：表达"疾驰"。短驿马柱矮一点、暗一点。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, horseTint, fastHorse ? 8.0f : 6.5f, 1.9f, fastHorse ? 1.6f : 1.4f));
         // 脚下风环（干净的环，表达"疾驰加速"），不再撒杂乱的尘土/风线粒子。
         StartCoroutine(AnimateRing(
             rig.fxRoot,
@@ -329,13 +335,14 @@ public class LycheeConvoyVfx : MonoBehaviour
             0.09f));
         // 脚下"疾风"地贴：平铺一张风纹贴图在车队脚下（用户做的 decal_wind_gust.png）；贴图缺失则自动跳过、光环兜底。
         StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_wind_gust.png", Color.white, fastHorse ? 4.2f : 3.4f, fastHorse ? 1.1f : 0.95f));
-        // 主视觉：车队上方弹出快马/短驿马图标贴图 + 文字。
+        // 主视觉：车队上方弹出快马/短驿马图标贴图 + 文字 + 金色光环。
         StartCoroutine(EventIconRoutine(
             rig.fxRoot,
             fastHorse ? "icon_resource_fasthorse.png" : "icon_resource_shorthorse.png",
             fastHorse ? "快马" : "短驿马",
             new Color(1f, 0.90f, 0.55f, 1f),
-            fastHorse ? 2.0f : 1.8f));
+            fastHorse ? 2.0f : 1.8f,
+            horseTint));
     }
 
     void PlaySpoilVfx(int playerId)
@@ -343,8 +350,11 @@ public class LycheeConvoyVfx : MonoBehaviour
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
-        // 荔枝转坏图标已就位：与冰鉴/快马一致，车队上方弹「荔枝转坏」图标贴图 + 文字（贴图缺失时回退纯文字牌）。
-        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_event_lychee_spoiled.png", "荔枝转坏", new Color(1f, 0.80f, 0.46f, 1f), 2.0f));
+        Color spoilTint = new Color(1f, 0.42f, 0.18f);   // 警示琥珀红：荔枝转坏
+        // 琥珀红光柱：表达"变质警示"。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, spoilTint, 8.0f, 1.9f, 1.7f));
+        // 荔枝转坏图标已就位：与冰鉴/快马一致，车队上方弹「荔枝转坏」图标贴图 + 文字 + 琥珀红光环（贴图缺失时回退纯文字牌）。
+        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_event_lychee_spoiled.png", "荔枝转坏", new Color(1f, 0.80f, 0.46f, 1f), 2.0f, spoilTint));
     }
 
     IEnumerator AnimateRing(Transform parent, string objectName, Color baseColor, float duration, float startScale, float endScale, float y)
@@ -530,7 +540,7 @@ public class LycheeConvoyVfx : MonoBehaviour
     /// 弹入→上浮→淡出。用户明确要"看得懂的贴图"而非粒子，所以这是三个事件的主视觉。
     /// 贴图走 URP/Unlit 透明材质（与 3D 场景同管线、构建里绝不会被裁成洋红）；贴图缺失则只显示文字牌兜底。
     /// </summary>
-    IEnumerator EventIconRoutine(Transform parent, string textureFile, string caption, Color captionColor, float duration)
+    IEnumerator EventIconRoutine(Transform parent, string textureFile, string caption, Color captionColor, float duration, Color haloColor)
     {
         if (parent == null) yield break;
         Texture2D tex = string.IsNullOrEmpty(textureFile) ? null : LycheeLoadThemeTexture(textureFile);
@@ -540,11 +550,36 @@ public class LycheeConvoyVfx : MonoBehaviour
         // 抬到 2.85：实测 1.65 时图标被马车模型挡住、从 2.5D 斜视角根本看不到（用户反复反馈看不到的真因）。
         Vector3 start = new Vector3(0f, 2.85f, 0f);   // 车队头顶、模型之上，斜视角清楚可见
         root.transform.localPosition = start;
+        // distanceScale=true：随相机距离放大，保持「恒定屏幕尺寸」——和站点名牌一个机制。
+        // 真因之二：原来 false → 远机位(默认~58m，最远108m)下图标只有固定世界尺寸、缩成一点点看不见；
+        // 改 true 后无论镜头多远图标都保持可读大小，用户不用拉近镜头也能看清。
+        // billboard 在 LateUpdate 会接管 root.localScale，所以 pop 弹入动画改放到 content 子物体上（见下）。
         LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
-        billboard.referenceDistance = 26f;
-        billboard.minScale = 0.9f;
-        billboard.maxScale = 2.8f;
-        billboard.distanceScale = false;
+        billboard.referenceDistance = 22f;   // 以常见机位距离为基准，让徽记在正常远近就够大
+        billboard.minScale = 0.7f;
+        billboard.maxScale = 3.6f;
+        billboard.nearFadeStart = 0f;   // 事件牌短暂出现，不需要贴脸淡出
+        billboard.nearFadeEnd = 0f;
+        billboard.distanceScale = true;
+
+        // pop 弹入容器：root 的 scale 被 billboard 按距离接管，所以把弹入缩放放在这层，二者相乘。
+        GameObject content = new GameObject("EventIconContent");
+        content.transform.SetParent(root.transform, false);
+
+        // 图形/背景分离 + 颜色脉冲：在徽记后面叠两层软圆——
+        //   ① 深色底盘(在乱糟糟的战场上抠出一块暗区，让金边徽记跳出来)
+        //   ② 该事件配色的发光光环(呼吸脉冲，远处也能一眼锁定)。
+        // 全走 CreateEffectMaterial→ConfigureTransparentMaterial，URP WebGL 构建里绝不会变洋红。
+        // localZ 拉开层次：光环最后(+0.06)、底盘(+0.03)、徽记(0)、文字(-0.02)，避免共面 z-fight。
+        Texture2D softTex = CreateSoftCircleTexture(128);
+        Material haloMat = CreateEffectMaterial("LycheeEventHaloMat", new Color(haloColor.r, haloColor.g, haloColor.b, 0.70f));
+        if (haloMat != null && haloMat.HasProperty("_BaseMap")) haloMat.SetTexture("_BaseMap", softTex);
+        else if (haloMat != null && haloMat.HasProperty("_MainTex")) haloMat.SetTexture("_MainTex", softTex);
+        GameObject haloQuad = CreateSoftQuad(content.transform, "EventIconHalo", haloMat, 2.5f, 0.06f);
+        Material discMat = CreateEffectMaterial("LycheeEventDiscMat", new Color(0.05f, 0.04f, 0.03f, 0.74f));
+        if (discMat != null && discMat.HasProperty("_BaseMap")) discMat.SetTexture("_BaseMap", softTex);
+        else if (discMat != null && discMat.HasProperty("_MainTex")) discMat.SetTexture("_MainTex", softTex);
+        CreateSoftQuad(content.transform, "EventIconDisc", discMat, 1.78f, 0.03f);
 
         Material iconMaterial = null;
         GameObject iconQuad = null;
@@ -564,8 +599,8 @@ public class LycheeConvoyVfx : MonoBehaviour
 
                 iconQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 iconQuad.name = "EventIconQuad";
-                iconQuad.transform.SetParent(root.transform, false);
-                iconQuad.transform.localScale = new Vector3(1.15f, 1.15f, 1f);
+                iconQuad.transform.SetParent(content.transform, false);
+                iconQuad.transform.localScale = new Vector3(1.5f, 1.5f, 1f);
                 Collider iconCollider = iconQuad.GetComponent<Collider>();
                 if (iconCollider != null) Destroy(iconCollider);
                 MeshRenderer iconRenderer = iconQuad.GetComponent<MeshRenderer>();
@@ -579,8 +614,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         }
 
         float capY = iconQuad != null ? -0.80f : 0f;   // 有图就把文字放图下方，没图就居中
-        TextMesh shadow = CreatePlaqueText(root.transform, "EventIconCapShadow", new Vector3(0.02f, capY - 0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), caption);
-        TextMesh cap = CreatePlaqueText(root.transform, "EventIconCap", new Vector3(0f, capY, -0.022f), captionColor, caption);
+        TextMesh shadow = CreatePlaqueText(content.transform, "EventIconCapShadow", new Vector3(0.02f, capY - 0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), caption);
+        TextMesh cap = CreatePlaqueText(content.transform, "EventIconCap", new Vector3(0f, capY, -0.022f), captionColor, caption);
 
         float elapsed = 0f;
         while (elapsed < duration)
@@ -589,13 +624,20 @@ public class LycheeConvoyVfx : MonoBehaviour
             float inT = Ease01(t / 0.14f);
             float outT = Ease01((t - 0.72f) / 0.28f);
             float alpha = inT * (1f - outT);
-            float pop = Mathf.Lerp(0.8f, 1.55f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));   // 放大：实测原来 max1.0 太小
+            float pop = Mathf.Lerp(0.95f, 1.7f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));   // 放大：实测原来 max1.0 太小
+            // 位置(上浮)放 root；缩放(pop)放 content——root.localScale 由 billboard 按距离接管，二者相乘。
             root.transform.localPosition = start + Vector3.up * (0.45f * EaseOutCubic(t));
-            root.transform.localScale = Vector3.one * pop;
+            content.transform.localScale = Vector3.one * pop;
             if (iconMaterial != null)
             {
                 if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", new Color(1f, 1f, 1f, alpha));
                 else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", new Color(1f, 1f, 1f, alpha));
+            }
+            if (haloMat != null)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(t * Mathf.PI * 2f * 2.2f);   // ~2.2Hz 呼吸
+                SetMaterialColor(haloMat, new Color(haloColor.r, haloColor.g, haloColor.b, alpha * (0.40f + 0.30f * pulse)));
+                if (haloQuad != null) haloQuad.transform.localScale = Vector3.one * (2.5f * (1f + 0.08f * pulse));
             }
             if (shadow != null) shadow.color = new Color(0.03f, 0.02f, 0.015f, 0.82f * alpha);
             if (cap != null) cap.color = new Color(captionColor.r, captionColor.g, captionColor.b, alpha);
@@ -605,7 +647,123 @@ public class LycheeConvoyVfx : MonoBehaviour
 
         if (iconQuad != null) Destroy(iconQuad);
         if (iconMaterial != null) Destroy(iconMaterial);
+        if (haloMat != null) Destroy(haloMat);
+        if (discMat != null) Destroy(discMat);
+        if (softTex != null) Destroy(softTex);
         Destroy(root);
+    }
+
+    /// <summary>建一张软圆贴图 quad（去掉碰撞体、按 localZ 排层），用于事件徽记的暗底盘/光环。</summary>
+    GameObject CreateSoftQuad(Transform parent, string objectName, Material material, float scale, float localZ)
+    {
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = objectName;
+        quad.transform.SetParent(parent, false);
+        quad.transform.localPosition = new Vector3(0f, 0f, localZ);
+        quad.transform.localScale = new Vector3(scale, scale, 1f);
+        Collider col = quad.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        MeshRenderer mr = quad.GetComponent<MeshRenderer>();
+        if (mr != null)
+        {
+            mr.sharedMaterial = material;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+        }
+        return quad;
+    }
+
+    /// <summary>
+    /// 事件「光柱」：从车队脚下立起的一根配色竖直光柱（3 片交叉 quad），立起→呼吸→淡出。
+    /// 这是远机位下的"抓眼"主信号——高、竖、有颜色，即使车队很小或贴边也一眼能看到。
+    /// 关键：绝不挂 billboard（必须保持世界竖直），且材质走 CreateEffectMaterial→ConfigureTransparentMaterial（WebGL 不变洋红）。
+    /// </summary>
+    IEnumerator PlayEventPillar(Transform parent, Color color, float height, float width, float duration)
+    {
+        if (parent == null) yield break;
+        GameObject root = new GameObject("LycheeEventPillar");
+        root.transform.SetParent(parent, false);
+        root.transform.localPosition = Vector3.zero;
+        root.transform.localRotation = Quaternion.identity;
+
+        // 把柱体颜色往白里提亮 40%：暖色(金/琥珀红)在暖色地形上对比低、看不清，提亮后任意背景都跳得出来。
+        // 徽记/光环仍用满饱和原色保留辨识度，只有光柱提亮。
+        Color beam = Color.Lerp(color, Color.white, 0.4f);
+        Texture2D ramp = CreateVerticalRampTexture(16, 128);
+        Material mat = CreateEffectMaterial("LycheeEventPillarMat", new Color(beam.r, beam.g, beam.b, 0f));
+        if (mat == null) { Destroy(root); if (ramp != null) Destroy(ramp); yield break; }
+        if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", ramp);
+        else if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", ramp);
+
+        for (int i = 0; i < 3; i++)
+        {
+            GameObject blade = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            blade.name = "PillarBlade" + i;
+            blade.transform.SetParent(root.transform, false);
+            blade.transform.localRotation = Quaternion.Euler(0f, i * 60f, 0f);  // 交叉成星形，任意角度都能看到
+            blade.transform.localPosition = new Vector3(0f, height * 0.5f, 0f);  // 底坐地面、向上立
+            blade.transform.localScale = new Vector3(width, height, 1f);
+            Collider col = blade.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+            MeshRenderer mr = blade.GetComponent<MeshRenderer>();
+            if (mr != null)
+            {
+                mr.sharedMaterial = mat;
+                mr.shadowCastingMode = ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+            }
+        }
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / Mathf.Max(0.05f, duration));
+            float inA = Mathf.Clamp01(t / 0.10f);
+            float outA = Mathf.Clamp01((t - 0.55f) / 0.45f);
+            float alpha = inA * (1f - outA);
+            float grow = EaseOutCubic(Mathf.Clamp01(t / 0.14f));   // 从地面快速立起
+            // 反距离放大：相机越远，光柱整体(含宽度)按比例放大，保证远机位也是醒目的一道竖光，永不缩小。
+            Camera cam = Camera.main;
+            float distFactor = 1f;
+            if (cam != null) distFactor = Mathf.Clamp(Vector3.Distance(cam.transform.position, root.transform.position) / 22f, 1f, 2.4f);
+            root.transform.localScale = new Vector3(distFactor, grow * distFactor, distFactor);
+            root.transform.localRotation = Quaternion.Euler(0f, elapsed * 28f, 0f);  // 缓慢自转的微光感
+            SetMaterialColor(mat, new Color(beam.r, beam.g, beam.b, alpha * 0.85f));
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(mat);
+        if (ramp != null) Destroy(ramp);
+        Destroy(root);
+    }
+
+    /// <summary>竖直光柱用的渐变贴图：横向亮芯软边、纵向自下而上渐隐（顶部淡出）。</summary>
+    static Texture2D CreateVerticalRampTexture(int w, int h)
+    {
+        w = Mathf.Max(4, w); h = Mathf.Max(8, h);
+        Texture2D texture = new Texture2D(w, h, TextureFormat.RGBA32, false)
+        {
+            name = "LycheeEventPillarRamp",
+            wrapMode = TextureWrapMode.Clamp
+        };
+        Color32[] pixels = new Color32[w * h];
+        for (int y = 0; y < h; y++)
+        {
+            float vy = (float)y / (h - 1);                                   // 0 底 .. 1 顶
+            float vAlpha = 1f - Mathf.Clamp01((vy - 0.45f) / 0.55f);         // 顶部 45%→100% 渐隐
+            for (int x = 0; x < w; x++)
+            {
+                float dx = ((x + 0.5f) / w - 0.5f) * 2f;                     // -1..1
+                float hAlpha = Mathf.Clamp01(1f - Mathf.Abs(dx));
+                hAlpha = hAlpha * hAlpha;                                    // 软边、亮芯
+                float a = hAlpha * vAlpha;
+                pixels[y * w + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+        }
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
     }
 
     /// <summary>
