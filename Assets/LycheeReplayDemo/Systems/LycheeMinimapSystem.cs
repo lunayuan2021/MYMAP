@@ -134,6 +134,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     Text weatherMarkerText;
     readonly List<Image> borderImages = new List<Image>(4);
     readonly Dictionary<int, ConvoyMarker> convoyMarkers = new Dictionary<int, ConvoyMarker>();
+    readonly Vector3[] panelCorners = new Vector3[4];
     IconPool nodePool;
 
     Camera minimapCamera;
@@ -204,6 +205,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             canvas.gameObject.SetActive(!Disabled);
         if (Disabled) return;
         UpgradeThemeFrame();
+        ApplyCollapsedScreenGuard();
         UpdateBorderBreath();
         UpdateConvoyMarkers();
         UpdateWeatherMarker();
@@ -409,8 +411,17 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         EnsureEventSystem();
         GameObject canvasObject = new GameObject("LycheeMinimapCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasObject.transform.SetParent(transform, false);
+        RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
+        canvasRect.anchorMin = Vector2.zero;
+        canvasRect.anchorMax = Vector2.one;
+        canvasRect.offsetMin = Vector2.zero;
+        canvasRect.offsetMax = Vector2.zero;
+        canvasRect.localPosition = Vector3.zero;
+        canvasRect.localRotation = Quaternion.identity;
+        canvasRect.localScale = Vector3.one;
         canvas = canvasObject.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.overrideSorting = true;
         canvas.sortingOrder = CanvasSortingOrder;
         CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -514,6 +525,29 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             panel.localScale = Vector3.one;          // 收回右上角小图
         }
         ApplyExpandedFrameState();
+    }
+
+    void ApplyCollapsedScreenGuard()
+    {
+        if (panel == null || minimapExpanded) return;
+        panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
+        panel.localScale = Vector3.one;
+        panel.anchoredPosition = new Vector2(-WebSafeRightInset, -WebSafeTopInset);
+
+        panel.GetWorldCorners(panelCorners);
+        float scaleFactor = canvas != null ? Mathf.Max(0.01f, canvas.scaleFactor) : 1f;
+        float inset = 8f;
+        Vector2 correction = Vector2.zero;
+        if (panelCorners[2].x > Screen.width - inset)
+            correction.x -= (panelCorners[2].x - (Screen.width - inset)) / scaleFactor;
+        if (panelCorners[0].x < inset)
+            correction.x += (inset - panelCorners[0].x) / scaleFactor;
+        if (panelCorners[1].y > Screen.height - inset)
+            correction.y -= (panelCorners[1].y - (Screen.height - inset)) / scaleFactor;
+        if (panelCorners[0].y < inset)
+            correction.y += (inset - panelCorners[0].y) / scaleFactor;
+        if (correction.sqrMagnitude > 0.01f)
+            panel.anchoredPosition += correction;
     }
 
     void ApplyExpandedFrameState()

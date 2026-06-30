@@ -203,6 +203,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     public int CurrentRound => frames.Count == 0 ? 0 : frames[frameIndex].round;
     public bool IsPlaying => playing;
+    public bool ShouldAutoResumeAfterPresentation => playOnStart && frames.Count > 0 && frameIndex < frames.Count - 1 && !matchOverRaised;
     public bool IsApplyingForcedFrame => applyingForcedFrame;
     public LycheeReplayFrame CurrentFrame => frames.Count == 0 ? null : frames[frameIndex];
     public LycheeReplayFrame NextFrame => frames.Count == 0 ? null : frames[Mathf.Min(frameIndex + 1, frames.Count - 1)];

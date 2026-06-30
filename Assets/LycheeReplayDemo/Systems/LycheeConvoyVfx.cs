@@ -363,7 +363,7 @@ public class LycheeConvoyVfx : MonoBehaviour
             fastHorse ? "快马" : "短驿马",
             new Color(1f, 0.90f, 0.55f, 1f),
             fastHorse ? 6.2f : 6.0f,
-            horseTint));
+            horseTint);
     }
 
     void PlaySpoilVfx(int playerId)

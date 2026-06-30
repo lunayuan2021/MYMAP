@@ -172,7 +172,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     IEnumerator RunInterlude(string fileName, string eventType)
     {
         busy = true;
-        bool wasPlayingBeforeInterlude = player != null && player.IsPlaying;
+        bool wasPlayingBeforeInterlude = player != null && (player.IsPlaying || player.ShouldAutoResumeAfterPresentation);
         EnsureCanvas();
 
         // 关键修复：VideoPlayer 挂在 canvasRoot 上，Prepare() 只有在 GameObject 处于激活态时才会推进。
@@ -233,7 +233,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         canvasRoot.SetActive(false);
         IsPresentationVisible = false;
         IsPresentationActive = false;
-        if (wasPlaying) player.SetPlaying(true);
+        if (wasPlaying && player != null) player.SetPlaying(true);
         busy = false;
     }
 

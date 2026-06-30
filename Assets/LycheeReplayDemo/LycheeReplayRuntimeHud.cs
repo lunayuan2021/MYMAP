@@ -233,6 +233,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // 退出播放后 Unity 对象被销毁时重载（== null 走 Unity 重载判空）。
     static Sprite frameSprite;
     static Sprite vignetteSprite;
+    static Sprite avatarCircleSprite;
     static readonly Dictionary<string, Sprite> themeSpriteCache = new Dictionary<string, Sprite>();
     static readonly Dictionary<string, Sprite> categoryBorderCache = new Dictionary<string, Sprite>();
 
@@ -304,12 +305,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         roundText.text = "第 1 / 600 回合";
         phaseText.text = "回放预览";
-        redTeam.name.text = "红队";
-        redTeam.roster.text = "#1002";
+        redTeam.name.text = "红队 · blue-l4";
+        redTeam.roster.text = "队伍ID #2002";
         redTeam.score.text = "0";
         redTeam.score.fontSize = TeamScoreFontSize;
-        blueTeam.name.text = "蓝队";
-        blueTeam.roster.text = "#2002";
+        blueTeam.name.text = "蓝队 · green-l5";
+        blueTeam.roster.text = "队伍ID #1002";
         blueTeam.score.text = "0";
         blueTeam.score.fontSize = TeamScoreFontSize;
         // 比分滚动状态归零：预览不滚动、不回弹
@@ -636,14 +637,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         if (red != null)
         {
-            redTeam.name.text = "红队  " + red.name;
-            // 队伍 ID 放在小字行，避免与队名挤在一行被裁切；人数不是剩余小队人手，不在 HUD 显示。
-            redTeam.roster.text = TeamIdTag(red);
+            redTeam.name.text = TeamNameLine("红队", red);
+            redTeam.roster.text = TeamIdLine(red);
         }
         if (blue != null)
         {
-            blueTeam.name.text = "蓝队  " + blue.name;
-            blueTeam.roster.text = TeamIdTag(blue);
+            blueTeam.name.text = TeamNameLine("蓝队", blue);
+            blueTeam.roster.text = TeamIdLine(blue);
         }
 
         // 比分滚动跳字：大数字不再瞬间改值，~6/s 滚动 + 涨分瞬间字号回弹（取代原 text 直写）
@@ -1421,6 +1421,18 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         return "#?";
     }
 
+    static string TeamIdLine(LycheeReplayPlayerState s)
+    {
+        return "队伍ID " + TeamIdTag(s);
+    }
+
+    static string TeamNameLine(string campName, LycheeReplayPlayerState s)
+    {
+        string name = s == null ? null : s.name;
+        if (string.IsNullOrEmpty(name)) return campName;
+        return campName + " · " + name;
+    }
+
     void SetStatRow(int index, string redVal, string blueVal, float redDelta = 0f, float blueDelta = 0f, string suffix = "")
     {
         if (statRows == null || index < 0 || index >= statRows.Length) return;
@@ -1539,40 +1551,46 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float avatarX = cardX - side * 62f;
         float textX = cardX + side * 42f;
 
-        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(cardX, 105f), new Vector2(258f, 112f), new Vector2(0.5f, 0.5f));
+        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(cardX, 105f), new Vector2(272f, 112f), new Vector2(0.5f, 0.5f));
         Image textBgImage = textBg.gameObject.AddComponent<Image>();
-        textBgImage.color = new Color(teamColor.r, teamColor.g, teamColor.b, red ? 0.58f : 0.62f);
+        textBgImage.color = new Color(teamColor.r, teamColor.g, teamColor.b, red ? 0.42f : 0.46f);
         textBgImage.raycastTarget = false;
         Outline textBgOutline = textBg.gameObject.AddComponent<Outline>();
-        textBgOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.78f);
+        textBgOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.58f);
         textBgOutline.effectDistance = new Vector2(1.4f, -1.4f);
 
-        RectTransform avatarPlate = Rect(red ? "RedCaptainAvatarPlate" : "BlueCaptainAvatarPlate", parent, new Vector2(0.5f, 0f), new Vector2(avatarX, 105f), new Vector2(86f, 86f), new Vector2(0.5f, 0.5f));
-        Image avatarBg = avatarPlate.gameObject.AddComponent<Image>();
-        avatarBg.color = new Color(0.03f, 0.02f, 0.015f, 0.66f);
-        avatarBg.raycastTarget = false;
-        Outline avatarPlateOutline = avatarPlate.gameObject.AddComponent<Outline>();
-        avatarPlateOutline.effectColor = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.72f);
-        avatarPlateOutline.effectDistance = new Vector2(2f, -2f);
+        RectTransform avatarRing = Rect(red ? "RedCaptainAvatarRing" : "BlueCaptainAvatarRing", parent, new Vector2(0.5f, 0f), new Vector2(avatarX, 105f), new Vector2(88f, 88f), new Vector2(0.5f, 0.5f));
+        Image ringImage = avatarRing.gameObject.AddComponent<Image>();
+        ringImage.sprite = GetAvatarCircleSprite();
+        ringImage.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.84f);
+        ringImage.raycastTarget = false;
+        Outline avatarOutline = avatarRing.gameObject.AddComponent<Outline>();
+        avatarOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.82f);
+        avatarOutline.effectDistance = new Vector2(2f, -2f);
 
-        RectTransform avatarRt = Rect(red ? "RedCaptainAvatar_Runtime" : "BlueCaptainAvatar_Runtime", avatarPlate, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(76f, 76f), new Vector2(0.5f, 0.5f));
+        RectTransform avatarMask = Rect(red ? "RedCaptainAvatarMask" : "BlueCaptainAvatarMask", avatarRing, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(78f, 78f), new Vector2(0.5f, 0.5f));
+        Image maskImage = avatarMask.gameObject.AddComponent<Image>();
+        maskImage.sprite = GetAvatarCircleSprite();
+        maskImage.color = Color.white;
+        maskImage.raycastTarget = false;
+        Mask mask = avatarMask.gameObject.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        RectTransform avatarRt = Rect(red ? "RedCaptainAvatar_Runtime" : "BlueCaptainAvatar_Runtime", avatarMask, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(78f, 78f), new Vector2(0.5f, 0.5f));
         widgets.avatarRaw = avatarRt.gameObject.AddComponent<RawImage>();
         widgets.avatarRaw.color = Color.white;
         widgets.avatarRaw.raycastTarget = false;
         SetRawImageSprite(widgets.avatarRaw, ResolveTeamAvatar(red, red ? previewRedAvatar : previewBlueAvatar));
-        Outline outline = avatarRt.gameObject.AddComponent<Outline>();
-        outline.effectColor = teamColor;
-        outline.effectDistance = new Vector2(1.5f, -1.5f);
 
         TextAnchor align = red ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight;
         widgets.name = Text(red ? "RedName" : "BlueName", parent, 17, FontStyle.Bold, Color.white, align);
-        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(146f, 24f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.name);
         widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 14, FontStyle.Bold, SilkColor, align);
-        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(146f, 20f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.roster);
         widgets.score = Text(red ? "RedScore" : "BlueScore", parent, TeamScoreFontSize, FontStyle.Bold, Color.white, align);
-        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 75f), new Vector2(146f, 36f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 75f), new Vector2(166f, 36f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.score);
         return widgets;
     }
@@ -2134,6 +2152,28 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
         themeSpriteCache[key] = sprite;
         return sprite;
+    }
+
+    static Sprite GetAvatarCircleSprite()
+    {
+        if (avatarCircleSprite != null) return avatarCircleSprite;
+        const int size = 96;
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+        float radius = (size - 2f) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), center);
+                float alpha = Mathf.Clamp01(radius - distance + 1f);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+        texture.Apply();
+        texture.wrapMode = TextureWrapMode.Clamp;
+        avatarCircleSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        return avatarCircleSprite;
     }
 
     static void SetRawImageSprite(RawImage image, Sprite sprite)
