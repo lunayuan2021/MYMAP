@@ -34,6 +34,8 @@ static class LycheeWebGLBuild_20260612
     // 回放为俯视远景,2048+Crunch 肉眼无损但体积砍数倍;仅加 WebGL 平台覆盖,Standalone/Server/原生包保持全质量。
     // 想更极致(~30-40MB)可把此值改 1024。
     const int WebGLTextureMaxSize = 2048;
+    const int WebGLInitialMemoryMB = 512;
+    const int WebGLMaximumMemoryMB = 2048;
     static readonly string[] HeavyTextureFolders =
     {
         "Assets/ALP_Assets/Realistic Terrain Textures Lite/Textures",
@@ -72,6 +74,7 @@ static class LycheeWebGLBuild_20260612
 
     static void RunBuild()
     {
+        WebGLRenderPipelineBackup renderPipelineBackup = null;
         try
         {
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)
@@ -94,12 +97,15 @@ static class LycheeWebGLBuild_20260612
             GenerateThemeManifest();
             ValidateStreamingReplayFiles(scenes);
             OptimizeWebGLTextures();
+            EnsureWebGLPreloadedEventModels();
+            renderPipelineBackup = ApplyWebGLRenderPipelineOverrides();
 
             // Gzip + 解压回退：任何静态文件服务器（python -m http.server 等）都能直接跑，无需配置 Content-Encoding
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
             PlayerSettings.WebGL.decompressionFallback = true;
-            // 黄区浏览器环境不一定能稳定申请 4GB wasm heap；2GB 对当前包更稳。
-            PlayerSettings.WebGL.maximumMemorySize = 2048;
+            // UITheme 事件插画单张解码后约 6MB，32MB 初始 heap 会在 WebGL UI Sprite 更新时触发 wasm 堆增长风险。
+            // 512MB 作为初始值避免运行中频繁扩容，2GB 作为上限保留地图/模型峰值空间。
+            ApplyWebGLMemorySettings();
             // Data Caching 开：data 文件名带时间戳(每次构建唯一) + index.html 的 ?v=buildStamp 双重破坏缓存，
             // IndexedDB 不会再拿到旧 data；开启后重复访问/弱网刷新直接命中本地缓存，显著降低"加载卡住/白屏"复发。
             PlayerSettings.WebGL.dataCaching = true;
@@ -147,6 +153,10 @@ static class LycheeWebGLBuild_20260612
             Append("EXCEPTION: " + exception);
             File.WriteAllText(DoneMarker, "Exception");
             DeleteRequestMarker();
+        }
+        finally
+        {
+            if (renderPipelineBackup != null) renderPipelineBackup.Restore();
         }
     }
 
@@ -402,6 +412,230 @@ static class LycheeWebGLBuild_20260612
     }
 
     /// <summary>
+    /// Play View 能靠场景引用找到这些 prefab，但 WebGL 构建裁剪后容易丢掉运行时头顶事件模型。
+    /// 构建前固定到 PreloadedAssets，确保冰鉴/快马/荔枝转坏三组 baked 模型、mesh/material/texture 链进入 .data。
+    /// </summary>
+    static void EnsureWebGLPreloadedEventModels()
+    {
+        string[] assetPaths =
+        {
+            "Assets/LycheeReplayDemo/EventModelBaked/event_icebox_baked.prefab",
+            "Assets/LycheeReplayDemo/EventModelBaked/event_horse_baked.prefab",
+            "Assets/LycheeReplayDemo/EventModelBaked/event_spoil_baked.prefab",
+            "Assets/LycheeReplayDemo/Shaders/LycheeOverheadEventModel.shader",
+        };
+
+        List<UnityEngine.Object> merged = new List<UnityEngine.Object>();
+        UnityEngine.Object[] existing = PlayerSettings.GetPreloadedAssets();
+        if (existing != null)
+        {
+            for (int i = 0; i < existing.Length; i++)
+            {
+                if (existing[i] != null && !merged.Contains(existing[i]))
+                    merged.Add(existing[i]);
+            }
+        }
+
+        int added = 0;
+        for (int i = 0; i < assetPaths.Length; i++)
+        {
+            UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPaths[i]);
+            if (asset == null)
+            {
+                Append("WARNING: WebGL event preloaded asset missing: " + assetPaths[i]);
+                continue;
+            }
+            if (merged.Contains(asset)) continue;
+            merged.Add(asset);
+            added++;
+        }
+
+        PlayerSettings.SetPreloadedAssets(merged.ToArray());
+        AssetDatabase.SaveAssets();
+        Append("WebGL event model preloads: +" + added + ", total preloaded assets=" + merged.Count + ".");
+    }
+
+    static WebGLRenderPipelineBackup ApplyWebGLRenderPipelineOverrides()
+    {
+        WebGLRenderPipelineBackup backup = new WebGLRenderPipelineBackup();
+        UnityEngine.Rendering.RenderPipelineAsset pipeline = UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline;
+        if (pipeline == null) pipeline = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline;
+        if (pipeline == null)
+        {
+            Append("WARNING: WebGL render pipeline override skipped: no active render pipeline asset.");
+            return backup;
+        }
+
+        SerializedObject pipelineSo = new SerializedObject(pipeline);
+        backup.SetBool(pipelineSo, "m_SupportsHDR", false);
+        backup.SetBool(pipelineSo, "m_RequireDepthTexture", false);
+        backup.SetBool(pipelineSo, "m_RequireOpaqueTexture", false);
+        backup.SetBool(pipelineSo, "m_EnableLODCrossFade", false);
+        backup.SetBool(pipelineSo, "m_FsrOverrideSharpness", false);
+        backup.SetBool(pipelineSo, "m_SupportDataDrivenLensFlare", false);
+        backup.SetBool(pipelineSo, "m_SupportScreenSpaceLensFlare", false);
+        backup.SetBool(pipelineSo, "m_PrefilterHDROutput", false);
+        backup.SetFloat(pipelineSo, "m_RenderScale", 1f);
+        backup.SetInt(pipelineSo, "m_MSAA", 1);
+        backup.SetInt(pipelineSo, "m_UpscalingFilter", 1); // Bilinear: avoid FSR auto-selection on WebGL.
+
+        SerializedProperty rendererList = pipelineSo.FindProperty("m_RendererDataList");
+        if (rendererList != null && rendererList.isArray)
+        {
+            for (int i = 0; i < rendererList.arraySize; i++)
+            {
+                SerializedProperty element = rendererList.GetArrayElementAtIndex(i);
+                UnityEngine.Object rendererData = element == null ? null : element.objectReferenceValue;
+                if (rendererData == null) continue;
+
+                SerializedObject rendererSo = new SerializedObject(rendererData);
+                backup.SetInt(rendererSo, "m_RenderingMode", 0); // Forward: WebGL-safe path.
+                backup.SetBool(rendererSo, "m_UseNativeRenderPass", false);
+                backup.SetObject(rendererSo, "postProcessData", null);
+                backup.SetObject(rendererSo, "debugShaders.hdrDebugViewPS", null);
+
+                SerializedProperty features = rendererSo.FindProperty("m_RendererFeatures");
+                if (features != null && features.isArray)
+                {
+                    for (int f = 0; f < features.arraySize; f++)
+                    {
+                        UnityEngine.Object feature = features.GetArrayElementAtIndex(f).objectReferenceValue;
+                        if (feature == null) continue;
+                        SerializedObject featureSo = new SerializedObject(feature);
+                        backup.SetBool(featureSo, "m_Active", false);
+                    }
+                }
+            }
+        }
+
+        backup.ApplyAndSave();
+        Append("WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.");
+        return backup;
+    }
+
+    sealed class WebGLRenderPipelineBackup
+    {
+        struct Entry
+        {
+            public UnityEngine.Object target;
+            public string propertyPath;
+            public SerializedPropertyType type;
+            public bool boolValue;
+            public int intValue;
+            public float floatValue;
+            public UnityEngine.Object objectValue;
+        }
+
+        readonly List<Entry> entries = new List<Entry>();
+        readonly List<SerializedObject> touched = new List<SerializedObject>();
+
+        public void SetBool(SerializedObject so, string propertyPath, bool value)
+        {
+            SerializedProperty property = FindWritable(so, propertyPath, SerializedPropertyType.Boolean);
+            if (property == null || property.boolValue == value) return;
+            entries.Add(new Entry { target = so.targetObject, propertyPath = propertyPath, type = property.propertyType, boolValue = property.boolValue });
+            property.boolValue = value;
+            Touch(so);
+        }
+
+        public void SetInt(SerializedObject so, string propertyPath, int value)
+        {
+            SerializedProperty property = FindWritable(so, propertyPath, SerializedPropertyType.Integer);
+            if (property == null || property.intValue == value) return;
+            entries.Add(new Entry { target = so.targetObject, propertyPath = propertyPath, type = property.propertyType, intValue = property.intValue });
+            property.intValue = value;
+            Touch(so);
+        }
+
+        public void SetFloat(SerializedObject so, string propertyPath, float value)
+        {
+            SerializedProperty property = FindWritable(so, propertyPath, SerializedPropertyType.Float);
+            if (property == null || Mathf.Approximately(property.floatValue, value)) return;
+            entries.Add(new Entry { target = so.targetObject, propertyPath = propertyPath, type = property.propertyType, floatValue = property.floatValue });
+            property.floatValue = value;
+            Touch(so);
+        }
+
+        public void SetObject(SerializedObject so, string propertyPath, UnityEngine.Object value)
+        {
+            SerializedProperty property = FindWritable(so, propertyPath, SerializedPropertyType.ObjectReference);
+            if (property == null || property.objectReferenceValue == value) return;
+            entries.Add(new Entry { target = so.targetObject, propertyPath = propertyPath, type = property.propertyType, objectValue = property.objectReferenceValue });
+            property.objectReferenceValue = value;
+            Touch(so);
+        }
+
+        public void ApplyAndSave()
+        {
+            ApplyTouched();
+        }
+
+        public void Restore()
+        {
+            try
+            {
+                for (int i = entries.Count - 1; i >= 0; i--)
+                {
+                    Entry entry = entries[i];
+                    if (entry.target == null) continue;
+                    SerializedObject so = new SerializedObject(entry.target);
+                    SerializedProperty property = so.FindProperty(entry.propertyPath);
+                    if (property == null) continue;
+                    switch (entry.type)
+                    {
+                        case SerializedPropertyType.Boolean:
+                            property.boolValue = entry.boolValue;
+                            break;
+                        case SerializedPropertyType.Integer:
+                            property.intValue = entry.intValue;
+                            break;
+                        case SerializedPropertyType.Float:
+                            property.floatValue = entry.floatValue;
+                            break;
+                        case SerializedPropertyType.ObjectReference:
+                            property.objectReferenceValue = entry.objectValue;
+                            break;
+                    }
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(entry.target);
+                }
+                AssetDatabase.SaveAssets();
+                if (entries.Count > 0) Append("WebGL render pipeline override restored: " + entries.Count + " properties.");
+            }
+            catch (Exception exception)
+            {
+                Append("WARNING: WebGL render pipeline override restore failed: " + exception.Message);
+            }
+        }
+
+        SerializedProperty FindWritable(SerializedObject so, string propertyPath, SerializedPropertyType expectedType)
+        {
+            if (so == null || so.targetObject == null) return null;
+            SerializedProperty property = so.FindProperty(propertyPath);
+            if (property == null) return null;
+            if (property.propertyType != expectedType) return null;
+            return property;
+        }
+
+        void Touch(SerializedObject so)
+        {
+            if (so == null || touched.Contains(so)) return;
+            touched.Add(so);
+        }
+
+        void ApplyTouched()
+        {
+            foreach (SerializedObject so in touched)
+            {
+                if (so == null || so.targetObject == null) continue;
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(so.targetObject);
+            }
+            if (touched.Count > 0) AssetDatabase.SaveAssets();
+        }
+    }
+
+    /// <summary>
     /// 枚举 UITheme 运行时素材写入 uitheme_manifest.txt——WebGL 无法列目录，
     /// LycheeThemeCache 启动时按清单预载（素材增删后重新构建即自动生效）。
     /// </summary>
@@ -429,8 +663,8 @@ static class LycheeWebGLBuild_20260612
     }
 
     /// <summary>
-    /// 构建产物 index.html 补丁：桌面端沿用早期稳定包的全窗口画布策略，
-    /// 默认跟随屏幕 DPI，并允许通过 URL 参数启用 4K/UHD 或指定 DPR。
+    /// 构建产物 index.html 补丁：桌面端让画布铺满浏览器窗口，
+    /// 保证浏览器缩放/全屏时没有页面级裁切或黑边；默认跟随屏幕 DPI，并允许通过 URL 参数启用 4K/UHD 或指定 DPR。
     /// </summary>
     static void PatchIndexHtml()
     {
@@ -449,8 +683,8 @@ static class LycheeWebGLBuild_20260612
             "    <base href=\"/" + DeployPrefix + "/\">\n" +   // 部署在子路径下：相对资源(Build/、StreamingAssets/)挂到 /litchi_delivery_replay/
             "    <style>\n" +
             "      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #050505; }\n" +
-            "      #unity-container.unity-desktop { width: 100vw; height: 100vh; background: #050505; }\n" +
-            "      #unity-canvas { background: #000; }\n" +
+            "      #unity-container.unity-desktop { position: fixed; inset: 0; left: 0; top: 0; transform: none; width: 100vw; height: 100vh; display: block; overflow: hidden; background: #050505; }\n" +
+            "      #unity-canvas { width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; display: block; background: #000; }\n" +
             "      #unity-footer { display: none; }\n" +
             "      #unity-warning { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px)); z-index: 20; color: #f7dfae; background: rgba(36, 16, 12, 0.94); border: 1px solid #a77a35; border-radius: 6px; box-shadow: 0 18px 46px rgba(0,0,0,0.42); }\n" +
             "      #unity-loading-bar { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 48px)); padding: 28px 34px 30px; background: linear-gradient(180deg, rgba(27,22,18,0.96), rgba(12,10,9,0.96)); border: 1px solid #9c7439; border-radius: 8px; box-shadow: 0 28px 80px rgba(0,0,0,0.58); }\n" +
@@ -489,13 +723,14 @@ static class LycheeWebGLBuild_20260612
         // 立即移除会露出"卡住"的首帧。延时 2.6s 覆盖预热；30s 兜底与报错路径仍会移除。
         html = html.Replace(
             ".then((unityInstance) => {",
-            ".then((unityInstance) => {\n          setTimeout(function(){ if (window.__lycheeHideSplash) window.__lycheeHideSplash(); }, 2600);\n");
+            ".then((unityInstance) => {\n          window.__unityInstance = unityInstance;\n          setTimeout(function(){ if (window.__lycheeHideSplash) window.__lycheeHideSplash(); }, 2600);\n");
         // 进度到 100% 不再移除封面——那只是下载完成、引擎尚未初始化/首帧未出，移早了正是"卡住"露馅处；
         // 统一由上面 .then 的延时移除 + 30s 兜底 + 报错路径处理。
         html = html.Replace(".loader.js\";", ".loader.js\" + \"?v=\" + buildStamp;");
         html = html.Replace(".data.unityweb\",", ".data.unityweb\" + \"?v=\" + buildStamp,");
         html = html.Replace(".framework.js.unityweb\",", ".framework.js.unityweb\" + \"?v=\" + buildStamp,");
         html = html.Replace(".wasm.unityweb\",", ".wasm.unityweb\" + \"?v=\" + buildStamp,");
+        html = html.Replace("      // config.autoSyncPersistentDataPath = true;", "      config.autoSyncPersistentDataPath = true;");
         html = html.Replace(
             "createUnityInstance(canvas, config, (progress) => {",
             "window.__lycheeHideSplash = function() { var sp = document.getElementById('lychee-splash'); if (!sp) return; sp.style.opacity = '0'; setTimeout(function(){ if (sp && sp.parentNode) sp.parentNode.removeChild(sp); }, 600); };\n" +
@@ -512,9 +747,25 @@ static class LycheeWebGLBuild_20260612
             "        }\n" +
             "        if (!isNaN(requestedDpr) && requestedDpr > 0) renderDpr = Math.min(4, Math.max(0.75, requestedDpr));\n" +
             "        config.devicePixelRatio = renderDpr;\n" +
+            "        fitUnityCanvas();\n" +
             "        window.__lycheeResumeAudio = function(){ try { var ctx = (typeof WEBAudio !== 'undefined' && WEBAudio && WEBAudio.audioContext) ? WEBAudio.audioContext : null; if (!ctx && typeof Module !== 'undefined' && Module) ctx = Module.webAudioContext || Module.audioContext || null; if (ctx && ctx.state === 'suspended' && ctx.resume) ctx.resume(); } catch(e) {} };\n" +
             "        ['pointerdown','touchstart','keydown'].forEach(function(t){ window.addEventListener(t, window.__lycheeResumeAudio, { passive: true }); });\n" +
             "        createUnityInstance(canvas, config, (progress) => {");
+        string shaderLogFilter =
+            "      (function(){\n" +
+            "        var suppressedShaders = ['Hidden/CoreSRP/CoreCopy', 'Hidden/Universal Render Pipeline/StencilDitherMaskSeed', 'Hidden/Universal/HDRDebugView'];\n" +
+            "        var rawLog = console.log.bind(console);\n" +
+            "        var pendingShaderPrefix = false;\n" +
+            "        console.log = function(){\n" +
+            "          var args = Array.prototype.slice.call(arguments);\n" +
+            "          var msg = args.map(function(v){ return String(v); }).join(' ');\n" +
+            "          if (msg.trim() === 'ERROR: Shader') { pendingShaderPrefix = true; return; }\n" +
+            "          for (var i = 0; i < suppressedShaders.length; i++) { if (msg.indexOf(suppressedShaders[i]) >= 0) { pendingShaderPrefix = false; return; } }\n" +
+            "          if (pendingShaderPrefix) { pendingShaderPrefix = false; rawLog('ERROR: Shader '); }\n" +
+            "          return rawLog.apply(console, args);\n" +
+            "        };\n" +
+            "      })();\n\n";
+        html = html.Replace("      var script = document.createElement(\"script\");", shaderLogFilter + "      var script = document.createElement(\"script\");");
         html = html.Replace(
             "alert(message);",
             "console.error(message);\n                if (window.__lycheeHideSplash) window.__lycheeHideSplash();\n                unityShowBanner('加载失败：请确认通过 HTTP 服务访问完整构建目录，且 Build/StreamingAssets 未缺失。<br>' + message, 'error');");
@@ -524,8 +775,35 @@ static class LycheeWebGLBuild_20260612
         html = html.Replace(
             "if (type == 'warning') div.style = 'background: yellow; padding: 10px;';",
             "if (type == 'warning') div.style = 'background: rgba(154,103,33,0.92); color: #fff3cf; padding: 12px 16px; border-radius: 6px;';");
-        html = html.Replace("canvas.style.width = \"960px\";", "canvas.style.width = \"100vw\";");
-        html = html.Replace("canvas.style.height = \"600px\";", "canvas.style.height = \"100vh\";");
+        string fitCanvasScript =
+            "      function fitUnityCanvas() {\n" +
+            "        var container = document.querySelector(\"#unity-container\");\n" +
+            "        var viewport = window.visualViewport;\n" +
+            "        var ww = Math.max(1, viewport ? viewport.width : window.innerWidth);\n" +
+            "        var wh = Math.max(1, viewport ? viewport.height : window.innerHeight);\n" +
+            "        if (container) {\n" +
+            "          container.style.position = \"fixed\";\n" +
+            "          container.style.inset = \"0\";\n" +
+            "          container.style.left = \"0\";\n" +
+            "          container.style.top = \"0\";\n" +
+            "          container.style.transform = \"none\";\n" +
+            "          container.style.width = ww + \"px\";\n" +
+            "          container.style.height = wh + \"px\";\n" +
+            "          container.style.display = \"block\";\n" +
+            "          container.style.overflow = \"hidden\";\n" +
+            "        }\n" +
+            "        canvas.style.width = ww + \"px\";\n" +
+            "        canvas.style.height = wh + \"px\";\n" +
+            "        canvas.style.maxWidth = \"100vw\";\n" +
+            "        canvas.style.maxHeight = \"100vh\";\n" +
+            "        canvas.style.display = \"block\";\n" +
+            "      }\n" +
+            "      window.addEventListener(\"resize\", fitUnityCanvas);\n" +
+            "      window.addEventListener(\"orientationchange\", fitUnityCanvas);\n" +
+            "      if (window.visualViewport) window.visualViewport.addEventListener(\"resize\", fitUnityCanvas);\n\n";
+        html = html.Replace("      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {", fitCanvasScript + "      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {");
+        html = html.Replace("canvas.style.width = \"960px\";\n        canvas.style.height = \"600px\";", "fitUnityCanvas();");
+        html = html.Replace("canvas.style.width = \"min(100vw, calc(100vh * 16 / 9))\";\n        canvas.style.height = \"min(100vh, calc(100vw * 9 / 16))\";", "fitUnityCanvas();");
         File.WriteAllText(indexPath, html);
         // 全景地图封面图：若 Assets 下有 lychee_loading_bg.jpg 就拷进包根(与 index.html 同级)，CSS 以相对路径引用；
         // 没有则 splash 退回渐变兜底(见 #lychee-splash 背景叠层)。把想要的全景截图放到该源路径，下次构建即生效。
@@ -1046,6 +1324,31 @@ static class LycheeWebGLBuild_20260612
             {
                 Append("WARNING: chmod failed for " + path + ": " + exception.Message);
             }
+        }
+    }
+
+    static void ApplyWebGLMemorySettings()
+    {
+        PlayerSettings.WebGL.maximumMemorySize = WebGLMaximumMemoryMB;
+        SetWebGLIntProperty("initialMemorySize", WebGLInitialMemoryMB);
+        SetWebGLIntProperty("memorySize", WebGLInitialMemoryMB);
+        SetWebGLIntProperty("memoryLinearGrowthStep", 64);
+        SetWebGLIntProperty("memoryGeometricGrowthCap", 256);
+        Append("WebGL memory settings: initial=" + WebGLInitialMemoryMB + "MB, maximum=" + WebGLMaximumMemoryMB + "MB.");
+    }
+
+    static void SetWebGLIntProperty(string propertyName, int value)
+    {
+        try
+        {
+            var property = typeof(PlayerSettings.WebGL).GetProperty(propertyName,
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (property == null || !property.CanWrite) return;
+            property.SetValue(null, value, null);
+        }
+        catch (Exception exception)
+        {
+            Append("WARNING: failed to set WebGL." + propertyName + ": " + exception.Message);
         }
     }
 

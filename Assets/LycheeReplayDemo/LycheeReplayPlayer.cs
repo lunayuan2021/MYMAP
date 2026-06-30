@@ -41,6 +41,12 @@ public class LycheeReplayPlayer : MonoBehaviour
     /// <summary>将军攻击 AnimationClip（RedGeneralAttack/BlueGeneralAttack.glb 子资产，可空）：对抗期间从走路切到挥剑。</summary>
     public AnimationClip redGeneralAttackClip;
     public AnimationClip blueGeneralAttackClip;
+    /// <summary>事件特效头顶 3D 信标模型（由 LycheeEventModelHookup_20260629 编辑器脚本赋值）：
+    /// 冰鉴=冰棱簇、快马/短驿马共用奔马、荔枝转坏=蔫荔枝串。为空时 LycheeConvoyVfx 回退旧的 2D 图标贴图牌。
+    /// 减面后只剩 POSITION 属性，运行时由 LycheeConvoyVfx 强制套 Lychee/Overhead Event Model shader + 事件 tint。</summary>
+    public GameObject eventModelIceBox;
+    public GameObject eventModelHorse;
+    public GameObject eventModelSpoil;
 
     [Header("Presentation")]
     public bool useRuntimeHud = true;
@@ -250,6 +256,96 @@ public class LycheeReplayPlayer : MonoBehaviour
             : null;
     }
 
+    /// <summary>按事件键取头顶 3D 信标模型 prefab（无则返回 null，调用方回退 2D 图标）。
+    /// 快马/短驿马共用一个奔马模型（决策3），靠 tint+光柱高矮+缩放区分，不分两个 prefab。</summary>
+    public GameObject GetEventModel(string eventKey)
+    {
+        string key = NormalizeEventModelKey(eventKey);
+        GameObject model = null;
+        switch (key)
+        {
+            case "ICE_BOX": model = eventModelIceBox; break;
+            case "FAST_HORSE":
+            case "SHORT_HORSE": model = eventModelHorse; break;
+            case "GOOD_TO_BAD":
+            case "SPOIL": model = eventModelSpoil; break;
+            default: return null;
+        }
+
+        if (model != null)
+        {
+            LogEventModelLookupOnce(key, model, "scene");
+            return model;
+        }
+
+        // WebGL can still strip or null out scene object references even when the
+        // native prefab assets are packed. The build step pins these prefabs in
+        // PlayerSettings.preloadedAssets, so recover them by name before falling
+        // back to the old 2D icon path.
+        model = FindPreloadedEventModel(key);
+        LogEventModelLookupOnce(key, model, "preloaded");
+        return model;
+    }
+
+    static string NormalizeEventModelKey(string eventKey)
+    {
+        string key = string.IsNullOrEmpty(eventKey) ? string.Empty : eventKey.Trim().ToUpperInvariant();
+        if (key == "SPOIL") return "GOOD_TO_BAD";
+        return key;
+    }
+
+    static GameObject FindPreloadedEventModel(string key)
+    {
+        if (key == "ICE_BOX")
+        {
+            if (s_preloadedIceBoxModel != null) return s_preloadedIceBoxModel;
+            return s_preloadedIceBoxModel = FindPreloadedEventModelByName("event_icebox_baked");
+        }
+        if (key == "FAST_HORSE" || key == "SHORT_HORSE")
+        {
+            if (s_preloadedHorseModel != null) return s_preloadedHorseModel;
+            return s_preloadedHorseModel = FindPreloadedEventModelByName("event_horse_baked");
+        }
+        if (key == "GOOD_TO_BAD")
+        {
+            if (s_preloadedSpoilModel != null) return s_preloadedSpoilModel;
+            return s_preloadedSpoilModel = FindPreloadedEventModelByName("event_spoil_baked");
+        }
+        return null;
+    }
+
+    static GameObject FindPreloadedEventModelByName(string objectName)
+    {
+        if (string.IsNullOrEmpty(objectName)) return null;
+        GameObject[] objects = Resources.FindObjectsOfTypeAll<GameObject>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            GameObject candidate = objects[i];
+            if (candidate == null || candidate.name != objectName) continue;
+            if (candidate.GetComponentInChildren<Renderer>(true) == null) continue;
+            return candidate;
+        }
+        return null;
+    }
+
+    static GameObject s_preloadedIceBoxModel;
+    static GameObject s_preloadedHorseModel;
+    static GameObject s_preloadedSpoilModel;
+    static readonly HashSet<string> s_loggedEventModelLookups = new HashSet<string>();
+
+    static void LogEventModelLookupOnce(string key, GameObject model, string source)
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        string logKey = key + "|" + source + "|" + (model != null ? "ok" : "null");
+        if (!s_loggedEventModelLookups.Add(logKey)) return;
+        int renderers = model != null ? model.GetComponentsInChildren<Renderer>(true).Length : 0;
+        Debug.Log("[EventModel-DIAG] key=" + key
+            + " source=" + source
+            + " model=" + (model != null ? model.name : "NULL")
+            + " renderers=" + renderers);
+#endif
+    }
+
     /// <summary>收集当前有可视化车队的真实 playerId（回放里是 1002/2002 这类四位数，并非 0..15）。供调测叠层用。</summary>
     public void CollectConvoyPlayerIds(List<int> buffer)
     {
@@ -287,9 +383,22 @@ public class LycheeReplayPlayer : MonoBehaviour
         SeekFrame(index < 0 ? frames.Count - 1 : index);
     }
 
+    public void SeekToRoundWeb(string roundText)
+    {
+        if (!int.TryParse(roundText, out int round)) return;
+        SeekToRound(round);
+    }
+
     public void SetPlaying(bool value)
     {
         playing = value;
+    }
+
+    public void SetPlayingWeb(string valueText)
+    {
+        if (string.IsNullOrEmpty(valueText)) return;
+        string normalized = valueText.Trim().ToLowerInvariant();
+        playing = normalized == "1" || normalized == "true" || normalized == "play" || normalized == "playing";
     }
 
     public bool TryGetConvoyFraming(out Vector3 center, out float span)
@@ -680,6 +789,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (frames.Count == 0) return;
         float playbackDelta = Mathf.Min(Time.deltaTime, MaxPlaybackDeltaSeconds);
+        if (ShouldForcePresentationPause())
+            playing = false;
         if (playing)
         {
             frameTime += playbackDelta;
@@ -715,6 +826,13 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 出发动画展示期间冻结小队动作/到达消失计时，避免漏网小队在演出中走动或被销毁。
         if (!LycheeOpeningShowcase.AnyShowing) UpdateSquads(interpolation, visualDelta);
         UpdateRuntimeHud();
+    }
+
+    static bool ShouldForcePresentationPause()
+    {
+        return LycheeOpeningShowcase.AnyShowing ||
+            LycheeVideoInterlude.IsPresentationActive ||
+            LycheeVideoInterlude.IsPresentationVisible;
     }
 
     float EffectiveSecondsForFrame(LycheeReplayFrame frame)
@@ -1140,9 +1258,16 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     void CreateRuntimeHud()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        useRuntimeHud = true;
+        Debug.Log("[RuntimeHud-DIAG] CreateRuntimeHud useRuntimeHud=" + useRuntimeHud
+            + " existing=" + (GetComponent<LycheeReplayRuntimeHud>() != null)
+            + " frames=" + frames.Count);
+#endif
         if (!useRuntimeHud) return;
         runtimeHud = GetComponent<LycheeReplayRuntimeHud>();
         if (runtimeHud == null) runtimeHud = gameObject.AddComponent<LycheeReplayRuntimeHud>();
+        runtimeHud.enabled = true;
         runtimeHud.Configure(combatIllustrations, redCaptainAvatar, blueCaptainAvatar);
     }
 
@@ -1190,6 +1315,11 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     void UpdateRuntimeHud()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        useRuntimeHud = true;
+#endif
+        if (runtimeHud == null && useRuntimeHud)
+            CreateRuntimeHud();
         if (runtimeHud == null || frames.Count == 0) return;
         LycheeReplayFrame frame = frames[frameIndex];
         LycheeReplayPlayerState red = frame.players == null ? null : frame.players.FirstOrDefault(player => player.camp == 0);
@@ -1243,6 +1373,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 }
                 lastEventFrame = index;
             }
+            EmitSyntheticGoodToBadEvents(previousApplied, frame, force);
         }
         finally
         {
@@ -1251,6 +1382,64 @@ public class LycheeReplayPlayer : MonoBehaviour
         ApplyObstacles(frame);
         RoundApplied?.Invoke(previousApplied, frame);
         lastAppliedFrame = frame;
+    }
+
+    void EmitSyntheticGoodToBadEvents(LycheeReplayFrame previous, LycheeReplayFrame current, bool force)
+    {
+        if (force || previous == null || current == null) return;
+        if (current.round - previous.round != 1) return;
+        if (previous.players == null || current.players == null) return;
+
+        for (int i = 0; i < current.players.Length; i++)
+        {
+            LycheeReplayPlayerState now = current.players[i];
+            if (now == null) continue;
+            LycheeReplayPlayerState before = null;
+            for (int j = 0; j < previous.players.Length; j++)
+            {
+                LycheeReplayPlayerState candidate = previous.players[j];
+                if (candidate != null && candidate.playerId == now.playerId)
+                {
+                    before = candidate;
+                    break;
+                }
+            }
+            if (before == null) continue;
+            int badDelta = now.badFruit - before.badFruit;
+            int goodDrop = before.goodFruit - now.goodFruit;
+            if (badDelta <= 0 || goodDrop <= 0) continue;
+            if (FrameHasGoodToBadForPlayer(current, now.playerId)) continue;
+
+            HandleEvent(new LycheeReplayMessage
+            {
+                type = "GOOD_TO_BAD",
+                payload = new LycheeReplayPayload
+                {
+                    playerId = now.playerId,
+                    teamId = now.teamId,
+                    nodeId = now.currentNodeId,
+                    targetNodeId = now.currentNodeId,
+                    goodFruit = now.goodFruit,
+                    badFruit = now.badFruit,
+                    freshness = now.freshness,
+                    before = before.goodFruit,
+                    after = now.goodFruit,
+                    loss = goodDrop
+                }
+            }, current.round);
+        }
+    }
+
+    static bool FrameHasGoodToBadForPlayer(LycheeReplayFrame frame, int playerId)
+    {
+        if (frame == null || frame.messages == null || playerId <= 0) return false;
+        for (int i = 0; i < frame.messages.Length; i++)
+        {
+            LycheeReplayMessage message = frame.messages[i];
+            if (message == null || message.type != "GOOD_TO_BAD" || message.payload == null) continue;
+            if (message.payload.playerId == playerId) return true;
+        }
+        return false;
     }
 
     void RestoreContestStartBeforeReveal(int targetIndex, LycheeReplayMessage message)
@@ -1726,11 +1915,7 @@ public class LycheeReplayPlayer : MonoBehaviour
                 // 相机带一下出征的小队：跟拍小队根节点 ~3.4s、拉近到 17m，让 3D 队员"出发"看得见，
                 // 而不是只剩头顶一行飞字（旧代码这里是 ClearEventFocus()，镜头当场把小队甩回主车队）。
                 SetEventFocus(dispatched.root.transform, 3.4f, 17f);
-                SpawnEventPulse(dispatched.start, TeamName(payload.playerId) + "小队出发 x" + dispatched.memberCount, TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             }
-            else if (!string.IsNullOrEmpty(payload.targetNodeId) &&
-                stations.TryGetValue(payload.targetNodeId, out MapStationAnchor squadTarget))
-                SpawnEventPulse(squadTarget.transform.position, "小队出发 x" + dispatchedCount, TeamColor(payload.playerId), ResolveEventIcon("SQUAD_DISPATCH", payload));
             return;
         }
 
@@ -1911,11 +2096,14 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         else if (type == "TASK_COMPLETE")
         {
+            string taskName = TaskDisplayName(payload);
+            int taskScore = payload.score > 0 ? payload.score : TaskScore(payload);
             title = "皇榜任务完成";
-            subtitle = team + " 完成 " + ShortId(payload.taskId, "任务");
-            left = ShortId(payload.taskId, "任务");
-            right = ScoreText(payload.score);
-            center = "+" + Mathf.Max(0, payload.score);
+            subtitle = team + " 完成 " + target + " · " + taskName;
+            left = target + " · " + taskName;
+            right = ScoreText(taskScore);
+            center = TeamColoredFooter(payload.playerId,
+                TeamShortName(payload.playerId) + " · " + target + " " + taskName + " +" + Mathf.Max(0, taskScore));
             imageIndex = 2;
         }
         else if (type == "WEATHER_START")
@@ -3437,11 +3625,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         return nodeId;
     }
 
-    // 事件卡底部条用的「队色文字」：把队色转成 #RRGGBB 富文本包裹，RuntimeHud 底部条遇到 <color 直接原样显示。
+    // 事件卡底部条只给 RuntimeHud 队伍语义；颜色由红/蓝背景负责，文字统一白色。
     string TeamColoredFooter(int playerId, string text)
     {
-        Color c = TeamColor(playerId);
-        return "<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">" + text + "</color>";
+        return text;
     }
 
     // 干净的队名「红队 / 蓝队」（camp 0=红/1=蓝），底部条用——TeamName 带 #2002·blue-l4 内部串太杂。
@@ -3747,6 +3934,39 @@ public class LycheeReplayPlayer : MonoBehaviour
         return wrapper;
     }
 
+    /// <summary>
+    /// 头顶事件信标模型归一化：仿 CreateNormalizedModel 的世界包围盒归一化，但把 bounds.center
+    /// （而非 bounds.min.y）对齐到 wrapper 原点——让模型的几何中心坐在 wrapper 上，
+    /// 这样 LycheeConvoyVfx 把 wrapper 放到 ~y2.9 后模型就「悬」在车队头顶正上方，且绕 wrapper 原地自转。
+    /// 不调 ApplyCharacterBrightness（信标走专用 overlay shader，材质由调用方强改），碰撞体一律关。
+    /// </summary>
+    public GameObject CreateNormalizedOverheadModel(
+        GameObject prefab,
+        Transform parent,
+        string objectName,
+        float targetSize)
+    {
+        if (prefab == null) return null;
+        GameObject wrapper = new GameObject(objectName);
+        wrapper.transform.SetParent(parent, false);
+        GameObject model = Instantiate(prefab, wrapper.transform);
+        model.name = prefab.name;
+        Renderer[] renderers = model.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0) return wrapper;
+        Bounds bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+        float largest = Mathf.Max(bounds.size.x, bounds.size.y, bounds.size.z);
+        if (largest > 0.0001f) model.transform.localScale *= targetSize / largest;
+        bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+        // 几何中心对齐到 wrapper 世界原点（相对 wrapper 已有世界坐标做偏移，wrapper 可能已被预定位）。
+        Vector3 wp = wrapper.transform.position;
+        model.transform.position -= new Vector3(bounds.center.x - wp.x, bounds.center.y - wp.y, bounds.center.z - wp.z);
+        foreach (Collider collider in model.GetComponentsInChildren<Collider>(true))
+            collider.enabled = false;
+        return wrapper;
+    }
+
     static bool IsCharacterVisual(string objectName)
     {
         return objectName == "Captain" ||
@@ -3860,7 +4080,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (eventType == "PROCESS_COMPLETE") return "完成" + ActionName(payload.processType);
         if (eventType == "SQUAD_CLEAR" || eventType == "SQUAD_CLEAR_SUCCESS" || eventType == "OBSTACLE_CLEAR") return TeamName(payload.playerId) + "清障成功";
         if (eventType == "SQUAD_FAILED") return TeamName(payload.playerId) + "小队失败";
-        if (eventType == "TASK_COMPLETE") return "任务完成";
+        if (eventType == "TASK_COMPLETE") return "完成" + TaskDisplayName(payload);
         if (eventType == "TASK_REFRESH" || eventType == "TASK_SPAWN") return "任务刷新";
         if (eventType == "DELIVER_SUCCESS") return "交付成功";
         if (eventType == "VERIFY_GATE_COMPLETE") return "验核通过";
@@ -4130,34 +4350,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             GUI.Label(new Rect(errorPanel.x + 24f, errorPanel.y + 22f, errorPanel.width - 48f, errorPanel.height - 44f), startupError, startupErrorStyle);
             return;
         }
-        if (!showLegacyTopHud) return;
-        if (frames.Count == 0) return;
-        EnsureGuiStyles();
-        float width = Mathf.Min(610f, Screen.width - 32f);
-        Rect panel = new Rect(16f, 16f, width, 126f);
-        GUI.Box(panel, GUIContent.none);
-        GUI.Label(new Rect(30f, 24f, width - 28f, 28f), "荔枝运送回放", titleStyle);
-        GUI.Label(
-            new Rect(30f, 52f, width - 28f, 24f),
-            "回合 " + CurrentRound + " / " + frames[frames.Count - 1].round +
-            "   阶段 " + (frames[frameIndex].phase == "RUSH" ? "冲刺" : "常规") +
-            "   " + latestEvent,
-            hudStyle);
-
-        if (GUI.Button(new Rect(30f, 82f, 74f, 30f), playing ? "暂停" : "播放", buttonStyle))
-            playing = !playing;
-        if (GUI.Button(new Rect(112f, 82f, 58f, 30f), "重播", buttonStyle))
-            SeekFrame(0);
-
-        float speed = 1.00f / secondsPerRound;
-        GUI.Label(new Rect(181f, 84f, 78f, 24f), speed.ToString("0.0") + "x", hudStyle);
-        float sliderValue = GUI.HorizontalSlider(
-            new Rect(250f, 91f, width - 275f, 18f),
-            frameIndex,
-            0,
-            frames.Count - 1);
-        int requested = Mathf.RoundToInt(sliderValue);
-        if (requested != frameIndex) SeekFrame(requested);
+        // 旧版 IMGUI 顶部 HUD（标题「荔枝运送回放」+回合/阶段+一套播放控件+进度条）已**彻底弃用**：
+        // 它用 OnGUI 画、永远叠在 uGUI 画布之上，与 LycheeHudExtensions 的控制条重叠成用户反复反馈的「左上角多一层」。
+        // 播放/重播/速度/进度由 LycheeHudExtensions 控制条提供，回合/阶段/事件由其 feed+任务条提供，无需这层。
+        // 无论 showLegacyTopHud（场景里偶发被旧状态置 1）取何值，这里都不再绘制，保证不会再出现叠层。
+        return;
     }
 
     void EnsureGuiStyles()

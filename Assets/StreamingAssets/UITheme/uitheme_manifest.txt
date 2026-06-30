@@ -55,6 +55,7 @@ Illustrations/combat_squad_failed.png
 card_abstain.png
 card_back.png
 card_bing_zheng.png
+card_frame.png
 card_qiang_xing.png
 card_xian_gong.png
 card_yan_die.png

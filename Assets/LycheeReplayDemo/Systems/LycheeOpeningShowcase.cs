@@ -59,8 +59,8 @@ public class LycheeOpeningShowcase : MonoBehaviour
     Text blueSubText;
     Text infoText;
     Text loadingText;   // 标题下方"正在加载游戏资源…"提示，随 rootGroup 一起淡入
-    Image redAvatarImage;
-    Image blueAvatarImage;
+    RawImage redAvatarImage;
+    RawImage blueAvatarImage;
     Text redAvatarFallback;
     Text blueAvatarFallback;
 
@@ -418,8 +418,8 @@ public class LycheeOpeningShowcase : MonoBehaviour
         SetTextValue(blueSubText, "岭南出发 · 贡运 " + ResolveFruitCount(blue) + " 篓");
         SetTextValue(infoText, ResolveMatchInfo());
 
-        ApplyAvatar(redAvatarImage, redAvatarFallback, player != null ? player.redCaptainAvatar : null);
-        ApplyAvatar(blueAvatarImage, blueAvatarFallback, player != null ? player.blueCaptainAvatar : null);
+        ApplyAvatar(redAvatarImage, redAvatarFallback, ResolveAvatarSprite(true, player != null ? player.redCaptainAvatar : null));
+        ApplyAvatar(blueAvatarImage, blueAvatarFallback, ResolveAvatarSprite(false, player != null ? player.blueCaptainAvatar : null));
     }
 
     LycheeReplayPlayerState FindCampPlayer(int camp)
@@ -444,14 +444,33 @@ public class LycheeOpeningShowcase : MonoBehaviour
         return state != null && state.goodFruit > 0 ? state.goodFruit : 100;
     }
 
-    static void ApplyAvatar(Image avatarImage, Text fallback, Sprite sprite)
+    Sprite ResolveAvatarSprite(bool red, Sprite requested)
+    {
+        if (requested != null && requested.texture != null) return requested;
+        Sprite themed = LoadThemeSprite(red ? "team_red_emblem.png" : "team_blue_emblem.png");
+        return themed != null && themed.texture != null ? themed : null;
+    }
+
+    static void ApplyAvatar(RawImage avatarImage, Text fallback, Sprite sprite)
     {
         if (avatarImage != null)
         {
-            avatarImage.sprite = sprite;
-            avatarImage.gameObject.SetActive(sprite != null);
+            bool visible = sprite != null && sprite.texture != null;
+            avatarImage.texture = visible ? sprite.texture : null;
+            avatarImage.uvRect = visible ? SpriteUv(sprite) : new Rect(0f, 0f, 1f, 1f);
+            avatarImage.color = Color.white;
+            avatarImage.gameObject.SetActive(visible);
         }
-        if (fallback != null) fallback.gameObject.SetActive(sprite == null);
+        if (fallback != null) fallback.gameObject.SetActive(sprite == null || sprite.texture == null);
+    }
+
+    static Rect SpriteUv(Sprite sprite)
+    {
+        if (sprite == null || sprite.texture == null) return new Rect(0f, 0f, 1f, 1f);
+        Rect r = sprite.rect;
+        Texture2D texture = sprite.texture;
+        if (texture.width <= 0 || texture.height <= 0) return new Rect(0f, 0f, 1f, 1f);
+        return new Rect(r.x / texture.width, r.y / texture.height, r.width / texture.width, r.height / texture.height);
     }
 
     string ResolveMatchInfo()
@@ -758,7 +777,7 @@ public class LycheeOpeningShowcase : MonoBehaviour
         mask.showMaskGraphic = true;
 
         RectTransform avatarRect = MakeRect("Avatar", plate, Vector2.zero, new Vector2(300f, 300f));
-        Image avatarImage = avatarRect.gameObject.AddComponent<Image>();
+        RawImage avatarImage = avatarRect.gameObject.AddComponent<RawImage>();
         avatarImage.color = Color.white;
         avatarImage.raycastTarget = false;
 

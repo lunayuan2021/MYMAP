@@ -186533,6 +186533,9 @@ MonoBehaviour:
   blueGeneralWalkClip: {fileID: -8559126739998960628, guid: ca28e0a2f4d68452da81420941fdbd45, type: 3}
   redGeneralAttackClip: {fileID: -5736745432439746524, guid: b9f6e91d68f734be881cf6945a58bfd5, type: 3}
   blueGeneralAttackClip: {fileID: 7916048911729411752, guid: b5616c7859a724578a42e4eadf1d3a2d, type: 3}
+  eventModelIceBox: {fileID: 3282010544403953969, guid: 706f1e829c5a9495d840500fd050beb5, type: 3}
+  eventModelHorse: {fileID: 7943948746196405483, guid: 9802bad4fb6c54fdaae9e6fd71517d39, type: 3}
+  eventModelSpoil: {fileID: 3101090767461096517, guid: c8350952d02084eb0a47d12c25efe730, type: 3}
   useRuntimeHud: 1
   showLegacyTopHud: 0
   defaultTeamSize: 16

@@ -20,7 +20,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     const float FeedWidth = 500f;
     const float FeedEntryHeight = 36f;
     const float FeedLifetime = 12f;
-    const float TickerWidth = 960f;
+    const float TickerWidth = 1160f;
     const float TickerHeight = 44f;
     const float TickerSpeed = 92f;
     const float RushDuration = 2.8f;
@@ -108,9 +108,12 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     readonly Queue<PendingFeed> tickerQueue = new Queue<PendingFeed>();
     readonly Dictionary<int, int> lastTickerFreshRoundByPlayer = new Dictionary<int, int>();
     readonly Dictionary<int, int> lastStateExplainRoundByPlayer = new Dictionary<int, int>();
+    readonly Dictionary<string, int> recentFeedRoundByKey = new Dictionary<string, int>();
+    readonly Dictionary<string, int> recentTickerRoundByKey = new Dictionary<string, int>();
     string tickerCurrentLabel;
     string lastFeedDedupKey;
     string lastTickerDedupKey;
+    const int NotificationDedupWindowRounds = 10;
     float tickerStart;
     float tickerDuration = 6f;
     float tickerTextWidth = 800f;
@@ -119,7 +122,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     CanvasGroup weatherGroup;
     Image weatherBg;
     Outline weatherOutline;
-    Image weatherIcon;
+    RawImage weatherIcon;
     Text weatherText;
     float weatherShown;
     bool weatherVisibleTarget;
@@ -315,7 +318,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     void BuildTaskStats(Transform parent)
     {
         RectTransform panel = MakeRect("TaskStatsPanel", parent);
-        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -128f), new Vector2(500f, 34f));
+        // 加宽到 560 容下「任务 ｜」前缀（明确这条是任务完成度，而不是裸的三个计数）。
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -128f), new Vector2(560f, 34f));
         taskStatsGroup = panel.gameObject.AddComponent<CanvasGroup>();
         taskStatsGroup.alpha = 0f;
         taskStatsGroup.interactable = false;
@@ -326,7 +330,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
         taskStatsText = MakeText("TaskStatsText", panel, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleCenter);
         SetRect(taskStatsText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-24f, 0f));
-        taskStatsText.text = "已公开 0   已完成 0   已失效 0";
+        taskStatsText.text = "<color=#F6E8C8><b>任务</b></color> <color=#9A8A66>｜</color>  已公开 0   已完成 0   已失效 0";
     }
 
     // 从当前帧任务表统计：已公开=列表内全部、已完成=completed、已失效=failed。逐帧只在数字变化时刷新文本。
@@ -348,6 +352,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (key == lastTaskStatsKey) return;
         lastTaskStatsKey = key;
         taskStatsText.text =
+            "<color=#F6E8C8><b>任务</b></color> <color=#9A8A66>｜</color>  " +
             "已公开 <color=#FFD24A>" + published + "</color>   " +
             "已完成 <color=#5FE08A>" + completed + "</color>   " +
             "已失效 <color=#E0604C>" + expired + "</color>";
@@ -394,11 +399,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         tickerAccent.raycastTarget = false;
 
         Text caption = MakeText("TickerCaption", tickerRoot, 16, FontStyle.Bold, GoldTitle, TextAnchor.MiddleLeft);
-        SetRect(caption.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(76f, 0f));
+        SetRect(caption.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(84f, 0f));
         caption.text = "提示";
 
         tickerClip = MakeRect("TickerClip", tickerRoot);
-        SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(64f, 0f), new Vector2(-112f, -10f));
+        SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(72f, 0f), new Vector2(-132f, -10f));
         tickerClip.gameObject.AddComponent<RectMask2D>();
 
         tickerText = MakeText("TickerText", tickerClip, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
@@ -433,8 +438,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 图标左缘留 16px 边距；文字区自图标右缘（44）再留 6px 起步，右缘留 16px。
         RectTransform iconRt = MakeRect("WeatherIcon", root);
         SetRect(iconRt, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(16f, 0f), new Vector2(28f, 28f));
-        weatherIcon = iconRt.gameObject.AddComponent<Image>();
-        weatherIcon.preserveAspect = true;
+        weatherIcon = iconRt.gameObject.AddComponent<RawImage>();
         weatherIcon.raycastTarget = false;
         weatherIcon.enabled = false;
 
@@ -444,10 +448,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
 
     void BuildControls(Transform parent)
     {
-        // 控制条加宽 440->500、加高 84->104：按钮字号提升到 20 后行高 36，
+        // 控制条加宽到 640：按钮、速度下拉和回合标签不再贴边，WebGL 小窗口缩放后也不会溢出边框。
         // 顶部按钮行与底部滑杆行垂直间隔 12px，内容距背景边缘 16px。
         RectTransform panel = MakeRect("ControlPanel", parent);
-        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(500f, 104f));
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(640f, 108f));
         controlGroup = panel.gameObject.AddComponent<CanvasGroup>();
         controlGroup.alpha = 0f;
         Image bg = panel.gameObject.AddComponent<Image>();
@@ -472,15 +476,17 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         playGlyph = "播放";
         pauseGlyph = "暂停";
 
-        // 按钮行（自面板左缘起，按钮间隔 12px）：重播 16..112 / 播放 124..196 / 速度下拉 208..318。
-        MakeButton(panel, "ReplayButton", replayLabel, new Vector2(16f, -16f), new Vector2(96f, 36f), OnReplayClicked, out _);
-        MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(124f, -16f), new Vector2(72f, 36f), OnPlayPauseClicked, out playButtonLabel);
-        speedDropdown = MakeSpeedDropdown(panel, new Vector2(208f, -16f), new Vector2(110f, 36f));
+        // 按钮行（自面板左缘起，按钮间隔 12px）：给中文按钮和 R 600 / 600 留足宽度。
+        MakeButton(panel, "ReplayButton", replayLabel, new Vector2(16f, -16f), new Vector2(112f, 36f), OnReplayClicked, out _);
+        MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(140f, -16f), new Vector2(84f, 36f), OnPlayPauseClicked, out playButtonLabel);
+        speedDropdown = MakeSpeedDropdown(panel, new Vector2(236f, -16f), new Vector2(116f, 36f));
 
         roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleRight);
-        // 回合标签右对齐 338..484，与速度下拉右缘（318）保持 20px 净空。
-        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(146f, 36f));
+        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(252f, 36f));
         roundLabel.text = "R 0 / 0";
+        roundLabel.resizeTextForBestFit = true;
+        roundLabel.resizeTextMinSize = 13;
+        roundLabel.resizeTextMaxSize = 18;
 
         seekSlider = BuildSeekSlider(panel);
     }
@@ -491,7 +497,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         go.transform.SetParent(parent, false);
         RectTransform rt = go.GetComponent<RectTransform>();
         // 滑杆行 y 16..40，与上方按钮行下缘（52）保持 12px 净空；左右各留 16px 边距。
-        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(16f, 16f), new Vector2(468f, 24f));
+        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(16f, 16f), new Vector2(608f, 24f));
 
         RectTransform bgRt = MakeRect("Background", rt);
         SetRect(bgRt, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(0f, 8f));
@@ -643,7 +649,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
                 (string.IsNullOrEmpty(node) ? "" : node + " · ") + FeedEventDetail(type, payload, node);
         Color color = FeedColor(type);
         string dedupKey = BuildNotificationDedupKey(type, payload);
-        if (ShouldSkipConsecutiveNotification(ref lastFeedDedupKey, dedupKey)) return;
+        if (ShouldSkipNotification(recentFeedRoundByKey, ref lastFeedDedupKey, dedupKey, round, NotificationDedupWindowRounds)) return;
         if (feedPaused)
         {
             pendingFeed.Add(new PendingFeed { label = label, color = color, eventType = type, iconPath = FeedIconPath(type, payload) });
@@ -684,9 +690,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         {
             RectTransform iconRt = MakeRect("FeedIcon", rt);
             SetRect(iconRt, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(9f, 0f), new Vector2(24f, 24f));
-            Image iconImage = iconRt.gameObject.AddComponent<Image>();
-            iconImage.sprite = feedIcon;
-            iconImage.preserveAspect = true;
+            RawImage iconImage = iconRt.gameObject.AddComponent<RawImage>();
+            SetRawImageSprite(iconImage, feedIcon);
             iconImage.raycastTarget = false;
             textLeft = 38f;
         }
@@ -874,7 +879,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (TryBuildMechanicText(message, round, out string text, out Color color))
         {
             string dedupKey = BuildNotificationDedupKey(message.type, message.payload);
-            if (ShouldSkipConsecutiveNotification(ref lastTickerDedupKey, dedupKey)) return;
+            if (ShouldSkipNotification(recentTickerRoundByKey, ref lastTickerDedupKey, dedupKey, round, NotificationDedupWindowRounds)) return;
             PushTicker(text, color);
         }
     }
@@ -897,7 +902,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         tickerGroup.alpha = Mathf.MoveTowards(tickerGroup.alpha, targetAlpha, Time.unscaledDeltaTime / 0.18f);
         if (tickerCurrentLabel == null) return;
 
-        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 112f;
+        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 132f;
         float t = tickerDuration <= 0.001f ? 1f : Mathf.Clamp01((now - tickerStart) / tickerDuration);
         float x = Mathf.Lerp(clipWidth, -tickerTextWidth, t);
         tickerTextRect.anchoredPosition = new Vector2(x, 0f);
@@ -915,7 +920,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         tickerText.text = next.label;
         tickerText.color = SilkText;
         if (tickerAccent != null) tickerAccent.color = next.color;
-        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 112f;
+        float clipWidth = tickerClip != null && tickerClip.rect.width > 1f ? tickerClip.rect.width : TickerWidth - 132f;
         tickerTextWidth = Mathf.Max(tickerText.preferredWidth + 40f, 420f);
         tickerTextRect.sizeDelta = new Vector2(Mathf.Max(2200f, tickerTextWidth + 40f), 28f);
         tickerStart = now;
@@ -1248,7 +1253,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 只用事件身份（类型/队伍/节点/处理/资源/动作/错误码）做 key，让同一状态的连发塌缩成一条，
         // 直到出现一条「不一样的事件」才再次放行（用户诉求：平局休整只显示一遍）。
         return type + "|" + payload.playerId + "|" + nodeId + "|" + payload.processType + "|" +
-            payload.resourceType + "|" + payload.action + "|" + payload.errorCode;
+            payload.resourceType + "|" + payload.action + "|" + payload.tactic + "|" +
+            payload.errorCode + "|" + payload.taskId + "|" + payload.taskTemplateId + "|" +
+            payload.templateId + "|" + payload.contestId + "|" + payload.bountyId + "|" + payload.reward;
     }
 
     static bool ShouldSkipConsecutiveNotification(ref string lastKey, string key)
@@ -1257,6 +1264,34 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (lastKey == key) return true;
         lastKey = key;
         return false;
+    }
+
+    static bool ShouldSkipNotification(Dictionary<string, int> cache, ref string lastKey, string key, int round, int windowRounds)
+    {
+        if (string.IsNullOrEmpty(key)) return false;
+        if (ShouldSkipConsecutiveNotification(ref lastKey, key)) return true;
+        if (cache != null && cache.TryGetValue(key, out int lastRound) && round - lastRound >= 0 && round - lastRound < windowRounds)
+            return true;
+        if (cache != null)
+        {
+            cache[key] = round;
+            if (cache.Count > 96)
+                PruneNotificationCache(cache, round, windowRounds * 2);
+        }
+        return false;
+    }
+
+    static void PruneNotificationCache(Dictionary<string, int> cache, int round, int keepWindowRounds)
+    {
+        if (cache == null || cache.Count == 0) return;
+        List<string> remove = new List<string>();
+        foreach (KeyValuePair<string, int> entry in cache)
+        {
+            if (round - entry.Value > keepWindowRounds)
+                remove.Add(entry.Key);
+        }
+        for (int i = 0; i < remove.Count; i++)
+            cache.Remove(remove[i]);
     }
 
     static string ActionName(string value)
@@ -1375,7 +1410,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (weatherIcon == null) return;
         weatherIcon.enabled = icon != null;
-        if (icon != null) weatherIcon.sprite = icon;
+        if (icon != null) SetRawImageSprite(weatherIcon, icon);
     }
 
     void UpdateWeatherBanner(float now)
@@ -1940,6 +1975,31 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         return sprite;
     }
 
+    static void SetRawImageSprite(RawImage image, Sprite sprite)
+    {
+        if (image == null) return;
+        if (sprite == null || sprite.texture == null)
+        {
+            image.texture = null;
+            image.enabled = false;
+            return;
+        }
+
+        image.texture = sprite.texture;
+        image.uvRect = SpriteUv(sprite);
+        image.color = Color.white;
+        image.enabled = true;
+    }
+
+    static Rect SpriteUv(Sprite sprite)
+    {
+        if (sprite == null || sprite.texture == null) return new Rect(0f, 0f, 1f, 1f);
+        Rect r = sprite.rect;
+        Texture2D texture = sprite.texture;
+        if (texture.width <= 0 || texture.height <= 0) return new Rect(0f, 0f, 1f, 1f);
+        return new Rect(r.x / texture.width, r.y / texture.height, r.width / texture.width, r.height / texture.height);
+    }
+
     public static string EventNameCn(string type)
     {
         switch (type)
@@ -2169,7 +2229,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             }
             panelFrameResolved = true;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!texture.LoadImage(bytes)) return null;
+            if (!texture.LoadImage(bytes, markNonReadable: true)) return null;
             texture.wrapMode = TextureWrapMode.Clamp;
             float edge = Mathf.Max(8f, Mathf.Round(Mathf.Min(texture.width, texture.height) * 0.25f));
             panelFrameSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
@@ -2249,7 +2309,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
             if (bytes == null || bytes.Length == 0) return null;
             Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!texture.LoadImage(bytes)) return null;
+            if (!texture.LoadImage(bytes, markNonReadable: true)) return null;
             texture.wrapMode = TextureWrapMode.Clamp;
             return Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
         }
@@ -2451,6 +2511,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         labelText = MakeText("Label", rt, 20, FontStyle.Bold, GoldTitle, TextAnchor.MiddleCenter);
         SetRect(labelText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         labelText.text = label;
+        labelText.resizeTextForBestFit = true;
+        labelText.resizeTextMinSize = 13;
+        labelText.resizeTextMaxSize = 20;
         return button;
     }
 }

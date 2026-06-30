@@ -687,8 +687,15 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     {
         string videoUrl;
 #if UNITY_WEBGL && !UNITY_EDITOR
+        // ⚠ WebGL 关键修复：Unity 的 VideoPlayer(RenderTexture 模式 + Prepare)在 WebGL/IL2CPP 下会命中
+        // “null function” 硬崩(WASM trap、try/catch 拦不住)——这正是“回放放到最后、出结算页那一下整页崩”的真凶。
+        // 结算页直接用静态胜利背景(BuildBackground 已铺底)兜底，不再建视频播放器。
+        victoryVideoFailed = true;
+        return;
+#pragma warning disable CS0162
         // WebGL：StreamingAssets 是 URL，不能 File.Exists 探测，直接设 URL 靠错误回调兜底
         videoUrl = Application.streamingAssetsPath + "/Video/victory.mp4";
+#pragma warning restore CS0162
 #else
         try
         {

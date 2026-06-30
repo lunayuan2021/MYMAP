@@ -172,8 +172,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     IEnumerator RunInterlude(string fileName, string eventType)
     {
         busy = true;
+        bool wasPlayingBeforeInterlude = player != null && player.IsPlaying;
         EnsureCanvas();
-        IsPresentationActive = true;
 
         // 关键修复：VideoPlayer 挂在 canvasRoot 上，Prepare() 只有在 GameObject 处于激活态时才会推进。
         // 旧实现先 Prepare() 后才 SetActive(true)，于是 isPrepared 永远为 false → 等满 PrepareTimeout 后被
@@ -206,7 +206,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         // 2. 确认能播：先登记"已播"（同片去重 + 小分队封顶都按真正播出计），再暂停回放、淡黑、播视频
         lastPlayByClip[fileName] = Time.time;
         if (eventType == "SQUAD_DISPATCH") squadDispatchPlays++;
-        bool wasPlaying = player.IsPlaying;
+        bool wasPlaying = wasPlayingBeforeInterlude;
+        IsPresentationActive = true;
         player.SetPlaying(false);
         skipRequested = false;
         canvasRoot.SetActive(true);

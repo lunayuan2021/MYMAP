@@ -30,6 +30,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
     const float ExpandedMapSize = 238f;
     const float NormalBorderThickness = 3f;
     const float ExpandedBorderThickness = 1f;
+    const float WebSafeRightInset = 44f;
+    const float WebSafeTopInset = 26f;
     const int MinimapTextureSize = 512;
     const float RenderInterval = 0.6f;
     const float CameraHeight = 90f;
@@ -262,7 +264,13 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             };
             minimapTexture.Create();
             minimapCamera.targetTexture = minimapTexture;
-            minimapCamera.enabled = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL：相机常开，由 URP 正常渲染循环把它渲到 targetTexture（避开 SubmitRenderRequest 的 AOT 崩、
+            // 也避开 Camera.Render 的屏幕泼溅）。targetTexture 已设，只渲到纹理、不上主屏。
+            minimapCamera.enabled = true;
+#else
+            minimapCamera.enabled = false;   // 桌面/编辑器：按需 SubmitRenderRequest 渲染
+#endif
 
             UniversalAdditionalCameraData extraData = minimapCamera.GetUniversalAdditionalCameraData();
             if (extraData != null)
@@ -304,6 +312,16 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             mapImage.texture = minimapTexture;
             mapImage.color = Color.white;
         }
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // WebGL(IL2CPP)：这里**不主动渲染**。两条主动渲染路都在 WebGL 会崩/出错：
+        //   • RenderPipeline.SubmitRenderRequest 是「值类型泛型」(TRequest=struct SingleCameraRequest)，IL2CPP AOT 不生成代码
+        //     → `RuntimeError: null function` 硬崩溃(WASM trap、try/catch 拦不住)，把整个程序打死(HUD/音乐/全没)。
+        //   • Camera.Render() 在 URP 下又会把小地图泼到主屏幕(左上角叠一层) 且同样命中 AOT 缺口。
+        // 改为：相机 enabled=true(见 Setup)，由 URP **正常渲染循环**把它渲到 targetTexture——和主相机同一条已验证可用、
+        //   AOT 安全的路径；这里只保证 RawImage 绑了纹理即可。
+        return;
+#else
+        // 桌面/编辑器(Mono JIT，无 AOT 问题)：用 URP 单相机渲染请求（精确、同步、按需）。
         try
         {
             UniversalRenderPipeline.SingleCameraRequest request = new UniversalRenderPipeline.SingleCameraRequest
@@ -328,6 +346,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         {
             // 渲染失败时保留上一帧画面即可，不抛异常
         }
+#endif
     }
 
     static Vector3 ComputeMapCenter()
@@ -402,7 +421,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             "MinimapPanel",
             canvasObject.transform,
             new Vector2(1f, 1f),
-            new Vector2(-24f, -20f),
+            new Vector2(-WebSafeRightInset, -WebSafeTopInset),
             new Vector2(PanelSize, PanelSize),
             new Vector2(1f, 1f));
         Image background = panel.gameObject.AddComponent<Image>();
@@ -491,7 +510,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         else
         {
             panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
-            panel.anchoredPosition = new Vector2(-24f, -20f);
+            panel.anchoredPosition = new Vector2(-WebSafeRightInset, -WebSafeTopInset);
             panel.localScale = Vector3.one;          // 收回右上角小图
         }
         ApplyExpandedFrameState();

@@ -79,11 +79,15 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     string desiredBgmKey = BgmNormalKey;
     bool initialized;
 #if UNITY_WEBGL && !UNITY_EDITOR
-    bool webAudioUnlockTried;
+    bool webAudioUnlocked;     // AudioContext 第一次进入 running 后置 true：此时才真被 resume
+    float webAudioKickUntil;   // 解锁后的"补播窗口"截止时刻：ctx.resume() 是异步的，窗口内每个探测周期都重启 BGM，直到落在已恢复的 context 上
     float nextWebAudioUnlockProbe;
+    bool audioUpdateErrorLogged;  // Update 里 try/catch 吞掉的异常只记一次（否则每帧刷屏），用于排查 BGM 静默失败
 
     [DllImport("__Internal")]
     static extern void LycheeResumeAudioContext();
+    [DllImport("__Internal")]
+    static extern int LycheeAudioContextRunning();
 #endif
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -175,9 +179,12 @@ public sealed class LycheeAudioDirector : MonoBehaviour
             UpdateBgm();
             UpdateAmbient();
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            // 任何运行时异常都不允许打断回放。
+            // 任何运行时异常都不允许打断回放；但**只记一次**——之前是完全静默吞掉，BGM 若因异常每帧失败也看不见。
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!audioUpdateErrorLogged) { audioUpdateErrorLogged = true; Debug.LogWarning("[LycheeAudioDirector] 音频 Update 异常(已吞、仅记一次，可能导致 BGM 静默): " + e); }
+#endif
         }
     }
 
@@ -324,17 +331,38 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
         if (Time.unscaledTime < nextWebAudioUnlockProbe) return;
-        bool firstProbe = !webAudioUnlockTried;
-        bool userGesture = Input.GetMouseButtonDown(0) || Input.touchCount > 0 || Input.anyKeyDown;
-        if (!firstProbe && !userGesture) return;
+        nextWebAudioUnlockProbe = Time.unscaledTime + 0.4f;
 
-        webAudioUnlockTried = true;
-        nextWebAudioUnlockProbe = Time.unscaledTime + 0.5f;
+        // ⚠ 关键修复：绝不能用旧 UnityEngine.Input（项目已切到 Input System 包，旧 Input.GetMouseButtonDown/
+        // touchCount/anyKeyDown 会每帧抛 InvalidOperationException → 把整个音频 Update 打断 → UpdateBgm 永不执行 →
+        // BGM 永远静音；音效走另一条 PlayOneShot 路径所以照响）。改为：每个探测周期都幂等地请求恢复 AudioContext
+        // （index.html 亦在 pointerdown/touchstart/keydown 上调它），并通过 jslib 直接查 context 是否 running 来判定
+        // “用户解锁了没”，完全不碰 Input。
         try { LycheeResumeAudioContext(); } catch (Exception) { }
 
-        // 某些浏览器在 AudioContext 恢复后不会自动续起先前被挂起的 AudioSource，补一次播放兜底。
-        ResumeSourceIfNeeded(bgmSourceA, bgmWeightA);
-        ResumeSourceIfNeeded(bgmSourceB, bgmWeightB);
+        bool running = false;
+        try { running = LycheeAudioContextRunning() != 0; } catch (Exception) { }
+
+        // context 第一次进入 running（用户已手势 + resume 完成）：开 2.5s 补播窗口。ctx.resume() 是异步的，
+        // 早期对 looping BGM 调过的 Play() 在挂起 context 上落空、且 Unity 把 isPlaying 假标 true 不会自动续起，
+        // 所以窗口内每个周期无条件 Stop+Play，直到稳稳落在已 running 的 context 上。
+        if (running && !webAudioUnlocked)
+        {
+            webAudioUnlocked = true;
+            webAudioKickUntil = Time.unscaledTime + 2.5f;
+        }
+
+        if (webAudioUnlocked && Time.unscaledTime < webAudioKickUntil)
+        {
+            ForceRestartBgm(bgmSourceA);
+            ForceRestartBgm(bgmSourceB);
+        }
+        else if (!webAudioUnlocked)
+        {
+            // 还没解锁：context 仍 suspended，发不出声，只保持 clip 就绪的轻量兜底。
+            ResumeSourceIfNeeded(bgmSourceA, bgmWeightA);
+            ResumeSourceIfNeeded(bgmSourceB, bgmWeightB);
+        }
 #endif
     }
 
@@ -343,6 +371,13 @@ public sealed class LycheeAudioDirector : MonoBehaviour
     {
         if (source == null || source.clip == null || source.isPlaying || weight <= 0f) return;
         try { source.Play(); } catch (Exception) { }
+    }
+
+    // 无条件重启（不看 isPlaying，因为挂起 context 上它会假阳性）：只要有 clip 就 Stop+Play，把 BGM 踢进已恢复的 context。
+    static void ForceRestartBgm(AudioSource source)
+    {
+        if (source == null || source.clip == null) return;
+        try { source.Stop(); source.Play(); } catch (Exception) { }
     }
 #endif
 

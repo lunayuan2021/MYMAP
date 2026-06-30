@@ -29,6 +29,7 @@ public class LycheeConvoyVfx : MonoBehaviour
     const float TeleportSpeedLimit = 40f;    // SeekFrame 瞬移保护，与 LycheeCharacterMotion 同阈值
     const float RingHeight = 0.07f;          // 与 TeamRing(y=0.04) 错开
     const float BreathHz = 1.2f;
+    const float EventIconDedupWindow = 0.45f;
 
     sealed class ConvoyVfxRig
     {
@@ -47,6 +48,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         public float dustRateApplied;  // 上次写入的 rateOverDistance，避免每帧无谓改模块
         public bool rushApplied;
         public float breathSeed;
+        public readonly Dictionary<string, GameObject> activeEventIconRoots = new Dictionary<string, GameObject>();
+        public readonly Dictionary<string, float> lastEventIconAt = new Dictionary<string, float>();
     }
 
     LycheeReplayPlayer player;
@@ -54,6 +57,7 @@ public class LycheeConvoyVfx : MonoBehaviour
     readonly List<Object> generatedAssets = new List<Object>();
     Material particleMaterial;
     Mesh ringMesh;
+    Mesh floatingRingMesh;   // 脚下悬空发光圆环用的有厚度 torus（事件特效共用，懒建一次）
     bool sharedAssetsReady;
     bool built;
     bool rushPhase;
@@ -159,17 +163,22 @@ public class LycheeConvoyVfx : MonoBehaviour
         LycheeReplayPayload payload = message.payload;
         if (payload.playerId <= 0) return;
 
-        if (message.type == "RESOURCE_USE")
+        if (message.type == "RESOURCE_USE" || message.type == "RESOURCE_CLAIM")
         {
-            string resource = payload.resourceType ?? string.Empty;
-            if (resource == "ICE_BOX") PlayIceBoxVfx(payload.playerId);
-            else if (resource == "FAST_HORSE") PlayHorseVfx(payload.playerId, true);
-            else if (resource == "SHORT_HORSE") PlayHorseVfx(payload.playerId, false);
+            PlayResourceVfx(payload.playerId, payload.resourceType);
             return;
         }
 
         if (message.type == "GOOD_TO_BAD")
             PlaySpoilVfx(payload.playerId);
+    }
+
+    void PlayResourceVfx(int playerId, string resourceType)
+    {
+        string resource = resourceType ?? string.Empty;
+        if (resource == "ICE_BOX") PlayIceBoxVfx(playerId);
+        else if (resource == "FAST_HORSE") PlayHorseVfx(playerId, true);
+        else if (resource == "SHORT_HORSE") PlayHorseVfx(playerId, false);
     }
 
     ConvoyVfxRig FindRig(int playerId)
@@ -299,20 +308,38 @@ public class LycheeConvoyVfx : MonoBehaviour
         }
     }
 
+#if UNITY_EDITOR
+    /// <summary>编辑器内可视验证用：直接触发某车队的事件特效（绕开回放事件管线）。仅 Editor 编译，不进构建、零运行时开销。
+    /// 像 OnReplayEvent 一样先确保 rig 已建（否则 FindRig 取不到、什么都不出）。返回诊断串供截图脚本读。</summary>
+    public string EditorDebugTriggerEvent(int playerId, string kind)
+    {
+        if (player == null) player = GetComponent<LycheeReplayPlayer>();
+        if (!built) BuildRigs();
+        string diag = "built=" + built + " rigs=" + rigs.Count + " rigFound=" + (FindRig(playerId) != null);
+        switch (kind)
+        {
+            case "ICE_BOX": PlayIceBoxVfx(playerId); break;
+            case "FAST_HORSE": PlayHorseVfx(playerId, true); break;
+            case "SHORT_HORSE": PlayHorseVfx(playerId, false); break;
+            case "GOOD_TO_BAD": PlaySpoilVfx(playerId); break;
+        }
+        return diag;
+    }
+#endif
+
     void PlayIceBoxVfx(int playerId)
     {
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
+        if (!BeginEventVfx(rig, "ICE_BOX")) return;
         Color iceTint = new Color(0.55f, 0.90f, 1f);
-        // 冰蓝光柱：从车队立起的竖直光柱，远机位也能一眼锁定（不挂 billboard，保持世界竖直）。
-        StartCoroutine(PlayEventPillar(rig.fxRoot, iceTint, 8.0f, 1.9f, 1.7f));
-        // 冰蓝光环（干净的环、不是杂乱粒子）：表达"车队周围冰蓝特效"。
-        StartCoroutine(AnimateRing(rig.fxRoot, "IceBoxRing", new Color(0.55f, 0.90f, 1f, 0.60f), 1.7f, 0.6f, 3.0f, 0.12f));
-        // 脚下"霜环"地贴：平铺一张冰霜贴图在车队脚下（用户做的 decal_ice_frost.png）；贴图缺失则自动跳过、光环兜底。
-        StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_ice_frost.png", Color.white, 3.8f, 1.1f));
-        // 主视觉：车队上方弹出"冰鉴"资源图标贴图 + 文字 + 冰蓝光环。
-        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 2.0f, iceTint));
+        // 冰蓝光柱：收细（决策4——冰/荔枝转坏的柱只作竖直定位信号，不当速度光束）。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, iceTint, 10.0f, 1.8f, 2.2f));
+        // 脚下悬空发光圆环（取代旧贴地霜环 decal）：浮在队色圈上方、比它大一圈、随距离放大的厚环。
+        StartCoroutine(FloatingRingRoutine(rig.fxRoot, iceTint, 2.8f));
+        // 主视觉：车队头顶 3D 冰棱簇信标（缺模型时回退冰鉴图标牌）+ 一圈柔和配色光环。
+        StartEventIconRoutine(rig, "ICE_BOX", "icon_resource_icebox.png", "冰鉴", new Color(0.82f, 0.96f, 1f, 1f), 6.2f, iceTint);
     }
 
     void PlayHorseVfx(int playerId, bool fastHorse)
@@ -321,27 +348,21 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
 
+        string eventKey = fastHorse ? "FAST_HORSE" : "SHORT_HORSE";
+        if (!BeginEventVfx(rig, eventKey)) return;
         Color horseTint = fastHorse ? new Color(1f, 0.86f, 0.46f) : new Color(0.95f, 0.70f, 0.30f);
-        // 金色光柱：表达"疾驰"。短驿马柱矮一点、暗一点。
-        StartCoroutine(PlayEventPillar(rig.fxRoot, horseTint, fastHorse ? 8.0f : 6.5f, 1.9f, fastHorse ? 1.6f : 1.4f));
-        // 脚下风环（干净的环，表达"疾驰加速"），不再撒杂乱的尘土/风线粒子。
-        StartCoroutine(AnimateRing(
-            rig.fxRoot,
-            fastHorse ? "FastHorseGustRing" : "ShortHorseGustRing",
-            new Color(1f, 0.86f, 0.46f, fastHorse ? 0.46f : 0.36f),
-            fastHorse ? 1.0f : 0.78f,
-            0.5f,
-            fastHorse ? 2.5f : 1.95f,
-            0.09f));
-        // 脚下"疾风"地贴：平铺一张风纹贴图在车队脚下（用户做的 decal_wind_gust.png）；贴图缺失则自动跳过、光环兜底。
-        StartCoroutine(GroundDecalRoutine(rig.fxRoot, "decal_wind_gust.png", Color.white, fastHorse ? 4.2f : 3.4f, fastHorse ? 1.1f : 0.95f));
-        // 主视觉：车队上方弹出快马/短驿马图标贴图 + 文字 + 金色光环。
-        StartCoroutine(EventIconRoutine(
-            rig.fxRoot,
+        // 金色光柱：保留作"速度光束"（决策4），短驿马柱矮一点、暗一点。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, horseTint, fastHorse ? 10.0f : 9.0f, fastHorse ? 2.6f : 2.3f, fastHorse ? 2.1f : 2.0f));
+        // 脚下悬空发光圆环（取代旧贴地风纹 decal + 杂乱风环）。
+        StartCoroutine(FloatingRingRoutine(rig.fxRoot, horseTint, fastHorse ? 2.8f : 2.6f));
+        // 主视觉：车队头顶 3D 奔马信标（快马/短驿马共用，缺模型时回退图标牌）+ 一圈柔和配色光环。
+        StartEventIconRoutine(
+            rig,
+            eventKey,
             fastHorse ? "icon_resource_fasthorse.png" : "icon_resource_shorthorse.png",
             fastHorse ? "快马" : "短驿马",
             new Color(1f, 0.90f, 0.55f, 1f),
-            fastHorse ? 2.0f : 1.8f,
+            fastHorse ? 6.2f : 6.0f,
             horseTint));
     }
 
@@ -350,11 +371,40 @@ public class LycheeConvoyVfx : MonoBehaviour
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null || rig.fxRoot == null) return;
         EnsureSharedAssets();
+        if (!BeginEventVfx(rig, "GOOD_TO_BAD")) return;
         Color spoilTint = new Color(1f, 0.42f, 0.18f);   // 警示琥珀红：荔枝转坏
-        // 琥珀红光柱：表达"变质警示"。
-        StartCoroutine(PlayEventPillar(rig.fxRoot, spoilTint, 8.0f, 1.9f, 1.7f));
-        // 荔枝转坏图标已就位：与冰鉴/快马一致，车队上方弹「荔枝转坏」图标贴图 + 文字 + 琥珀红光环（贴图缺失时回退纯文字牌）。
-        StartCoroutine(EventIconRoutine(rig.fxRoot, "icon_event_lychee_spoiled.png", "荔枝转坏", new Color(1f, 0.80f, 0.46f, 1f), 2.0f, spoilTint));
+        // 琥珀红光柱：收细（决策4——变质警示柱只作竖直定位信号，不当速度光束）。
+        StartCoroutine(PlayEventPillar(rig.fxRoot, spoilTint, 10.0f, 1.9f, 2.2f));
+        // 脚下悬空发光圆环。
+        StartCoroutine(FloatingRingRoutine(rig.fxRoot, spoilTint, 2.8f));
+        // 主视觉：车队头顶 3D 蔫荔枝串信标（缺模型时回退「荔枝转坏」图标牌）+ 一圈柔和配色光环。
+        StartEventIconRoutine(rig, "GOOD_TO_BAD", "icon_event_lychee_spoiled.png", "荔枝转坏", new Color(1f, 0.80f, 0.46f, 1f), 6.4f, spoilTint);
+    }
+
+    bool BeginEventVfx(ConvoyVfxRig rig, string eventKey)
+    {
+        if (rig == null) return false;
+        string key = EventVfxKey(eventKey);
+        float now = Time.time;
+        if (rig.lastEventIconAt.TryGetValue(key, out float last) && now - last < EventIconDedupWindow)
+            return false;
+        rig.lastEventIconAt[key] = now;
+
+        if (rig.activeEventIconRoots.TryGetValue(key, out GameObject oldRoot) && oldRoot != null)
+            Destroy(oldRoot);
+        rig.activeEventIconRoots.Remove(key);
+        return true;
+    }
+
+    void StartEventIconRoutine(ConvoyVfxRig rig, string eventKey, string textureFile, string caption, Color captionColor, float duration, Color haloColor)
+    {
+        if (rig == null || rig.fxRoot == null) return;
+        StartCoroutine(EventIconRoutine(rig, eventKey, textureFile, caption, captionColor, duration, haloColor));
+    }
+
+    static string EventVfxKey(string eventKey)
+    {
+        return string.IsNullOrEmpty(eventKey) ? "__event" : eventKey.ToUpperInvariant();
     }
 
     IEnumerator AnimateRing(Transform parent, string objectName, Color baseColor, float duration, float startScale, float endScale, float y)
@@ -536,121 +586,341 @@ public class LycheeConvoyVfx : MonoBehaviour
     }
 
     /// <summary>
-    /// 通用「事件贴图牌」：在车队正上方弹出一张图标贴图（冰鉴/快马的资源图标 PNG）+ 一行说明文字，
-    /// 弹入→上浮→淡出。用户明确要"看得懂的贴图"而非粒子，所以这是三个事件的主视觉。
-    /// 贴图走 URP/Unlit 透明材质（与 3D 场景同管线、构建里绝不会被裁成洋红）；贴图缺失则只显示文字牌兜底。
+    /// 车队头顶事件主视觉——层级拆分（决策2/4/5）：
+    ///   • visualRoot 挂 billboard（朝相机 + 恒定屏幕大小），承载「一圈柔和配色光环」(+ 缺模型时的回退 2D 图标/文字牌)；
+    ///   • 有 3D 信标模型(player.GetEventModel)时，模型放单独的「非-billboard」子根，保持自身朝向、原地慢自转 + 上下浮、
+    ///     反距离放大、always-on-top（专用 overlay shader 盖过场景几何）——绝不被压成平片、绝不被车厢/地形挡住。
+    /// 决策4：3D 模型够清楚，去掉文字牌 + 暗底盘；缺模型才回退旧的 图标贴图 + 底盘 + 文字（URP/Unlit 透明、构建不变洋红）。
     /// </summary>
-    IEnumerator EventIconRoutine(Transform parent, string textureFile, string caption, Color captionColor, float duration, Color haloColor)
+    IEnumerator EventIconRoutine(ConvoyVfxRig rig, string eventKey, string textureFile, string caption, Color captionColor, float duration, Color haloColor)
     {
+        Transform parent = rig != null ? rig.fxRoot : null;
         if (parent == null) yield break;
-        Texture2D tex = string.IsNullOrEmpty(textureFile) ? null : LycheeLoadThemeTexture(textureFile);
+        string activeKey = EventVfxKey(eventKey);
+        GameObject modelPrefab = player != null ? player.GetEventModel(eventKey) : null;
+        bool useModel = modelPrefab != null;
+        Texture2D tex = useModel || string.IsNullOrEmpty(textureFile) ? null : LycheeLoadThemeTexture(textureFile);
 
         GameObject root = new GameObject("LycheeEventIcon");
         root.transform.SetParent(parent, false);
-        // 抬到 2.85：实测 1.65 时图标被马车模型挡住、从 2.5D 斜视角根本看不到（用户反复反馈看不到的真因）。
-        Vector3 start = new Vector3(0f, 2.85f, 0f);   // 车队头顶、模型之上，斜视角清楚可见
+        if (rig != null) rig.activeEventIconRoots[activeKey] = root;
+        // WebGL 远机位下站牌/资源图标会遮住车队头顶，事件信标必须更高更大。
+        Vector3 start = new Vector3(0f, 5.2f, 0f);   // 车队头顶上方的空处
         root.transform.localPosition = start;
-        // distanceScale=true：随相机距离放大，保持「恒定屏幕尺寸」——和站点名牌一个机制。
-        // 真因之二：原来 false → 远机位(默认~58m，最远108m)下图标只有固定世界尺寸、缩成一点点看不见；
-        // 改 true 后无论镜头多远图标都保持可读大小，用户不用拉近镜头也能看清。
-        // billboard 在 LateUpdate 会接管 root.localScale，所以 pop 弹入动画改放到 content 子物体上（见下）。
-        LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
-        billboard.referenceDistance = 22f;   // 以常见机位距离为基准，让徽记在正常远近就够大
-        billboard.minScale = 0.7f;
-        billboard.maxScale = 3.6f;
+
+        // —— 光环层：billboard 子根（朝相机 + 距离恒定屏幕大小）。模型/回退共用。——
+        // 与旧版差异：billboard 只管这层，不再接管整组 root.localScale，所以 3D 模型那层不会被压成平片（最大的坑）。
+        GameObject visualRoot = new GameObject("EventIconBillboard");
+        visualRoot.transform.SetParent(root.transform, false);
+        LycheeReplayBillboard billboard = visualRoot.AddComponent<LycheeReplayBillboard>();
+        billboard.referenceDistance = 18f;
+        billboard.minScale = 1.0f;
+        billboard.maxScale = 5.2f;
         billboard.nearFadeStart = 0f;   // 事件牌短暂出现，不需要贴脸淡出
         billboard.nearFadeEnd = 0f;
         billboard.distanceScale = true;
 
-        // pop 弹入容器：root 的 scale 被 billboard 按距离接管，所以把弹入缩放放在这层，二者相乘。
+        // pop 弹入容器：visualRoot.scale 被 billboard 按距离接管，弹入缩放放这层、二者相乘。
         GameObject content = new GameObject("EventIconContent");
-        content.transform.SetParent(root.transform, false);
+        content.transform.SetParent(visualRoot.transform, false);
 
-        // 图形/背景分离 + 颜色脉冲：在徽记后面叠两层软圆——
-        //   ① 深色底盘(在乱糟糟的战场上抠出一块暗区，让金边徽记跳出来)
-        //   ② 该事件配色的发光光环(呼吸脉冲，远处也能一眼锁定)。
-        // 全走 CreateEffectMaterial→ConfigureTransparentMaterial，URP WebGL 构建里绝不会变洋红。
-        // localZ 拉开层次：光环最后(+0.06)、底盘(+0.03)、徽记(0)、文字(-0.02)，避免共面 z-fight。
+        // 一圈柔和配色光环（颜色提示 + 把信标从乱战场里托起）。全走 CreateEffectMaterial→ConfigureTransparentMaterial，构建不变洋红。
         Texture2D softTex = CreateSoftCircleTexture(128);
         Material haloMat = CreateEffectMaterial("LycheeEventHaloMat", new Color(haloColor.r, haloColor.g, haloColor.b, 0.70f));
         if (haloMat != null && haloMat.HasProperty("_BaseMap")) haloMat.SetTexture("_BaseMap", softTex);
         else if (haloMat != null && haloMat.HasProperty("_MainTex")) haloMat.SetTexture("_MainTex", softTex);
-        GameObject haloQuad = CreateSoftQuad(content.transform, "EventIconHalo", haloMat, 2.5f, 0.06f);
-        Material discMat = CreateEffectMaterial("LycheeEventDiscMat", new Color(0.05f, 0.04f, 0.03f, 0.74f));
-        if (discMat != null && discMat.HasProperty("_BaseMap")) discMat.SetTexture("_BaseMap", softTex);
-        else if (discMat != null && discMat.HasProperty("_MainTex")) discMat.SetTexture("_MainTex", softTex);
-        CreateSoftQuad(content.transform, "EventIconDisc", discMat, 1.78f, 0.03f);
+        GameObject haloQuad = CreateSoftQuad(content.transform, "EventIconHalo", haloMat, 3.2f, 0.06f);
 
+        // —— 回退专用：缺 3D 模型才建 暗底盘 + 图标贴图 + 文字牌（保留旧行为兜底）。——
+        Material discMat = null;
         Material iconMaterial = null;
         GameObject iconQuad = null;
-        if (tex != null)
+        TextMesh shadow = null;
+        TextMesh cap = null;
+        TextMesh modelShadow = null;
+        TextMesh modelCap = null;
+        if (!useModel)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (shader == null) shader = Shader.Find("Sprites/Default");
-            if (shader != null)
-            {
-                iconMaterial = new Material(shader) { name = "LycheeEventIconMat" };
-                ConfigureTransparentMaterial(iconMaterial);
-                if (iconMaterial.HasProperty("_BaseMap")) iconMaterial.SetTexture("_BaseMap", tex);
-                else if (iconMaterial.HasProperty("_MainTex")) iconMaterial.SetTexture("_MainTex", tex);
-                if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", Color.white);
-                else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", Color.white);
+            discMat = CreateEffectMaterial("LycheeEventDiscMat", new Color(0.05f, 0.04f, 0.03f, 0.74f));
+            if (discMat != null && discMat.HasProperty("_BaseMap")) discMat.SetTexture("_BaseMap", softTex);
+            else if (discMat != null && discMat.HasProperty("_MainTex")) discMat.SetTexture("_MainTex", softTex);
+            CreateSoftQuad(content.transform, "EventIconDisc", discMat, 1.78f, 0.03f);
 
-                iconQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                iconQuad.name = "EventIconQuad";
-                iconQuad.transform.SetParent(content.transform, false);
-                iconQuad.transform.localScale = new Vector3(1.5f, 1.5f, 1f);
-                Collider iconCollider = iconQuad.GetComponent<Collider>();
-                if (iconCollider != null) Destroy(iconCollider);
-                MeshRenderer iconRenderer = iconQuad.GetComponent<MeshRenderer>();
-                if (iconRenderer != null)
+            if (tex != null)
+            {
+                Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null) shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+                if (shader == null) shader = Shader.Find("Sprites/Default");
+                if (shader != null)
                 {
-                    iconRenderer.sharedMaterial = iconMaterial;
-                    iconRenderer.shadowCastingMode = ShadowCastingMode.Off;
-                    iconRenderer.receiveShadows = false;
+                    iconMaterial = new Material(shader) { name = "LycheeEventIconMat" };
+                    ConfigureTransparentMaterial(iconMaterial);
+                    if (iconMaterial.HasProperty("_BaseMap")) iconMaterial.SetTexture("_BaseMap", tex);
+                    else if (iconMaterial.HasProperty("_MainTex")) iconMaterial.SetTexture("_MainTex", tex);
+                    if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", Color.white);
+                    else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", Color.white);
+
+                    iconQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    iconQuad.name = "EventIconQuad";
+                    iconQuad.transform.SetParent(content.transform, false);
+                    iconQuad.transform.localScale = new Vector3(1.5f, 1.5f, 1f);
+                    Collider iconCollider = iconQuad.GetComponent<Collider>();
+                    if (iconCollider != null) Destroy(iconCollider);
+                    MeshRenderer iconRenderer = iconQuad.GetComponent<MeshRenderer>();
+                    if (iconRenderer != null)
+                    {
+                        iconRenderer.sharedMaterial = iconMaterial;
+                        iconRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                        iconRenderer.receiveShadows = false;
+                    }
                 }
             }
+
+            float capY = iconQuad != null ? -0.80f : 0f;   // 有图就把文字放图下方，没图就居中
+            shadow = CreatePlaqueText(content.transform, "EventIconCapShadow", new Vector3(0.02f, capY - 0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), caption);
+            cap = CreatePlaqueText(content.transform, "EventIconCap", new Vector3(0f, capY, -0.022f), captionColor, caption);
+        }
+        else
+        {
+            modelShadow = CreatePlaqueText(content.transform, "EventModelCapShadow", new Vector3(0.03f, -1.28f, -0.020f), new Color(0.03f, 0.02f, 0.015f, 0.9f), caption);
+            modelCap = CreatePlaqueText(content.transform, "EventModelCap", new Vector3(0f, -1.25f, -0.024f), captionColor, caption);
         }
 
-        float capY = iconQuad != null ? -0.80f : 0f;   // 有图就把文字放图下方，没图就居中
-        TextMesh shadow = CreatePlaqueText(content.transform, "EventIconCapShadow", new Vector3(0.02f, capY - 0.02f, -0.018f), new Color(0.03f, 0.02f, 0.015f, 0.82f), caption);
-        TextMesh cap = CreatePlaqueText(content.transform, "EventIconCap", new Vector3(0f, capY, -0.022f), captionColor, caption);
+        // —— 模型层：非-billboard 子根，保持自身朝向；强制 overlay shader + 事件 tint（永不被挡）。——
+        GameObject modelWrapper = null;
+        List<Material> modelMaterials = new List<Material>();
+        if (useModel)
+        {
+            // 归一化到 ~4.2m、几何中心坐到 wrapper 原点；WebGL 远机位下必须明显大于资源小图标。
+            modelWrapper = player.CreateNormalizedOverheadModel(modelPrefab, root.transform, "EventModel", 4.2f);
+            ApplyOverheadModelMaterial(modelWrapper, haloColor, modelMaterials);
+        }
 
         float elapsed = 0f;
         while (elapsed < duration)
         {
+            if (root == null) break;
             float t = Mathf.Clamp01(elapsed / duration);
             float inT = Ease01(t / 0.14f);
             float outT = Ease01((t - 0.72f) / 0.28f);
             float alpha = inT * (1f - outT);
-            float pop = Mathf.Lerp(0.95f, 1.7f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));   // 放大：实测原来 max1.0 太小
-            // 位置(上浮)放 root；缩放(pop)放 content——root.localScale 由 billboard 按距离接管，二者相乘。
-            root.transform.localPosition = start + Vector3.up * (0.45f * EaseOutCubic(t));
+
+            // 上浮放 root（位置）；pop 放 content（缩放）——content 再与 billboard 距离缩放相乘。
+            root.transform.localPosition = start + Vector3.up * (0.65f * EaseOutCubic(t));
+            float pop = Mathf.Lerp(1.08f, 2.05f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));
             content.transform.localScale = Vector3.one * pop;
-            if (iconMaterial != null)
-            {
-                if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", new Color(1f, 1f, 1f, alpha));
-                else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", new Color(1f, 1f, 1f, alpha));
-            }
+
+            // 光环呼吸脉冲（模型/回退共用）。
             if (haloMat != null)
             {
                 float pulse = 0.5f + 0.5f * Mathf.Sin(t * Mathf.PI * 2f * 2.2f);   // ~2.2Hz 呼吸
                 SetMaterialColor(haloMat, new Color(haloColor.r, haloColor.g, haloColor.b, alpha * (0.40f + 0.30f * pulse)));
-                if (haloQuad != null) haloQuad.transform.localScale = Vector3.one * (2.5f * (1f + 0.08f * pulse));
+                if (haloQuad != null) haloQuad.transform.localScale = Vector3.one * (3.2f * (1f + 0.10f * pulse));
             }
-            if (shadow != null) shadow.color = new Color(0.03f, 0.02f, 0.015f, 0.82f * alpha);
-            if (cap != null) cap.color = new Color(captionColor.r, captionColor.g, captionColor.b, alpha);
+
+            if (useModel)
+            {
+                if (modelShadow != null) modelShadow.color = new Color(0.03f, 0.02f, 0.015f, 0.90f * alpha);
+                if (modelCap != null) modelCap.color = new Color(captionColor.r, captionColor.g, captionColor.b, alpha);
+                if (modelWrapper != null)
+                {
+                    // 反距离放大（同光柱/光环）+ 弹入弹出缩放包络（模型不透明，靠缩放进退场）+ 原地慢自转 + 上下浮。
+                    Camera cam = Camera.main;
+                    float dist = cam != null ? Vector3.Distance(cam.transform.position, modelWrapper.transform.position) : 22f;
+                    float distScale = Mathf.Clamp(dist / 18f, 1.8f, 4.8f);
+                    float envIn = EaseOutCubic(Mathf.Clamp01(t / 0.16f));
+                    float envOut = 1f - Ease01(Mathf.Clamp01((t - 0.82f) / 0.18f));
+                    float env = Mathf.Max(0.0001f, envIn * envOut);
+                    float bob = Mathf.Sin(elapsed * 2.2f) * 0.1f;
+                    modelWrapper.transform.localPosition = new Vector3(0f, bob, 0f);
+                    modelWrapper.transform.localRotation = Quaternion.Euler(0f, elapsed * 40f, 0f);
+                    modelWrapper.transform.localScale = Vector3.one * (distScale * env);
+                }
+            }
+            else
+            {
+                if (iconMaterial != null)
+                {
+                    if (iconMaterial.HasProperty("_BaseColor")) iconMaterial.SetColor("_BaseColor", new Color(1f, 1f, 1f, alpha));
+                    else if (iconMaterial.HasProperty("_Color")) iconMaterial.SetColor("_Color", new Color(1f, 1f, 1f, alpha));
+                }
+                if (shadow != null) shadow.color = new Color(0.03f, 0.02f, 0.015f, 0.82f * alpha);
+                if (cap != null) cap.color = new Color(captionColor.r, captionColor.g, captionColor.b, alpha);
+            }
+
             elapsed += Time.deltaTime;
             yield return null;
         }
 
+        if (rig != null &&
+            rig.activeEventIconRoots.TryGetValue(activeKey, out GameObject currentRoot) &&
+            object.ReferenceEquals(currentRoot, root))
+            rig.activeEventIconRoots.Remove(activeKey);
+
+        if (modelWrapper != null) Destroy(modelWrapper);
+        foreach (Material material in modelMaterials)
+            if (material != null) Destroy(material);
         if (iconQuad != null) Destroy(iconQuad);
         if (iconMaterial != null) Destroy(iconMaterial);
         if (haloMat != null) Destroy(haloMat);
         if (discMat != null) Destroy(discMat);
         if (softTex != null) Destroy(softTex);
-        Destroy(root);
+        if (root != null) Destroy(root);
+    }
+
+    /// <summary>
+    /// 给头顶信标模型的每个 Renderer 强制套 overlay shader：导入 GLB 的材质在 WebGL 构建会变洋红，必须整体替换；
+    /// 但**保留用户贴图**——先从原材质抠出 baseColor 贴图，转绑到自定义 shader 的 _BaseMap，再叠淡淡的配色 tint。
+    /// shader 自带 ZTest Always、renderQueue 抬到 3100 → always-on-top（决策5，盖过场景几何）。
+    /// 找不到专用 shader 时回退 URP/Unlit（带贴图、可见但不保证盖过几何）。生成的材质记入 tracker 供收尾销毁（贴图是共享资产不销毁）。
+    /// </summary>
+    void ApplyOverheadModelMaterial(GameObject wrapper, Color tint, List<Material> tracker)
+    {
+        if (wrapper == null) return;
+        Renderer[] renderers = wrapper.GetComponentsInChildren<Renderer>(true);
+
+        // 先抠出导入 GLB 的 baseColor 贴图（glTFast 在 URP 下用 _BaseMap，旧版用 baseColorTexture/_MainTex；mainTexture 兜底）。
+        Texture baseTex = null;
+        foreach (Renderer r in renderers)
+        {
+            Material src = r.sharedMaterial;
+            if (src == null) continue;
+            if (src.HasProperty("_BaseMap") && src.GetTexture("_BaseMap") != null) baseTex = src.GetTexture("_BaseMap");
+            else if (src.HasProperty("baseColorTexture") && src.GetTexture("baseColorTexture") != null) baseTex = src.GetTexture("baseColorTexture");
+            else if (src.HasProperty("_MainTex") && src.GetTexture("_MainTex") != null) baseTex = src.GetTexture("_MainTex");
+            else if (src.mainTexture != null) baseTex = src.mainTexture;
+            if (baseTex != null) break;
+        }
+
+        Shader shader = Shader.Find("Lychee/Overhead Event Model");
+        Material material;
+        if (shader != null)
+        {
+            material = new Material(shader) { name = "LycheeOverheadModelMat" };
+            // 贴图本色为主，配色只做淡提示（往白 lerp 0.55）+ 一点自发光，保证贴图看得清又带事件色。
+            Color baseTint = Color.Lerp(tint, Color.white, 0.55f);
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", baseTint);
+            if (material.HasProperty("_EmissionColor")) material.SetColor("_EmissionColor", new Color(tint.r, tint.g, tint.b) * 0.18f);
+            if (baseTex != null && material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", baseTex);
+            material.renderQueue = 3100;   // 画在场景透明特效(3000)之后 → 盖在光柱/光环上；ZTest Always 再盖过所有几何
+        }
+        else
+        {
+            Shader fallback = Shader.Find("Universal Render Pipeline/Unlit");
+            if (fallback == null) fallback = Shader.Find("Sprites/Default");
+            if (fallback == null) return;
+            material = new Material(fallback) { name = "LycheeOverheadModelMatFallback" };
+            Color baseTint = Color.Lerp(tint, Color.white, 0.55f);
+            if (baseTex != null)
+            {
+                if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", baseTex);
+                else if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", baseTex);
+            }
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", baseTint);
+            else if (material.HasProperty("_Color")) material.SetColor("_Color", baseTint);
+            material.renderQueue = 3100;
+        }
+        if (tracker != null) tracker.Add(material);
+
+        foreach (Renderer renderer in renderers)
+        {
+            int slots = Mathf.Max(1, renderer.sharedMaterials.Length);
+            Material[] materials = new Material[slots];
+            for (int i = 0; i < slots; i++) materials[i] = material;
+            renderer.sharedMaterials = materials;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+    }
+
+    /// <summary>
+    /// 脚下悬空发光圆环（决策2，取代旧贴地花纹 GroundDecalRoutine）：浮在队色圈(y~0.05)上方 ~y0.5、
+    /// 比它大一圈、有厚度的细环(torus，零厚度平片斜视角会消失)；随距离放大、URP 自发光配色(暖色往白提亮~35%)、
+    /// 慢转、淡入淡出。双面渲染保证任意斜视角都看得见；不贴地（避免穿河道/山脊 z-fight）、不挡队色。
+    /// </summary>
+    IEnumerator FloatingRingRoutine(Transform parent, Color tint, float duration)
+    {
+        if (parent == null) yield break;
+        EnsureSharedAssets();
+        if (floatingRingMesh == null) yield break;
+        Color warm = Color.Lerp(tint, Color.white, 0.35f);   // 暖色往白提亮 ~35%，任意背景都跳得出来
+        Material material = CreateEffectMaterial("LycheeFloatingRingMat", new Color(warm.r, warm.g, warm.b, 0.9f));
+        if (material == null) yield break;
+        if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);   // 双面：斜视角任意朝向都可见
+
+        GameObject ring = new GameObject("LycheeFloatingRing");
+        ring.transform.SetParent(parent, false);
+        MeshFilter filter = ring.AddComponent<MeshFilter>();
+        filter.sharedMesh = floatingRingMesh;
+        MeshRenderer renderer = ring.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / duration);
+            float inA = Mathf.Clamp01(t / 0.12f);
+            float outA = Mathf.Clamp01((t - 0.70f) / 0.30f);
+            float alpha = inA * (1f - outA);
+            float y = 0.5f + Mathf.Sin(elapsed * 2f) * 0.06f;   // 悬空 ~y0.5、轻微上下呼吸
+            Camera cam = Camera.main;
+            float distScale = 1f;
+            if (cam != null) distScale = Mathf.Clamp(Vector3.Distance(cam.transform.position, ring.transform.position) / 22f, 1f, 2.4f);
+            ring.transform.localPosition = new Vector3(0f, y, 0f);
+            ring.transform.localScale = Vector3.one * distScale;
+            ring.transform.localRotation = Quaternion.Euler(0f, elapsed * 30f, 0f);
+            SetMaterialColor(material, new Color(warm.r, warm.g, warm.b, alpha * 0.9f));
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(ring);
+        Destroy(material);
+    }
+
+    /// <summary>程序化圆环管(torus，XZ 平面、法线朝外)：majorRadius=环中心半径、minorRadius=管半径，有厚度，斜视角也看得见。</summary>
+    static Mesh CreateTorusMesh(float majorRadius, float minorRadius, int majorSegments, int minorSegments)
+    {
+        majorSegments = Mathf.Max(8, majorSegments);
+        minorSegments = Mathf.Max(4, minorSegments);
+        Mesh mesh = new Mesh { name = "LycheeFloatingRingMesh" };
+        int vertexCount = (majorSegments + 1) * (minorSegments + 1);
+        Vector3[] vertices = new Vector3[vertexCount];
+        Vector3[] normals = new Vector3[vertexCount];
+        Vector2[] uvs = new Vector2[vertexCount];
+        int[] triangles = new int[majorSegments * minorSegments * 6];
+        int ti = 0;
+        for (int i = 0; i <= majorSegments; i++)
+        {
+            float u = i / (float)majorSegments * Mathf.PI * 2f;
+            Vector3 radial = new Vector3(Mathf.Cos(u), 0f, Mathf.Sin(u));
+            for (int j = 0; j <= minorSegments; j++)
+            {
+                float v = j / (float)minorSegments * Mathf.PI * 2f;
+                Vector3 normal = radial * Mathf.Cos(v) + Vector3.up * Mathf.Sin(v);
+                int index = i * (minorSegments + 1) + j;
+                vertices[index] = radial * majorRadius + normal * minorRadius;
+                normals[index] = normal;
+                uvs[index] = new Vector2(i / (float)majorSegments, j / (float)minorSegments);
+                if (i < majorSegments && j < minorSegments)
+                {
+                    int a = i * (minorSegments + 1) + j;
+                    int b = (i + 1) * (minorSegments + 1) + j;
+                    int c = (i + 1) * (minorSegments + 1) + (j + 1);
+                    int d = i * (minorSegments + 1) + (j + 1);
+                    triangles[ti++] = a; triangles[ti++] = d; triangles[ti++] = b;
+                    triangles[ti++] = b; triangles[ti++] = d; triangles[ti++] = c;
+                }
+            }
+        }
+        mesh.vertices = vertices;
+        mesh.normals = normals;
+        mesh.uv = uvs;
+        mesh.triangles = triangles;
+        mesh.RecalculateBounds();
+        return mesh;
     }
 
     /// <summary>建一张软圆贴图 quad（去掉碰撞体、按 localZ 排层），用于事件徽记的暗底盘/光环。</summary>
@@ -874,6 +1144,9 @@ public class LycheeConvoyVfx : MonoBehaviour
         Track(particleMaterial);
         ringMesh = CreateRingMesh(0.62f, 0.88f, 48);
         Track(ringMesh);
+        // 悬空发光圆环：外径 ~2.1（比队色圈大一圈）、管半径 0.10 的细环；事件特效共用。
+        floatingRingMesh = CreateTorusMesh(2.0f, 0.10f, 56, 10);
+        Track(floatingRingMesh);
         sharedAssetsReady = true;
     }
 
