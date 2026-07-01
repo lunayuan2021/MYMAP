@@ -632,8 +632,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         "ICE_BOX" => "冰",
         "FAST_HORSE" => "马",
         "SHORT_HORSE" => "驹",
-        "PASS_TOKEN" => "令",
-        "OFFICIAL_PERMIT" => "牒",
+        "PASS_TOKEN" => "过",      // B4: 过所(原"令")
+        "OFFICIAL_PERMIT" => "凭",  // B4: 官凭(原"牒")
         "INTEL" => "报",
         "BOAT_RIGHT" => "船",
         _ => "资"

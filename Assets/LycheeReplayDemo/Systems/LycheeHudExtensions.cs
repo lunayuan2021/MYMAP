@@ -1021,7 +1021,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type == "BOUNTY_COMPLETE" || type == "BOUNTY_CLAIM") // BOUNTY_CLAIM 为 V4.8.12 新名
         {
             string score = payload.score > 0 ? " +" + payload.score : "";
-            text = "回合 " + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，奖励 " + ResourceName(payload.reward) + " 已生效。";
+            // B3: 破关悬赏只发悬赏分，不发放随机资源(设计§5.4)。去掉"奖励 XX 已生效"误导文案。
+            text = "回合 " + round + " " + team + " 拿到" + BountyName(payload.bountyType) + score + "，计入总分。";
             return true;
         }
         if (type == "INVALID_ACTION" || type == "ACTION_REJECTED")
@@ -1336,11 +1337,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (value == "ICE_BOX") return "冰鉴";
         if (value == "FAST_HORSE") return "快马";
-        if (value == "SHORT_HORSE") return "短驿马";
-        if (value == "PASS_TOKEN") return "通关令";
-        if (value == "OFFICIAL_PERMIT") return "官牒";
+        if (value == "SHORT_HORSE") return "短驿马";      // 注：设计文档写"短程马"，此处保留用户习惯用词"短驿马"
+        if (value == "PASS_TOKEN") return "过所";          // B4: 对齐设计文档(原"通关令")
+        if (value == "OFFICIAL_PERMIT") return "官凭";     // B4: 对齐设计文档(原"官牒")
         if (value == "INTEL") return "情报";
-        if (value == "BOAT_RIGHT") return "船班权益";
+        if (value == "BOAT_RIGHT") return "船权";          // B4: 对齐设计文档(原"船班权益")
         return "资源";   // 兜底改中文
     }
 

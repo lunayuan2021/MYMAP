@@ -2,8 +2,12 @@
 # 离线编译自检：模拟 Assembly-CSharp（运行时脚本）编译，Unity 不在前台也能验证语法/类型错误。
 # 用法: ./compile_check.sh            → 编译 Assets 下全部运行时脚本
 #       ./compile_check.sh editor    → 额外编译 Editor 脚本（引用 UnityEditor.dll）
-UNITY="/Users/lunayuan/Documents/游戏引擎/6000.4.10f1/Unity.app/Contents"
-PROJ="/Users/lunayuan/Documents/Unity Project/My project"
+SCRIPT_DIR="${0:A:h}"
+UNITY="${UNITY_PATH:-/Users/lunayuan/非云文档/游戏引擎/6000.4.10f1/Unity.app/Contents}"
+if [ ! -d "$UNITY" ] && [ -d "/Users/lunayuan/Documents/游戏引擎/6000.4.10f1/Unity.app/Contents" ]; then
+  UNITY="/Users/lunayuan/Documents/游戏引擎/6000.4.10f1/Unity.app/Contents"
+fi
+PROJ="$SCRIPT_DIR"
 SA="$PROJ/Library/ScriptAssemblies"
 
 REFS=()

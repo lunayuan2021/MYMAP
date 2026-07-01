@@ -1002,7 +1002,9 @@ static class LycheeWebGLBuild_20260612
             "$p = Start-Process powershell -WindowStyle Minimized -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$server)\r\n" +
             "Set-Content -Path $pidPath -Value $p.Id\r\n" +
             "Write-Host \"Started Lychee WebGL server on http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/ (PID $($p.Id)).\"\r\n" +
-            "Start-Process $url\r\n");
+            // 浏览器只由 start_local_server.ps1 在监听器就绪后打开一次；这里不再重复 Start-Process，
+            // 否则「start.ps1 开一次 + start_local_server.ps1 又开一次」= 弹两个标签页（用户反馈的双开）。
+            "# Browser is opened once by start_local_server.ps1 after the listener is ready; do not open again here.\r\n");
         File.WriteAllText(Path.Combine(OutputDir, "stop.ps1"),
             "$root = Split-Path -Parent $MyInvocation.MyCommand.Path\r\n" +
             "$pidPath = Join-Path $root '.lychee_web_server.pid'\r\n" +
@@ -1266,6 +1268,23 @@ static class LycheeWebGLBuild_20260612
             catch (Exception exception)
             {
                 Append("WARNING: failed to remove legacy " + legacyReply + ": " + exception.Message);
+            }
+        }
+        string streamingAssetsDir = Path.Combine(OutputDir, "StreamingAssets");
+        if (Directory.Exists(streamingAssetsDir))
+        {
+            foreach (string file in Directory.GetFiles(streamingAssetsDir, "*", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(file).IndexOf(".bak", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                try
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+                catch (Exception exception)
+                {
+                    Append("WARNING: failed to remove backup " + file + ": " + exception.Message);
+                }
             }
         }
         foreach (string name in new[] { "Build 2", "Build 3", "StreamingAssets 2", "StreamingAssets 3", "TemplateData 2", "TemplateData 3" })

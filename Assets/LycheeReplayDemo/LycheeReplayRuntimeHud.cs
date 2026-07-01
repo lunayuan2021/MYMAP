@@ -105,7 +105,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     const float PanelSlideSeconds = 0.3f;
     const float PanelSlideOffset = 24f;
     // 比分滚动速度（分/秒）与涨分瞬间字号回弹时长。
-    const float ScoreRollPerSecond = 6f;
+    const float ScoreRollPerSecond = 55f;   // 滚动速度下限(B7: 从6提到55，小改动也快速滚完、不再瞬跳)
     const float ScorePopSeconds = 0.2f;
     const int TeamScoreFontSize = 34;
     // 对抗暗角：开始 0.4s 淡入聚焦、结束 0.6s 淡出释放。
@@ -394,12 +394,21 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
     {
         // 副标题显示「本拍谁得势 + 谁克谁」(用户：牌名+克制关系)；平手单独提示。
+        // B2: 克制方向按 §4.9 克制表查(redCard vs blueCard)，不从 winner 反推——数据的 winner 可能靠对方弃权取胜，
+        //     或与克制表不符；旧写法把 winner 的牌硬当成"克"败方牌，会打出与规则相反的克制断言(如"验牒 克 献贡")。
         string sub;
         if (winner == "RED" || winner == "BLUE")
         {
-            string winCard = winner == "RED" ? redCard : blueCard;
-            string loseCard = winner == "RED" ? blueCard : redCard;
-            sub = WinnerText(winner) + " 本拍得势 · " + CardText(winCard) + " 克 " + CardText(loseCard);
+            int rb = RedBeatsBlue(redCard, blueCard);   // +1=红克蓝, -1=蓝克红, 0=平/无克制关系
+            bool tableMatchesWinner = (winner == "RED" && rb > 0) || (winner == "BLUE" && rb < 0);
+            string winnerName = WinnerText(winner);
+            string loserCard = winner == "RED" ? blueCard : redCard;
+            if (tableMatchesWinner)
+                sub = winnerName + " 本拍得势 · " + CardText(winner == "RED" ? redCard : blueCard) + " 克 " + CardText(loserCard);
+            else if (CardIndex(loserCard) < 0)
+                sub = winnerName + " 本拍得势 · 对方弃权";   // 靠对方弃权/未出牌取胜，非克制关系
+            else
+                sub = winnerName + " 本拍得势";   // winner 与克制表不符 → 中性，不臆断克制方向
         }
         else sub = "本拍平手";
         DisplayContest(1, contestTypeLabel + "  第" + Mathf.Max(1, roundIndex) + "拍 / 第" + round + "回合",
@@ -1174,13 +1183,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         if (target != lastTarget)
         {
-            if (target < lastTarget || Mathf.Abs(target - displayed) > 20f)
+            // B7: 只对"减少"(seek/倒带/重置)瞬切；增长(含交付帧一次性结算的大跳，如 180→742)一律滚动，不再瞬跳。
+            if (target < lastTarget)
                 displayed = target;
             else
                 popStart = now;
             lastTarget = target;
         }
-        displayed = Mathf.MoveTowards(displayed, target, ScoreRollPerSecond * Time.unscaledDeltaTime);
+        // 跳幅越大滚得越快(约 1.2s 内滚到位)，跳幅小则按下限速度快速收尾——大跳看得出是"逐渐涨上去"而非凭空跳变。
+        float speed = Mathf.Max(ScoreRollPerSecond, Mathf.Abs(target - displayed) / 1.2f);
+        displayed = Mathf.MoveTowards(displayed, target, speed * Time.unscaledDeltaTime);
         text.text = Mathf.RoundToInt(displayed).ToString();
         float pop = 1f + 0.25f * Mathf.Clamp01(1f - (now - popStart) / ScorePopSeconds);
         text.fontSize = Mathf.RoundToInt(TeamScoreFontSize * pop);
@@ -1409,7 +1421,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 中央维度背板(墨底 + 顶部暗金分隔线)：容纳回合标题 + 9 行维度对比。宽 500，落在左右队伍块之间。
         RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(500f, 192f), new Vector2(0.5f, 0f));
         Image statBg = backdrop.gameObject.AddComponent<Image>();
-        statBg.color = InkColor;
+        // 用户要求：9 维对比一开场就要看清字段名+值。背板改近乎不透明的深墨，让(哪怕全是0的)标签/数值从第1回合起就
+        // 从繁杂地图里托出来；原来 InkColor(α0.86)太透，小字被草地冲淡，看着像"没值、变了才慢慢出"。
+        statBg.color = new Color(0.07f, 0.06f, 0.05f, 0.96f);
         statBg.raycastTarget = false;
         Rect("StatTopLine", backdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(500f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = DarkGoldColor;
 
@@ -1422,8 +1436,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         blueTeam = BuildTeam(panel, false);
 
         // 9 行维度对比(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
+        // rowTop/rowStep 收一点：9 行 + 回合/阶段标题全落在背板 [10,202] 内，
+        // 最底行(整体进度)不再探出背板下缘(用户反馈「最下面一行的 +x% 溢出背景」)。
         statRows = new StatRow[StatLabels.Length];
-        const float rowTop = 146f, rowStep = 15f;
+        const float rowTop = 148f, rowStep = 16f;
         for (int i = 0; i < StatLabels.Length; i++)
             statRows[i] = BuildStatRow(panel, StatLabels[i], rowTop - i * rowStep);
     }
@@ -1432,17 +1448,24 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     StatRow BuildStatRow(Transform parent, string label, float y)
     {
         StatRow r = new StatRow();
-        r.label = Text(label + "StatLabel", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        // 字号 14→16(标签/数值)、13→14(增量)，行高 16→18：配合近乎不透明背板，字段名+值一开场就清楚可读。
+        r.label = Text(label + "StatLabel", parent, 16, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
         r.label.text = label;   // Text() 帮手不写 .text，必须显式赋值，否则中央标签列全空白
-        SetRect(r.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(92f, 16f), new Vector2(0.5f, 0.5f));
-        r.redValue = Text(label + "StatRed", parent, 14, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
-        SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(150f, 16f), new Vector2(1f, 0.5f));
-        r.blueValue = Text(label + "StatBlue", parent, 14, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
-        SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(150f, 16f), new Vector2(0f, 0.5f));
-        r.redDelta = Text(label + "StatRedDelta", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
-        SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-212f, y), new Vector2(58f, 16f), new Vector2(1f, 0.5f));
-        r.blueDelta = Text(label + "StatBlueDelta", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
-        SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(212f, y), new Vector2(58f, 16f), new Vector2(0f, 0.5f));
+        SetRect(r.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(92f, 18f), new Vector2(0.5f, 0.5f));
+        // 横向排布(以背板中轴为 0，背板宽 500 → 半宽 ±250)：
+        //   红增量[-240..-178] 红值[-174..-54] 标签[±46] 蓝值[54..174] 蓝增量[178..240]
+        // 增量块右/左对齐 pivot，之前 x=±212/宽58 会探到 ±270、越过背板 ±250 → 收到 ±178/宽62 落回板内。
+        r.redValue = Text(label + "StatRed", parent, 16, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
+        SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(120f, 18f), new Vector2(1f, 0.5f));
+        r.blueValue = Text(label + "StatBlue", parent, 16, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
+        SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(120f, 18f), new Vector2(0f, 0.5f));
+        r.redDelta = Text(label + "StatRedDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
+        SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-178f, y), new Vector2(62f, 18f), new Vector2(1f, 0.5f));
+        r.blueDelta = Text(label + "StatBlueDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
+        SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(178f, y), new Vector2(62f, 18f), new Vector2(0f, 0.5f));
+        AddTextShadow(r.label);
+        AddTextShadow(r.redValue);
+        AddTextShadow(r.blueValue);
         AddTextShadow(r.redDelta);
         AddTextShadow(r.blueDelta);
         return r;
@@ -1574,12 +1597,36 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         return s.scoreDetail != null ? s.scoreDetail.penalty : 0;
     }
 
-    // 状态：退赛 > 离线 > 在线(replay.txt 每回合都带 online，缺省 false 才显示离线)。
+    // B5: 状态行映射主车队真实状态枚举(设计§3.2)，不再恒显"在线/离线"。优先级：退赛 > 离线 > 真实state > 兜底。
     static string StatusTextOf(LycheeReplayPlayerState s)
     {
         if (s == null) return "—";
-        if (s.retired) return "退赛";
-        return s.online ? "在线" : "离线";
+        if (s.retired) return "已退赛";
+        if (!s.online) return "离线";
+        string st = StateChineseName(s.state);
+        if (!string.IsNullOrEmpty(st)) return st;
+        return s.delivered ? "已交付" : "在线";   // state 缺失时的兜底
+    }
+
+    // 主车队状态枚举 → 中文(设计§3.2)；用简短 3 字词以适配窄状态格。
+    static string StateChineseName(string state)
+    {
+        if (string.IsNullOrEmpty(state)) return null;
+        switch (state.ToUpperInvariant())
+        {
+            case "IDLE": return "空闲";
+            case "MOVING": return "移动中";
+            case "WAITING": return "等待中";
+            case "RESTING": return "休整中";
+            case "PROCESSING": return "处理中";
+            case "CONTESTING": return "争夺中";
+            case "FORCED_PASSING": return "通行中";
+            case "VERIFYING": return "验核中";
+            case "COST_BANKRUPT": return "清算中";
+            case "DELIVERED": return "已交付";
+            case "RETIRED": return "已退赛";
+            default: return null;
+        }
     }
 
     TeamWidgets BuildTeam(Transform parent, bool red)
@@ -2326,8 +2373,41 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (card == "YAN_DIE") return "验牒";
         if (card == "BING_ZHENG") return "兵争";
         if (card == "XIAN_GONG") return "献贡";
-        if (card == "QIANG_XING") return "抢行";
+        if (card == "QIANG_XING") return "强行";   // C3: 对齐设计§4.8(原"抢行")
+        if (card == "ABSTAIN" || card == "PASS" || card == "NONE") return "弃权";   // C3: 补弃权(原落到"窗口牌")
         return "窗口牌";   // 未知牌名兜底中文，不显英文
+    }
+
+    // §4.9 窗口克制表索引：验牒=0/强行=1/献贡=2/兵争=3；弃权/未出牌/未知=-1(不参与克制)。
+    static int CardIndex(string card)
+    {
+        if (string.IsNullOrEmpty(card)) return -1;
+        switch (card.ToUpperInvariant())
+        {
+            case "YAN_DIE": return 0;
+            case "QIANG_XING": return 1;
+            case "XIAN_GONG": return 2;
+            case "BING_ZHENG": return 3;
+            default: return -1;   // ABSTAIN / PASS / NONE / 未知
+        }
+    }
+
+    // §4.9 克制表(自\对)：+1=该行牌克该列牌，-1=负，0=平。行列序=验牒/强行/献贡/兵争。
+    static readonly int[,] CardBeatTable =
+    {
+        //          对:验牒 强行 献贡 兵争
+        /*验牒*/ {   0,  +1,  -1,  -1 },
+        /*强行*/ {  -1,   0,  +1,  -1 },
+        /*献贡*/ {  +1,  -1,   0,  +1 },
+        /*兵争*/ {  +1,  +1,  -1,   0 },
+    };
+
+    // 按 §4.9 克制表判红牌 vs 蓝牌：+1=红牌克蓝牌，-1=蓝牌克红牌，0=平/无克制关系(任一为弃权/未知即 0)。
+    static int RedBeatsBlue(string redCard, string blueCard)
+    {
+        int ri = CardIndex(redCard), bi = CardIndex(blueCard);
+        if (ri < 0 || bi < 0) return 0;
+        return CardBeatTable[ri, bi];
     }
 
     static string WinnerText(string winner)

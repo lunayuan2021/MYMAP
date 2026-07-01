@@ -911,6 +911,68 @@ public class LycheeReplayPlayer : MonoBehaviour
         foreach (MapRouteEdge edge in FindObjectsByType<MapRouteEdge>(FindObjectsSortMode.None))
             edges[edge.edgeId] = edge;
         elevation = FindFirstObjectByType<MapElevationData>();
+        BuildOneWayEdgeIndicators();   // B6: 单向边(如 C 图 E22: S08→S11)沿路径铺朝 to 站的流向箭头，与普通双向边区分
+    }
+
+    Material oneWayArrowMaterial;
+
+    // B6: 给单向边(bidirectional==false)沿路径铺几个朝 to 站方向的流向箭头(chevron)。
+    // 数据里 MapRouteEdge.bidirectional 由地图生成器按 config 写入，但运行期从不读取→单向边和双向边看着一样。
+    // C 图唯一单向边 E22 用它就能看出车队为何只能 S08→S11、不能反向。双向边不铺(bidirectional 默认 true 直接跳过)。
+    void BuildOneWayEdgeIndicators()
+    {
+        foreach (MapRouteEdge edge in edges.Values)
+        {
+            if (edge == null || edge.bidirectional) continue;
+            if (edge.pathPoints == null || edge.pathPoints.Length < 2) continue;
+            GameObject root = new GameObject("OneWayFlow_" + edge.edgeId);
+            root.transform.SetParent(edge.transform, false);
+            for (int k = 1; k <= 3; k++)   // 25%/50%/75% 处各放一个箭头
+            {
+                float t = k / 4f;
+                Vector3 pos = edge.Evaluate(t);
+                Vector3 dir = edge.Evaluate(Mathf.Min(1f, t + 0.03f)) - pos;
+                dir.y = 0f;
+                if (dir.sqrMagnitude < 1e-6f) continue;
+                CreateFlowChevron(root.transform, pos + Vector3.up * 0.4f, dir.normalized);
+            }
+        }
+    }
+
+    void CreateFlowChevron(Transform parent, Vector3 worldPos, Vector3 dir)
+    {
+        GameObject go = new GameObject("Chevron");
+        go.transform.SetParent(parent, false);
+        go.transform.position = worldPos;
+        go.transform.rotation = Quaternion.LookRotation(dir, Vector3.up);   // 局部 +Z → dir，箭头平铺在地面朝行进方向
+        LineRenderer lr = go.AddComponent<LineRenderer>();
+        lr.useWorldSpace = false;
+        lr.loop = false;
+        lr.widthMultiplier = 0.30f;
+        lr.numCapVertices = 3;
+        lr.numCornerVertices = 3;
+        lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        lr.receiveShadows = false;
+        lr.positionCount = 3;
+        lr.SetPosition(0, new Vector3(-0.6f, 0f, -0.5f));   // 后左
+        lr.SetPosition(1, new Vector3(0f, 0f, 0.75f));      // 前尖(朝 +Z=dir)
+        lr.SetPosition(2, new Vector3(0.6f, 0f, -0.5f));    // 后右
+        Color c = new Color(1f, 0.86f, 0.35f, 0.95f);       // 醒目琥珀金，与路面区分
+        lr.startColor = c;
+        lr.endColor = c;
+        lr.material = OneWayArrowMaterial(c);
+    }
+
+    Material OneWayArrowMaterial(Color color)
+    {
+        if (oneWayArrowMaterial != null) return oneWayArrowMaterial;
+        Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        oneWayArrowMaterial = new Material(shader) { name = "LycheeOneWayArrowMat" };
+        if (oneWayArrowMaterial.HasProperty("_BaseColor")) oneWayArrowMaterial.SetColor("_BaseColor", color);
+        else if (oneWayArrowMaterial.HasProperty("_Color")) oneWayArrowMaterial.SetColor("_Color", color);
+        return oneWayArrowMaterial;
     }
 
     /// <summary>本场景回放文件的 StreamingAssets 相对路径，空值回退 replay.txt。</summary>
@@ -2379,7 +2441,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             title = "破关悬赏完成";
             subtitle = team + " 完成破关悬赏";
             left = ScoreText(payload.score);
-            right = ResourceName(payload.reward);
+            right = "计入总分";   // B3: 悬赏只发分不发资源(设计§5.4)，右栏不再显 reward 资源，避免误导观众以为发了通关令等
             imageIndex = 2;
         }
         else if (type == "FORCED_PASS_START")
@@ -3923,11 +3985,11 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         if (value == "ICE_BOX") return "冰鉴";
         if (value == "FAST_HORSE") return "快马";
-        if (value == "SHORT_HORSE") return "短驿马";
-        if (value == "PASS_TOKEN") return "通关令";
-        if (value == "OFFICIAL_PERMIT") return "官牒";
+        if (value == "SHORT_HORSE") return "短驿马";      // 注：设计文档写"短程马"，此处保留用户习惯用词"短驿马"
+        if (value == "PASS_TOKEN") return "过所";          // B4: 对齐设计文档(原"通关令")
+        if (value == "OFFICIAL_PERMIT") return "官凭";     // B4: 对齐设计文档(原"官牒")
         if (value == "INTEL") return "情报";
-        if (value == "BOAT_RIGHT") return "船班权益";
+        if (value == "BOAT_RIGHT") return "船权";          // B4: 对齐设计文档(原"船班权益")
         return "资源";   // 兜底改中文
     }
 

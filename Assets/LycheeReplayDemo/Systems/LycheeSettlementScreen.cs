@@ -238,9 +238,11 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
             string deliver = overPlayer.delivered
                 ? "交付回合 R" + Mathf.Max(0, overPlayer.deliverRound)
                 : "未完成交付";
+            // B1: 皇榜任务分与分数表(FillTargets 用 scoreDetail.tasks)同源，避免同页两个不同的皇榜任务分。
+            int mvpTaskScore = overPlayer.scoreDetail != null ? overPlayer.scoreDetail.tasks : overPlayer.taskScore;
             stats = deliver +
                 " / 交付鲜度 " + overPlayer.freshness.ToString("0.#") +
-                " / 皇榜任务分 " + overPlayer.taskScore;
+                " / 皇榜任务分 " + mvpTaskScore;
         }
         else if (framePlayer != null)
         {
