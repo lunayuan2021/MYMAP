@@ -639,7 +639,14 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     void BuildBackground(RectTransform parent)
     {
         RectTransform container = MakeStretch("Background", parent, Vector2.zero, Vector2.zero);
+#if !UNITY_WEBGL || UNITY_EDITOR
+        // 结算背景裁剪：把 1920x1080 的胜利底图裁进屏幕矩形。仅桌面/编辑器加。
+        // ⚠ WebGL 关键修复：这个 RectMask2D 会让结算页 Canvas 首次重建时需要「裁剪(UNITY_UI_CLIP_RECT)」
+        // shader 变体，而该变体在 WebGL/IL2CPP 下运行时预热会命中 null-function WASM 硬崩(整页崩=播到最后出结算那一下)。
+        // 这正是 LycheeWebGLImageSpriteGuard 当初想兜的崩溃的真根因。WebGL 直接不加遮罩：底图超出的部分本就在屏幕外，
+        // 视觉无差(AspectRatioFitter EnvelopeParent 铺满)，却根治了硬崩，也让 WebGL 不再需要那个全场换 RawImage 的 guard。
         container.gameObject.AddComponent<RectMask2D>();
+#endif
 
         Sprite sprite = LoadThemeSprite("settlement_bg.png");
         if (sprite != null)

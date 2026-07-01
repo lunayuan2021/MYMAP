@@ -31,6 +31,8 @@ public class LycheeOpeningShowcase : MonoBehaviour
     const float SkipFadeSeconds = 0.2f;   // 点击关闭时的快速淡出
     const float VideoPrepareTimeout = 12f; // 视频准备超时则跳过视频（WebGL 首次解码缓冲慢，4s 太短会跳过开场视频）
     const int OpeningRoundGrace = 24; // WebGL 入口场景切换后补挂脚本时，回放可能已推进数回合。
+    const string RedCaptainAvatarResource = "LycheeReplayDemo/Avatars/red_captain_circle_20260611Y";
+    const string BlueCaptainAvatarResource = "LycheeReplayDemo/Avatars/blue_captain_circle_20260611Y";
 
     static readonly Color GoldColor = new Color(1f, 0.84f, 0.30f, 1f);
     static readonly Color RedTeamColor = new Color(0.96f, 0.30f, 0.20f, 1f);
@@ -447,8 +449,30 @@ public class LycheeOpeningShowcase : MonoBehaviour
     Sprite ResolveAvatarSprite(bool red, Sprite requested)
     {
         if (requested != null && requested.texture != null) return requested;
+        Sprite playerAvatar = player != null ? player.ResolveCaptainAvatar(red) : null;
+        if (playerAvatar != null && playerAvatar.texture != null) return playerAvatar;
+        Sprite resourceAvatar = LoadResourceAvatar(red);
+        if (resourceAvatar != null && resourceAvatar.texture != null) return resourceAvatar;
         Sprite themed = LoadThemeSprite(red ? "team_red_emblem.png" : "team_blue_emblem.png");
         return themed != null && themed.texture != null ? themed : null;
+    }
+
+    static Sprite LoadResourceAvatar(bool red)
+    {
+        string path = red ? RedCaptainAvatarResource : BlueCaptainAvatarResource;
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (sprite != null && sprite.texture != null) return sprite;
+
+        Texture2D texture = Resources.Load<Texture2D>(path);
+        if (texture == null) return null;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        return Sprite.Create(
+            texture,
+            new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect);
     }
 
     static void ApplyAvatar(RawImage avatarImage, Text fallback, Sprite sprite)

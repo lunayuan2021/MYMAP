@@ -58,6 +58,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     public Sprite blueCaptainAvatar;
     public Sprite[] combatIllustrations;
 
+    const string RedCaptainAvatarResource = "LycheeReplayDemo/Avatars/red_captain_circle_20260611Y";
+    const string BlueCaptainAvatarResource = "LycheeReplayDemo/Avatars/blue_captain_circle_20260611Y";
     const float MinRoundSeconds = 0.01f;
     // WebGL 偶发掉帧时不要一次补很多视觉时间，否则车队会像 PPT 一格一格跳；观感优先，掉帧时宁可轻微慢放。
     const float MaxPlaybackDeltaSeconds = 1f / 30f;
@@ -618,6 +620,7 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     void InitializeAfterLoad()
     {
+        EnsureCaptainAvatarReferences();
         CreateDynamicRoots();
         CreateConvoys();
         CreateObstacleVisuals();
@@ -1269,7 +1272,50 @@ public class LycheeReplayPlayer : MonoBehaviour
         runtimeHud = GetComponent<LycheeReplayRuntimeHud>();
         if (runtimeHud == null) runtimeHud = gameObject.AddComponent<LycheeReplayRuntimeHud>();
         runtimeHud.enabled = true;
-        runtimeHud.Configure(combatIllustrations, redCaptainAvatar, blueCaptainAvatar);
+        runtimeHud.Configure(combatIllustrations, ResolveCaptainAvatar(true), ResolveCaptainAvatar(false));
+    }
+
+    void EnsureCaptainAvatarReferences()
+    {
+        if (!SpriteUsable(redCaptainAvatar)) redCaptainAvatar = LoadCaptainAvatarResource(true);
+        if (!SpriteUsable(blueCaptainAvatar)) blueCaptainAvatar = LoadCaptainAvatarResource(false);
+    }
+
+    public Sprite ResolveCaptainAvatar(bool red)
+    {
+        Sprite current = red ? redCaptainAvatar : blueCaptainAvatar;
+        if (SpriteUsable(current)) return current;
+
+        Sprite loaded = LoadCaptainAvatarResource(red);
+        if (SpriteUsable(loaded))
+        {
+            if (red) redCaptainAvatar = loaded;
+            else blueCaptainAvatar = loaded;
+        }
+        return loaded;
+    }
+
+    static bool SpriteUsable(Sprite sprite)
+    {
+        return sprite != null && sprite.texture != null;
+    }
+
+    static Sprite LoadCaptainAvatarResource(bool red)
+    {
+        string path = red ? RedCaptainAvatarResource : BlueCaptainAvatarResource;
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (SpriteUsable(sprite)) return sprite;
+
+        Texture2D texture = Resources.Load<Texture2D>(path);
+        if (texture == null) return null;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        return Sprite.Create(
+            texture,
+            new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect);
     }
 
     void ShowOpeningRoster()

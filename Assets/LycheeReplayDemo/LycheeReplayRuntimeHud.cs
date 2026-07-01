@@ -234,6 +234,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     static Sprite frameSprite;
     static Sprite vignetteSprite;
     static Sprite avatarCircleSprite;
+    const string RedCaptainAvatarResource = "LycheeReplayDemo/Avatars/red_captain_circle_20260611Y";
+    const string BlueCaptainAvatarResource = "LycheeReplayDemo/Avatars/blue_captain_circle_20260611Y";
     static readonly Dictionary<string, Sprite> themeSpriteCache = new Dictionary<string, Sprite>();
     static readonly Dictionary<string, Sprite> categoryBorderCache = new Dictionary<string, Sprite>();
 
@@ -714,6 +716,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             combatUntil += dt;
             combatNextAllowed += dt;
         }
+        // 中央出牌大窗口同款冻结：开场/短视频展示期间不让 contestUntil/逐拍保持时间烧穿，
+        // 否则视频结束后窗口已过期、最后一拍丢失（与右侧对抗卡一致：藏而不毁、过后接着演）。
+        if (presentationBlockingCombat && contestUntil > now)
+        {
+            float dt = Time.unscaledDeltaTime;
+            contestUntil += dt;
+            if (contestRevealHoldUntil > now) contestRevealHoldUntil += dt;
+        }
 
         // 排队消费点：Refresh 每帧必经。开场/短视频展示期间先藏住，不抢画面，结束后再消费队列。
         if (!presentationBlockingCombat && CombatHudReady("Refresh.PendingCombat") && now >= combatUntil && now >= combatNextAllowed && pendingCombats.Count > 0)
@@ -737,12 +747,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             combatRect.anchoredPosition = combatBasePos + new Vector2(combatSlide, 0f);
         }
 
-        FlushPendingContestResolution(now);
+        // 展示期间不消费逐拍结算队列，结束后再亮最后一拍；与右侧对抗卡的队列保持一致。
+        if (!presentationBlockingCombat)
+            FlushPendingContestResolution(now);
 
         // 中央出牌大窗口：同款 0.25s 淡入淡出 + 自下方 +24px 滑入；纯展示永不拦截点击。
         if (ContestHudReady("Refresh.Contest"))
         {
-            contestGroup.alpha = Mathf.MoveTowards(contestGroup.alpha, now < contestUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
+            contestGroup.alpha = Mathf.MoveTowards(contestGroup.alpha, !presentationBlockingCombat && now < contestUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
             contestGroup.interactable = false;
             contestGroup.blocksRaycasts = false;
             float contestSlide = (1f - EaseOutCubic((now - contestShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
@@ -992,10 +1004,20 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             "蓝方 胜", "蓝方胜", "蓝方成功", "蓝方 完成", "蓝方完成", "蓝方 获得", "蓝方获得", "蓝方 清障", "蓝方清障",
             "BLUE WIN", "BLUE_WINS", "WINNER BLUE", "BLUE COMPLETE", "BLUE_COMPLETED", "BLUE SUCCESS"))
             return 1;
-        bool redOnly = ContainsAny(text, "红队", "红方", "RED") && !ContainsAny(text, "蓝队", "蓝方", "BLUE");
-        bool blueOnly = ContainsAny(text, "蓝队", "蓝方", "BLUE") && !ContainsAny(text, "红队", "红方", "RED");
+        // 队标兜底：只认中文队名（红队/红方 vs 蓝队/蓝方）。中文队名来自 campName，可靠；
+        // 而玩家名/teamId 是 ASCII（本回放红队选手名恰是 "blue-l4"），用裸 "RED"/"BLUE" 会被污染，
+        // 导致红队完成卡落到中性金/黄。所以中文兜底优先，ASCII 仅在完全没有中文队名时才用。
+        bool redOnly = ContainsAny(text, "红队", "红方") && !ContainsAny(text, "蓝队", "蓝方");
+        bool blueOnly = ContainsAny(text, "蓝队", "蓝方") && !ContainsAny(text, "红队", "红方");
         if (redOnly) return 0;
         if (blueOnly) return 1;
+        if (!ContainsAny(text, "红队", "红方", "蓝队", "蓝方"))
+        {
+            bool redAscii = text.Contains("RED") && !text.Contains("BLUE");
+            bool blueAscii = text.Contains("BLUE") && !text.Contains("RED");
+            if (redAscii) return 0;
+            if (blueAscii) return 1;
+        }
         return -1;
     }
 
@@ -2116,9 +2138,38 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     static Sprite ResolveTeamAvatar(bool red, Sprite requested)
     {
         if (SpriteUsable(requested)) return requested;
+        Sprite resource = GetResourceAvatarSprite(red);
+        if (SpriteUsable(resource)) return resource;
         Sprite themed = GetThemeSprite(red ? "team_red_emblem.png" : "team_blue_emblem.png");
         if (SpriteUsable(themed)) return themed;
         return MakeTeamAvatarSprite(red);
+    }
+
+    static Sprite GetResourceAvatarSprite(bool red)
+    {
+        string key = red ? "__resource_red_avatar" : "__resource_blue_avatar";
+        if (themeSpriteCache.TryGetValue(key, out Sprite cached) && cached != null) return cached;
+
+        string path = red ? RedCaptainAvatarResource : BlueCaptainAvatarResource;
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (!SpriteUsable(sprite))
+        {
+            Texture2D texture = Resources.Load<Texture2D>(path);
+            if (texture != null)
+            {
+                texture.wrapMode = TextureWrapMode.Clamp;
+                sprite = Sprite.Create(
+                    texture,
+                    new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f,
+                    0,
+                    SpriteMeshType.FullRect);
+            }
+        }
+
+        if (SpriteUsable(sprite)) themeSpriteCache[key] = sprite;
+        return sprite;
     }
 
     static bool SpriteUsable(Sprite sprite)
