@@ -995,7 +995,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (fx.label != null)
         {
             fx.label.color = emphasized ? Color.white : new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.72f);
-            fx.label.fontSize = emphasized ? 16 : 14;
+            fx.label.fontSize = emphasized ? 18 : 16;
             fx.label.fontStyle = FontStyle.Bold;
         }
     }
@@ -1415,7 +1415,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         roundText = Text("RoundText", panel, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
         SetRect(roundText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 186f), new Vector2(380f, 24f), new Vector2(0.5f, 0.5f));
-        phaseText = Text("PhaseText", panel, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        phaseText = Text("PhaseText", panel, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
         SetRect(phaseText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 167f), new Vector2(220f, 16f), new Vector2(0.5f, 0.5f));
 
         redTeam = BuildTeam(panel, true);
@@ -1432,16 +1432,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     StatRow BuildStatRow(Transform parent, string label, float y)
     {
         StatRow r = new StatRow();
-        r.label = Text(label + "StatLabel", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        r.label = Text(label + "StatLabel", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
         r.label.text = label;   // Text() 帮手不写 .text，必须显式赋值，否则中央标签列全空白
         SetRect(r.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(92f, 16f), new Vector2(0.5f, 0.5f));
-        r.redValue = Text(label + "StatRed", parent, 13, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
+        r.redValue = Text(label + "StatRed", parent, 14, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
         SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(150f, 16f), new Vector2(1f, 0.5f));
-        r.blueValue = Text(label + "StatBlue", parent, 13, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
+        r.blueValue = Text(label + "StatBlue", parent, 14, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
         SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(150f, 16f), new Vector2(0f, 0.5f));
-        r.redDelta = Text(label + "StatRedDelta", parent, 12, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
+        r.redDelta = Text(label + "StatRedDelta", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
         SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-212f, y), new Vector2(58f, 16f), new Vector2(1f, 0.5f));
-        r.blueDelta = Text(label + "StatBlueDelta", parent, 12, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
+        r.blueDelta = Text(label + "StatBlueDelta", parent, 13, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
         SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(212f, y), new Vector2(58f, 16f), new Vector2(0f, 0.5f));
         AddTextShadow(r.redDelta);
         AddTextShadow(r.blueDelta);
@@ -1625,10 +1625,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SetRawImageSprite(widgets.avatarRaw, ResolveTeamAvatar(red, red ? previewRedAvatar : previewBlueAvatar));
 
         TextAnchor align = red ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight;
-        widgets.name = Text(red ? "RedName" : "BlueName", parent, 17, FontStyle.Bold, Color.white, align);
+        widgets.name = Text(red ? "RedName" : "BlueName", parent, 19, FontStyle.Bold, Color.white, align);
         SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.name);
-        widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 14, FontStyle.Bold, SilkColor, align);
+        widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 16, FontStyle.Bold, SilkColor, align);
         SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.roster);
         widgets.score = Text(red ? "RedScore" : "BlueScore", parent, TeamScoreFontSize, FontStyle.Bold, Color.white, align);
@@ -1670,13 +1670,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 红条填充用朱红（提一点透明度补足暗色底上的对比），蓝条保留队蓝
         bar.redFill = BarFill(parent, label + "RedTrack", new Vector2(-139f, y), new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.94f));
         bar.blueFill = BarFill(parent, label + "BlueTrack", new Vector2(139f, y), new Color(0.20f, 0.48f, 1f, 0.94f));
-        bar.redValue = Text(label + "RedValue", parent, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleRight);
+        bar.redValue = Text(label + "RedValue", parent, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleRight);
         SetRect(bar.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-242f, y), new Vector2(52f, 22f), new Vector2(1f, 0.5f));
-        bar.blueValue = Text(label + "BlueValue", parent, 12, FontStyle.Bold, SilkColor, TextAnchor.MiddleLeft);
+        bar.blueValue = Text(label + "BlueValue", parent, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleLeft);
         SetRect(bar.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(242f, y), new Vector2(52f, 22f), new Vector2(0f, 0.5f));
-        bar.redDelta = Text(label + "RedDelta", parent, 11, FontStyle.Bold, Color.white, TextAnchor.MiddleRight);
+        bar.redDelta = Text(label + "RedDelta", parent, 14, FontStyle.Bold, Color.white, TextAnchor.MiddleRight);
         SetRect(bar.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-300f, y), new Vector2(44f, 22f), new Vector2(1f, 0.5f));
-        bar.blueDelta = Text(label + "BlueDelta", parent, 11, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
+        bar.blueDelta = Text(label + "BlueDelta", parent, 14, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
         SetRect(bar.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(300f, y), new Vector2(44f, 22f), new Vector2(0f, 0.5f));
 
         RectTransform labelBg = Rect(label + "LabelBg", parent, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(74f, 22f), new Vector2(0.5f, 0.5f));
@@ -1684,7 +1684,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         labelImage.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.78f);
         labelImage.raycastTarget = false;
 
-        Text labelText = Text(label + "Label", parent, 16, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        Text labelText = Text(label + "Label", parent, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
         labelText.text = label;
         SetRect(labelText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(74f, 22f), new Vector2(0.5f, 0.5f));
         return bar;
@@ -1813,11 +1813,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         fx.backMark.text = "?";
         fx.backMark.enabled = false;
 
-        fx.label = Text("Text", box, 15, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        fx.label = Text("Text", box, 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
         SetRect(fx.label.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(122f, 28f), new Vector2(0.5f, 0.5f));
         fx.label.resizeTextForBestFit = true;
-        fx.label.resizeTextMinSize = 11;
-        fx.label.resizeTextMaxSize = 16;
+        fx.label.resizeTextMinSize = 13;
+        fx.label.resizeTextMaxSize = 18;
         AddTextShadow(fx.label);
         return fx;
     }

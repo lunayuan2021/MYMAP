@@ -35,7 +35,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const float ProgressBarWidth = 2.1f;       // 进度条满宽（世界单位；billboard 恒定屏幕大小）
     const float ProgressBarThickness = 0.24f;  // 填充条粗细（LineRenderer 宽）
     const float ProgressBarBorder = 0.075f;    // 底条比填充条外扩，形成深色描边
-    const float ProgressBarLabelY = 0.46f;     // 「核验中/转运中…」文字在条上方的偏移（字加大后上移）
+    const float ProgressBarLabelY = 0.52f;     // 「核验中/转运中…」文字在条上方的偏移（字加大后上移）
+    const float ProgressBarDetailY = -0.40f;   // 「已用/总」帧数在条下方的偏移
+    const int ProgressSortBase = 23980;        // 进度条各层 sortingOrder 基准（背板 < 槽 < 填充 < 文字）
 
     static readonly Color RedTeamColor = new Color(0.95f, 0.18f, 0.11f, 1f);
     static readonly Color BlueTeamColor = new Color(0.20f, 0.48f, 1.0f, 1f);
@@ -111,6 +113,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public LineRenderer arc;
         public LineRenderer background;
         public TextMesh label;
+        public TextMesh detail;          // 条下方「已用/总」帧数
         public int playerId;
         public float startRound;
         public int processRound;
@@ -339,7 +342,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         }
 
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 1.95f, 0f),
-            GuardLabelText(guard), teamColor, 30, 0.05f, true);
+            GuardLabelText(guard), teamColor, 40, 0.065f, true);
         guards[nodeId] = new GuardMarker { root = root, label = label, owner = guard.ownerTeamId };
     }
 
@@ -552,7 +555,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         }
 
         TextMesh count = CreateWorldLabel(iconRoot.transform, new Vector3(0.88f, 0.54f, -0.02f),
-            string.Empty, GoldColor, 28, 0.07f, false);
+            string.Empty, GoldColor, 34, 0.085f, false);
         MeshRenderer countRenderer = count == null ? null : count.GetComponent<MeshRenderer>();
         if (countRenderer != null) countRenderer.sortingOrder = BadgeTextOrder;
 
@@ -956,7 +959,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         }
 
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 6.6f, 0f),
-            string.Empty, color, 32, 0.06f, true);
+            string.Empty, color, 34, 0.07f, true);
         TextMesh status = CreateStatusMark(root.transform, new Vector3(0.72f, 6.2f, -0.04f), true);
         if (status != null) status.gameObject.SetActive(false);
         return new PillarMarker
@@ -1091,26 +1094,48 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         GameObject root = new GameObject("ProgressRing_P" + playerId);
         root.transform.SetParent(markerRoot, false);
         root.transform.position = position;
-        root.AddComponent<LycheeReplayBillboard>();
+        // 进度条恒定屏幕大小：关掉按距离缩放（远/近机位都不再缩小、也不近距淡出），保证字始终看得清。
+        LycheeReplayBillboard billboard = root.AddComponent<LycheeReplayBillboard>();
+        billboard.distanceScale = false;
 
         Color teamColor = player == null ? GoldColor : player.TeamColorOf(playerId);
-        Color fillColor = Color.Lerp(teamColor, Color.white, 0.15f);           // 队色略提亮，填充更醒目
-        Material backgroundMaterial = GetUnlitMaterial("ring_bar_bg", new Color(0.04f, 0.04f, 0.06f, 0.82f), true);
+        Color fillColor = Color.Lerp(teamColor, Color.white, 0.06f);           // 更饱和的队色填充（红更红/蓝更蓝）
+        Color grooveColor = new Color(teamColor.r * 0.22f, teamColor.g * 0.22f, teamColor.b * 0.22f, 0.9f); // 队色暗版底槽
+        Material grooveMaterial = GetUnlitMaterial("ring_bar_groove_" + playerId, grooveColor, true);
         Material arcMaterial = GetUnlitMaterial("ring_fill_" + playerId, fillColor, false);
 
-        // 横向进度条：底条(深色、外扩成描边)铺满，填充条(队色)按进度从左向右长；圆角端(CreateRingLine 已用圆头)。
-        LineRenderer background = CreateRingLine(root.transform, "BarBackground", backgroundMaterial, ProgressBarThickness + ProgressBarBorder, 0.03f);
+        // 半透明圆角背板：把条与文字从草地里托起、拉高对比（复用事件牌 sprite），sortingOrder 压在最底。
+        GameObject plateObject = new GameObject("Plate");
+        plateObject.transform.SetParent(root.transform, false);
+        plateObject.transform.localPosition = new Vector3(0f, 0.06f, 0.07f);
+        plateObject.transform.localScale = new Vector3(2.55f, 2.7f, 1f);
+        SpriteRenderer plate = plateObject.AddComponent<SpriteRenderer>();
+        plate.sprite = EventPlaqueSprite();
+        plate.color = new Color(0.06f, 0.07f, 0.10f, 0.78f);
+        plate.sortingOrder = ProgressSortBase;
+
+        // 横向进度条：队色暗槽铺满 + 队色亮填充按进度从左向右长；圆头端呈胶囊形。
+        LineRenderer background = CreateRingLine(root.transform, "BarGroove", grooveMaterial, ProgressBarThickness + ProgressBarBorder, 0.03f);
         SetBarPositions(background, 1f);
+        background.sortingOrder = ProgressSortBase + 4;
         LineRenderer arc = CreateRingLine(root.transform, "BarFill", arcMaterial, ProgressBarThickness, 0f);
         SetBarPositions(arc, 0f);
+        arc.sortingOrder = ProgressSortBase + 6;
 
-        // 「核验中/转运中/…」文字：按队色(红队红/蓝队蓝)、加大到 40 号、带深色阴影描边，草地上也看得清。
+        // 「核验中/转运中/…」文字：按队色(红队红/蓝队蓝)、加大字号(charSize 0.09)、带深色阴影描边，草地上也看得清。
         string actionText = RingActionName(payload, isVerify);
         Color labelColor = Color.Lerp(teamColor, Color.white, 0.28f);
-        CreateWorldLabel(root.transform, new Vector3(0.05f, ProgressBarLabelY - 0.05f, 0.02f),
-            actionText, new Color(0.03f, 0.03f, 0.05f, 0.94f), 40, 0.075f, false);   // 阴影层
+        TextMesh shadow = CreateWorldLabel(root.transform, new Vector3(0.05f, ProgressBarLabelY - 0.05f, 0.02f),
+            actionText, new Color(0.03f, 0.03f, 0.05f, 0.94f), 44, 0.09f, false);   // 阴影层
+        SetLabelOrder(shadow, ProgressSortBase + 7);
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarLabelY, -0.02f),
-            actionText, labelColor, 40, 0.075f, false);
+            actionText, labelColor, 44, 0.09f, false);
+        SetLabelOrder(label, ProgressSortBase + 8);
+
+        // 条下方小号「已用/总」帧数，给观众量化感（进度靠条 + 数字双表达）。
+        TextMesh detail = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarDetailY, -0.02f),
+            "1/1", labelColor, 34, 0.06f, false);
+        SetLabelOrder(detail, ProgressSortBase + 8);
 
         // PROCESS_PROGRESS/合成 START 的 payload 只带 remainingRound（首拍≈总拍数），不带 processRound。
         int totalRounds = payload.remainingRound > 0 ? payload.remainingRound
@@ -1121,6 +1146,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             arc = arc,
             background = background,
             label = label,
+            detail = detail,
             playerId = playerId,
             startRound = round,
             processRound = Mathf.Max(1, totalRounds),
@@ -1164,8 +1190,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         // 仅文字「探路」（青蓝）飘在节点上方——billboard 让 root 的 +Z 朝相机反向，Quad 底盘会被背面剔除，
         // 故不用底盘；TextMesh 标签与站名一样可读（同 CreateWorldLabel 路径）。带阴影描边保证草地上看得清。
         Color scoutColor = new Color(0.52f, 0.90f, 0.98f, 1f);
-        CreateWorldLabel(root.transform, new Vector3(0.04f, -0.04f, 0.01f), "探路", new Color(0.02f, 0.06f, 0.08f, 0.9f), 30, 0.052f, false);
-        CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.02f), "探路", scoutColor, 30, 0.052f, false);
+        CreateWorldLabel(root.transform, new Vector3(0.04f, -0.04f, 0.01f), "探路", new Color(0.02f, 0.06f, 0.08f, 0.9f), 40, 0.07f, false);
+        CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.02f), "探路", scoutColor, 40, 0.07f, false);
 
         scoutMarkers[nodeId] = new ScoutMarker { root = root, expireRound = payload.expireRound };
     }
@@ -1220,6 +1246,14 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             ring.label.text = ring.actionName + "\n" + (success ? "完成" : "中断");
             ring.label.color = success ? new Color(1f, 0.88f, 0.45f, 1f) : new Color(1f, 0.62f, 0.5f, 1f);
         }
+        if (ring.detail != null) ring.detail.text = ring.processRound + "/" + ring.processRound;
+    }
+
+    static void SetLabelOrder(TextMesh label, int order)
+    {
+        if (label == null) return;
+        MeshRenderer renderer = label.GetComponent<MeshRenderer>();
+        if (renderer != null) renderer.sortingOrder = order;
     }
 
     void UpdateRings(float time)
@@ -1254,7 +1288,12 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
             float progress = Mathf.Clamp01((replayRound - ring.startRound) / ring.processRound);
             SetBarPositions(ring.arc, progress);
-            // 文字恒为「核验中/转运中…」（进度靠条表达，不再逐拍改写 N/M）。
+            // 主文字恒为「核验中/转运中…」；条下方小号数字给出「已用/总」帧数量化感。
+            if (ring.detail != null)
+            {
+                int cur = Mathf.Clamp(Mathf.FloorToInt(replayRound - ring.startRound) + 1, 1, ring.processRound);
+                ring.detail.text = cur + "/" + ring.processRound;
+            }
             if (replayRound > ring.startRound + ring.processRound + 2f)
                 BeginRingFinish(ring, true); // 超时兜底：当作完成收尾
         }

@@ -189,6 +189,14 @@ public class LycheeReplayContestState
     public int redPoint;
     public int bluePoint;
     public int deadlineRound;
+    // §10.3：contests[] 同时承载进行中窗口与平局冷却(SUPPRESSED)。缺声明→JsonUtility 静默丢弃，冷却项会被当活跃窗口渲染。
+    public bool resolved;          // true=该窗口已产生结果，不应再当作活跃窗口
+    public string status;          // "SUPPRESSED"=平局冷却中；其余/空=正常窗口
+    public string winnerTeamId;    // 胜方队伍(RED/BLUE)，平局为空
+    public int suppressUntilRound; // 平局冷却截止帧
+    public int remainRound;        // 冷却剩余帧
+    public int redPlayerId;
+    public int bluePlayerId;
 }
 
 [Serializable]
@@ -215,8 +223,10 @@ public class LycheeReplayOverPlayer
 {
     public int playerId;
     public string playerName;
+    public string teamId;       // §3.1 阵营主键(RED/BLUE)；官方 over 可能只给 playerId/playerName，缺则靠 playerId→round 帧反查 camp
     public int camp;
     public bool online;
+    public bool retired;        // §10.5 players[] 含退赛状态
     public bool delivered;
     public int deliverRound;
     public float progress;
@@ -224,6 +234,8 @@ public class LycheeReplayOverPlayer
     public int goodFruit;
     public int badFruit;
     public int taskScore;
+    public int penaltyScore;    // §10.5 顶层扣分（通常为负）
+    public int bountyScore;     // §10.5 顶层破关悬赏分
     public int totalScore;
     public LycheeReplayScoreDetail scoreDetail;
 }
@@ -235,6 +247,8 @@ public class LycheeReplayOverFrame
     public string matchId;
     public int overRound;
     public int winnerPlayerId;
+    public string resultType;   // §10.5：NORMAL/FORFEIT/INVALID/DRAW —— 结束类型（平局/退赛/无效）
+    public string overReason;   // TIME_LIMIT/ALL_DELIVERED/SINGLE_RETIRED/BOTH_RETIRED/SCORE_TIE
     public LycheeReplayOverPlayer[] players;
 }
 

@@ -1178,8 +1178,10 @@ public class LycheeCharacterMotion : MonoBehaviour
             if (rig == null) continue;
             rig.water = IsWaterEdge(state.routeEdgeId);
         }
-        // 兜底：SeekFrame 跳过 CONTEST_END 时，依据帧数据没有进行中的对抗就结束持续 Attack
-        if (current.contests == null || current.contests.Length == 0)
+        // 兜底：SeekFrame 跳过 CONTEST_END 时，依据帧数据没有进行中的对抗就结束持续 Attack。
+        // 注意跳过 resolved / 平局冷却(SUPPRESSED) 条目——它们混在 contests[] 里但不是活跃窗口，
+        // 否则冷却项会让 rig 误以为对抗仍在进行、持续 Attack 不收。
+        if (!HasActiveContest(current))
         {
             foreach (CharacterRig rig in rigs)
             {
@@ -1190,6 +1192,20 @@ public class LycheeCharacterMotion : MonoBehaviour
                 }
             }
         }
+    }
+
+    // 帧里是否存在「活跃」对抗窗口：跳过 resolved 与平局冷却(status==SUPPRESSED)条目。
+    static bool HasActiveContest(LycheeReplayFrame frame)
+    {
+        if (frame == null || frame.contests == null) return false;
+        for (int i = 0; i < frame.contests.Length; i++)
+        {
+            LycheeReplayContestState c = frame.contests[i];
+            if (c == null || c.resolved) continue;
+            if (!string.IsNullOrEmpty(c.status) && c.status.Trim().ToUpperInvariant() == "SUPPRESSED") continue;
+            return true;
+        }
+        return false;
     }
 
     void OnReplayEvent(LycheeReplayMessage message, int round)

@@ -171,20 +171,56 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         ApplyAux(blueAuxText, blueOver, blueFrame);
 
         int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
-        PopulateMvp(winnerCamp,
-            winnerCamp == 0 ? redOver : blueOver,
-            winnerCamp == 0 ? redFrame : blueFrame);
+        if (winnerCamp < 0)
+            PopulateMvpNeutral(IsInvalidResult(over) ? "本局无效" : "双方战平 · 并列",
+                IsInvalidResult(over) ? "本局判为无效" : "最终总分相同");
+        else
+            PopulateMvp(winnerCamp,
+                winnerCamp == 0 ? redOver : blueOver,
+                winnerCamp == 0 ? redFrame : blueFrame);
     }
 
+    // §10.5：平局(DRAW/SCORE_TIE，或 winnerPlayerId 无效且同分)返回 -1，不给任一方状元/金光。
     int ResolveWinnerCamp(LycheeReplayOverFrame over, int redTotal, int blueTotal)
     {
+        if (IsDrawResult(over, redTotal, blueTotal) || IsInvalidResult(over)) return -1;
         if (over != null && over.players != null)
         {
             LycheeReplayOverPlayer winner = over.players
                 .FirstOrDefault(candidate => candidate != null && candidate.playerId == over.winnerPlayerId);
             if (winner != null) return winner.camp == 1 ? 1 : 0;
         }
+        if (redTotal == blueTotal) return -1;
         return blueTotal > redTotal ? 1 : 0;
+    }
+
+    // 平局判定：resultType=="DRAW" 为权威；无 resultType 时兜底为「winnerPlayerId 无效(<=0)且双方总分相等」。
+    static bool IsDrawResult(LycheeReplayOverFrame over, int redTotal, int blueTotal)
+    {
+        if (over == null) return redTotal == blueTotal;
+        string rt = string.IsNullOrEmpty(over.resultType) ? null : over.resultType.Trim().ToUpperInvariant();
+        if (rt == "DRAW") return true;
+        if (rt == "FORFEIT" || rt == "INVALID") return false;   // 有明确胜方/无效另论
+        return over.winnerPlayerId <= 0 && redTotal == blueTotal;
+    }
+
+    static bool IsInvalidResult(LycheeReplayOverFrame over)
+    {
+        return over != null && !string.IsNullOrEmpty(over.resultType)
+            && over.resultType.Trim().ToUpperInvariant() == "INVALID";
+    }
+
+    // 平局/无效局：不crown任一方，中性展示。
+    void PopulateMvpNeutral(string title, string stats)
+    {
+        SetText(mvpTitleText, title);
+        SetText(mvpStatsText, stats);
+        if (mvpAvatarImage != null)
+        {
+            mvpAvatarImage.sprite = null;
+            mvpAvatarImage.color = new Color(0.5f, 0.5f, 0.5f, 1f);
+        }
+        if (mvpAvatarGlyph != null) mvpAvatarGlyph.gameObject.SetActive(true);
     }
 
     void PopulateMvp(int camp, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
@@ -240,6 +276,9 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     {
         if (over != null)
         {
+            // §10.5：平局不宣布胜方；无效局单列；退赛局标明对方退赛。
+            if (IsInvalidResult(over)) return "本局无效";
+            if (IsDrawResult(over, redTotal, blueTotal)) return "双方战平";
             string winnerName = null;
             if (over.players != null)
             {
@@ -250,7 +289,9 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
             if (string.IsNullOrEmpty(winnerName) && player != null)
                 winnerName = player.TeamDisplayName(over.winnerPlayerId);
             if (string.IsNullOrEmpty(winnerName)) winnerName = "胜方";
-            return winnerName + " 夺魁";
+            bool forfeit = !string.IsNullOrEmpty(over.resultType)
+                && over.resultType.Trim().ToUpperInvariant() == "FORFEIT";
+            return winnerName + (forfeit ? " 夺魁（对方退赛）" : " 夺魁");
         }
 
         if (redTotal == blueTotal) return "双方战平";
@@ -298,6 +339,13 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     static void ApplyAux(Text text, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
     {
         if (text == null) return;
+        // §10.5 retired：退赛方优先标注（判负），不再显示交付/鲜度明细。
+        if (overPlayer != null && overPlayer.retired)
+        {
+            text.text = "已退赛（判负）";
+            text.color = GrayColor;
+            return;
+        }
         bool delivered = overPlayer != null ? overPlayer.delivered : framePlayer != null && framePlayer.delivered;
         if (!delivered)
         {

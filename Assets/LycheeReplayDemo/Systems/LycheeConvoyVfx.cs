@@ -48,10 +48,11 @@ public class LycheeConvoyVfx : MonoBehaviour
         public float dustRateApplied;  // 上次写入的 rateOverDistance，避免每帧无谓改模块
         public bool rushApplied;
         public float breathSeed;
-        public bool onEdge;                // 当前是否在路段上（=行进中）；用于把马信标延后到"骑行时"再冒
-        public bool pendingHorse;          // 用了短驿马/快马但当时车队停在站点处理，等它开始移动再冒
-        public bool pendingHorseFast;
-        public int pendingHorseArmedRound;
+        // 马信标延后到"骑行时"才冒（仅快马/短驿马；冰鉴不走这条）：用完马若还停在站里就先挂起，等车队真正上路再冒。
+        public bool onEdge;                // 当前是否在路段上（=行进中）；OnRoundApplied 每帧按 routeEdgeId 落定
+        public bool pendingHorse;          // 用了短驿马/快马但当时车队停在站点，等它开始移动(上路)再冒 3D 信标
+        public bool pendingHorseFast;      // 挂起的是快马(true)还是短驿马(false)
+        public int pendingHorseArmedRound; // 挂起时的回合，用于"超过 N 回合还没上路就作废"
         public readonly Dictionary<string, GameObject> activeEventIconRoots = new Dictionary<string, GameObject>();
         public readonly Dictionary<string, float> lastEventIconAt = new Dictionary<string, float>();
     }
@@ -147,7 +148,7 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (current == null) return;
         rushPhase = current.phase == "RUSH";
         if (current.players == null) return;
-        // 跳转/倒带(非相邻帧)时清掉挂起的马信标，避免 seek 后错位冒出。
+        // 相邻帧顺序播放才处理挂起的马信标；跳转/倒带(非相邻)不补冒，避免 seek 后错位。
         bool sequential = previous != null && current.round - previous.round == 1;
         foreach (LycheeReplayPlayerState state in current.players)
         {
@@ -158,9 +159,10 @@ public class LycheeConvoyVfx : MonoBehaviour
             rig.waterMode = IsWaterEdge(state.routeEdgeId);
             rig.onEdge = !string.IsNullOrEmpty(state.routeEdgeId);   // 在路段=行进中
 
-            // 马信标延后到"骑行时"：用户反馈短驿马/快马在【停站获取/使用】那一刻就冒出、像获取时出现。
-            // 真因是使用 RESOURCE_USE 发生在车队停站处理时。改成用时先挂起，等车队真正开始移动(上路)再冒，
-            // 让 3D 奔马表达"骑马赶路"而非停在站里。超过 40 回合仍没上路(极少)就作废，不硬冒在站里。
+            // ★决策(2026-07-01，用户复议确认)：短驿马/快马的 3D 信标【延到"使用后真正上路行进"那刻才冒】。
+            //   马是停站时用的，延到上路冒能把信标和"停站/获取"错开，读作"骑马赶路"更贴语义(用户："能错开，思路更好")。
+            //   冰鉴不走这条(停站保鲜、无骑行语义)，仍 RESOURCE_USE 当场冒；见 PlayResourceVfx。
+            //   超过 40 回合仍没上路(极少)就作废，不硬冒在站里。勿改回"用即冒"。
             if (rig.pendingHorse)
             {
                 if (!sequential || current.round - rig.pendingHorseArmedRound > 40)
@@ -184,6 +186,10 @@ public class LycheeConvoyVfx : MonoBehaviour
         LycheeReplayPayload payload = message.payload;
         if (payload.playerId <= 0) return;
 
+        // seek/拖动时间轴的 force 重放只是"补演历史帧状态"，不应凭空生成活 6 秒的头顶信标（冰鉴/马/荔枝转坏）；
+        // 用户反馈"获取短驿马仍冒 3D 模型"根因即在此——seek 到车队在路上的帧再触发历史 RESOURCE_USE 时错冒。
+        if (player != null && player.IsApplyingForcedFrame) return;
+
         // 用户要求：冰鉴 / 快马 / 短驿马 三个 3D 信标只在【真正使用】资源那一刻冒出（RESOURCE_USE），
         // 不在【获得/领取】时提前冒（RESOURCE_CLAIM）——冰鉴常在获得后很多回合才用（本回放：第90回合领、
         // 第202回合才用），早早冒出会误导观众以为已经用了。荔枝转坏走 GOOD_TO_BAD（那本身就是触发时刻）。
@@ -199,18 +205,26 @@ public class LycheeConvoyVfx : MonoBehaviour
 
     void PlayResourceVfx(int playerId, string resourceType)
     {
+        // ★决策(2026-07-01，两轮确认)：
+        //   • 冰鉴(ICE_BOX)：RESOURCE_USE 当场冒(停站保鲜、无骑行语义)。
+        //   • 快马/短驿马：用时先挂起，等车队【真正上路行进】那刻才冒 3D 信标(QueueOrPlayHorse→OnRoundApplied)。
+        //     信标与"停站/获取"错开，读作"骑马赶路"，比"用即冒"更好(用户："能错开，思路更好")。
+        //   资源【获取(RESOURCE_CLAIM)】已不再弹中央卡(见 ShowKeyEventIllustration 白名单)，故不会有"获取冒一次"。
+        //   seek/force 补演历史帧已在 OnReplayEvent 开头用 IsApplyingForcedFrame 拦截，不会凭空冒活信标。
         string resource = resourceType ?? string.Empty;
         if (resource == "ICE_BOX") PlayIceBoxVfx(playerId);
         else if (resource == "FAST_HORSE") QueueOrPlayHorse(playerId, true);
         else if (resource == "SHORT_HORSE") QueueOrPlayHorse(playerId, false);
     }
 
-    // 马信标：车队已在路上(行进中)就立刻冒；停在站里用的就挂起，等它上路再冒(见 OnRoundApplied)——避免"获取/停站时"出现。
+    // 马信标延后到"骑行时"冒：车队已在路上就立刻冒；停在站里用的就挂起，等它上路再冒(见 OnRoundApplied)。
     void QueueOrPlayHorse(int playerId, bool fastHorse)
     {
         ConvoyVfxRig rig = FindRig(playerId);
         if (rig == null) { PlayHorseVfx(playerId, fastHorse); return; }
-        if (rig.onEdge)
+        // 按【当前帧】实时判断是否在路段(不吃缓存的 rig.onEdge——事件在 HandleEvent 阶段派发，onEdge 要等本帧
+        // OnRoundApplied 才落定，读缓存会拿到上一帧/seek 来源帧的脏值 → 停站用马被误判成在路上当场冒)。
+        if (IsPlayerOnEdgeNow(playerId))
         {
             PlayHorseVfx(playerId, fastHorse);
             return;
@@ -218,6 +232,17 @@ public class LycheeConvoyVfx : MonoBehaviour
         rig.pendingHorse = true;
         rig.pendingHorseFast = fastHorse;
         rig.pendingHorseArmedRound = player != null ? player.CurrentRound : 0;
+    }
+
+    // 从当前帧实时判断该队是否在路段（routeEdgeId 非空=行进中）；不依赖 OnRoundApplied 之后才落定的 rig.onEdge。
+    bool IsPlayerOnEdgeNow(int playerId)
+    {
+        LycheeReplayFrame frame = player == null ? null : player.CurrentFrame;
+        if (frame == null || frame.players == null) return false;
+        foreach (LycheeReplayPlayerState state in frame.players)
+            if (state != null && state.playerId == playerId)
+                return !string.IsNullOrEmpty(state.routeEdgeId);
+        return false;
     }
 
     ConvoyVfxRig FindRig(int playerId)
@@ -753,13 +778,16 @@ public class LycheeConvoyVfx : MonoBehaviour
         {
             if (root == null) break;
             float t = Mathf.Clamp01(elapsed / duration);
-            float inT = Ease01(t / 0.14f);
+            // 淡入用【绝对时间】而非按 duration 比例：信标要在 ~0.12s 内快速冒到全亮，和左侧「使用XX」播报同帧出现
+            //（用户反馈：左侧事件条比 3D 特效先出，原来按 duration≈6s 比例淡入要 ~0.84s 才亮，明显慢半拍）。
+            // 淡出仍按 duration 比例(最后 28%)，不动。
+            float inT = Ease01(Mathf.Clamp01(elapsed / 0.12f));
             float outT = Ease01((t - 0.72f) / 0.28f);
             float alpha = inT * (1f - outT);
 
             // 上浮放 root（位置）；pop 放 content（缩放）——content 再与 billboard 距离缩放相乘。
             root.transform.localPosition = start + Vector3.up * (0.65f * EaseOutCubic(t));
-            float pop = Mathf.Lerp(1.08f, 2.05f, EaseOutCubic(Mathf.Clamp01(t / 0.20f)));
+            float pop = Mathf.Lerp(1.08f, 2.05f, EaseOutCubic(Mathf.Clamp01(elapsed / 0.14f)));   // 弹入缩放也用绝对时间(~0.14s)，快速到全尺寸（与淡入同步）
             content.transform.localScale = Vector3.one * pop;
 
             // 光环呼吸脉冲（模型/回退共用）。
@@ -780,7 +808,7 @@ public class LycheeConvoyVfx : MonoBehaviour
                     Camera cam = Camera.main;
                     float dist = cam != null ? Vector3.Distance(cam.transform.position, modelWrapper.transform.position) : 22f;
                     float distScale = Mathf.Clamp(dist / 18f, 1.8f, 4.8f);
-                    float envIn = EaseOutCubic(Mathf.Clamp01(t / 0.16f));
+                    float envIn = EaseOutCubic(Mathf.Clamp01(elapsed / 0.14f));   // 模型缩放入场也用绝对时间(~0.14s)，与淡入/弹入同步快速冒出
                     float envOut = 1f - Ease01(Mathf.Clamp01((t - 0.82f) / 0.18f));
                     float env = Mathf.Max(0.0001f, envIn * envOut);
                     float bob = Mathf.Sin(elapsed * 2.2f) * 0.1f;
@@ -1158,7 +1186,7 @@ public class LycheeConvoyVfx : MonoBehaviour
         text.text = label;
         text.font = Resources.Load<Font>("Fonts/LXGWWenKai-Regular") ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.fontSize = 58;
-        text.characterSize = 0.042f;
+        text.characterSize = 0.05f;
         text.anchor = TextAnchor.MiddleCenter;
         text.alignment = TextAlignment.Center;
         text.color = color;

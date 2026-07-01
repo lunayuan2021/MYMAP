@@ -398,7 +398,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         tickerAccent.color = GoldTitle;
         tickerAccent.raycastTarget = false;
 
-        Text caption = MakeText("TickerCaption", tickerRoot, 16, FontStyle.Bold, GoldTitle, TextAnchor.MiddleLeft);
+        Text caption = MakeText("TickerCaption", tickerRoot, 18, FontStyle.Bold, GoldTitle, TextAnchor.MiddleLeft);
         SetRect(caption.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(84f, 0f));
         caption.text = "提示";
 
@@ -409,7 +409,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(45f, 0f), new Vector2(-130f, -10f));
         tickerClip.gameObject.AddComponent<RectMask2D>();
 
-        tickerText = MakeText("TickerText", tickerClip, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
+        tickerText = MakeText("TickerText", tickerClip, 20, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
         tickerText.horizontalOverflow = HorizontalWrapMode.Overflow;
         tickerText.verticalOverflow = VerticalWrapMode.Truncate;
         tickerTextRect = tickerText.rectTransform;
@@ -823,16 +823,18 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         string station = string.IsNullOrEmpty(node) ? "目标点" : node;
         string actionRaw = payload == null ? null : (!string.IsNullOrEmpty(payload.action) ? payload.action : payload.tactic);
         string actionCn = string.IsNullOrEmpty(actionRaw) ? "清障" : ActionName(actionRaw);
+        // 用户反馈：小分队播报太长(如「红队 小分队 在 潼关驿 完成 清障」)。压缩成紧凑句式：去掉「在/完成/派出…出发…执行」
+        // 等填充词，用 → 和 · 收紧长度。actor 已含队名(带队色)+尾空格。勿再加回「在/出发/执行」等虚词把它撑长。
         switch (type)
         {
             case "SQUAD_DISPATCH":
-                return "回合 " + round + "  " + actor + "派出小分队 出发 " + station + " 执行 " + actionCn;
+                return "回合 " + round + " " + actor + "小分队→" + station + " " + actionCn;
             case "SQUAD_CLEAR":
             case "SQUAD_CLEAR_SUCCESS":
             case "OBSTACLE_CLEAR":
-                return "回合 " + round + "  " + actor + "小分队 在 " + station + " 完成 " + actionCn;
+                return "回合 " + round + " " + actor + "小分队·" + station + " " + actionCn + "完成";
             case "SQUAD_FAILED":
-                return "回合 " + round + "  " + actor + "小分队 在 " + station + " 未能完成 " + actionCn;
+                return "回合 " + round + " " + actor + "小分队·" + station + " " + actionCn + "失败";
             default:
                 return null;
         }

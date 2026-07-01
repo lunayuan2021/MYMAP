@@ -974,11 +974,59 @@ public class LycheeReplayPlayer : MonoBehaviour
             LycheeReplayFrame frame = JsonUtility.FromJson<LycheeReplayFrame>(line);
             if (frame != null && frame.type == "round") frames.Add(frame);
         }
+        NormalizeCamps();
         PadReplayToDeclaredDuration();
         BackfillPlayerScoresFromFrameScores();
         Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
             (OverFrame != null ? ", over frame parsed." : "."), this);
         ValidateScoreConsistency();
+    }
+
+    // playerId → camp（0=红/1=蓝）映射，供只带 playerId/playerName 的 over 玩家反查阵营。
+    readonly Dictionary<int, int> playerCampById = new Dictionary<int, int>();
+
+    /// <summary>teamId → camp：RED→0、BLUE→1（大小写不敏感），未知返回 -1。
+    /// 设计文档以 teamId(RED/BLUE) 标识阵营，camp 只是展示层约定字段。</summary>
+    public static int CampFromTeamId(string teamId)
+    {
+        if (string.IsNullOrEmpty(teamId)) return -1;
+        string t = teamId.Trim().ToUpperInvariant();
+        if (t == "RED") return 0;
+        if (t == "BLUE") return 1;
+        return -1;
+    }
+
+    /// <summary>阵营归一化：官方回放若按文档只给 teamId、不带 camp，直接按 camp==0/1 分红蓝会把两队都当红队
+    /// （camp 默认 0）→ 蓝队队名/比分/头像/模型/状态整列空白。故按 teamId 反推 camp，并建 playerId→camp 表，
+    /// 供只有 playerId/playerName 的 over 玩家反查。teamId 缺失时保留原 camp（旧回放兼容）。</summary>
+    void NormalizeCamps()
+    {
+        playerCampById.Clear();
+        if (startFrame != null) NormalizeFrameCamps(startFrame);
+        for (int i = 0; i < frames.Count; i++) NormalizeFrameCamps(frames[i]);
+        if (OverFrame != null && OverFrame.players != null)
+        {
+            foreach (LycheeReplayOverPlayer op in OverFrame.players)
+            {
+                if (op == null) continue;
+                int c = CampFromTeamId(op.teamId);
+                if (c < 0 && op.playerId > 0 && playerCampById.TryGetValue(op.playerId, out int mapped)) c = mapped;
+                if (c >= 0) op.camp = c;
+            }
+        }
+    }
+
+    void NormalizeFrameCamps(LycheeReplayFrame frame)
+    {
+        if (frame == null || frame.players == null) return;
+        foreach (LycheeReplayPlayerState s in frame.players)
+        {
+            if (s == null) continue;
+            int c = CampFromTeamId(s.teamId);
+            if (c >= 0) s.camp = c;   // teamId 权威
+            else c = s.camp;          // 无 teamId → 保留原 camp
+            if (s.playerId > 0 && !playerCampById.ContainsKey(s.playerId)) playerCampById[s.playerId] = c;
+        }
     }
 
     void PadReplayToDeclaredDuration()
@@ -2132,10 +2180,13 @@ public class LycheeReplayPlayer : MonoBehaviour
         // 用户(点9)：右侧事件卡片只保留这几类，其余(到达/天气/处理/小分队/强制通行/交付/冲刺/
         // 资源使用/任务过期/悬赏出现 等)不再弹中央卡；左侧事件流仍有文字、不丢信息。
         // 窗口争夺(WINDOW_*)走对抗演出系统、已在上面 return，单独设计展示。
+        // ★用户(2026-07-01)：资源在【获取(RESOURCE_CLAIM)】时也不再弹中央卡——冰鉴/快马/短驿马 只在【使用(RESOURCE_USE)】
+        //   时由车队头顶 3D 信标(LycheeConvoyVfx)表现。之前 RESOURCE_CLAIM 在白名单里会弹一张"资源获取"中央卡，
+        //   RESOURCE_USE 又冒 3D 信标 → 观众看到"获取冒一次、使用冒一次"。去掉 RESOURCE_CLAIM 后只剩使用那一次。
+        //   获取信息仍在左侧事件流("获得XX")，不丢。勿把 RESOURCE_CLAIM 加回本白名单。
         if (type != "TASK_SPAWN" && type != "TASK_REFRESH" &&
             type != "TASK_COMPLETE" &&
             type != "BOUNTY_COMPLETE" && type != "BOUNTY_CLAIM" &&
-            type != "RESOURCE_CLAIM" &&
             type != "GUARD_SET" && type != "GUARD_BREAK" &&
             type != "VERIFY_GATE_COMPLETE")
             return;
