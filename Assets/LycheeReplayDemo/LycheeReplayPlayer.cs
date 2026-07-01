@@ -1494,6 +1494,36 @@ public class LycheeReplayPlayer : MonoBehaviour
         return false;
     }
 
+    /// <summary>取对抗真实拍数：WINDOW_CONTEST_START 的 payload 不带 totalRounds（恒 0 → 顶部显示「1 拍定胜负」），
+    /// 真正的拍数在帧的 contests[] 里（本回放 totalRounds=3）。按 contestId 查回；查不到才退回 payload 值。</summary>
+    int ResolveContestTotalRounds(LycheeReplayPayload payload)
+    {
+        if (payload == null) return 0;
+        if (payload.totalRounds > 0) return payload.totalRounds;
+        if (string.IsNullOrEmpty(payload.contestId)) return payload.totalRounds;
+        // 先查当前帧，再兜底全表扫（拍数在整段对抗内恒定；对抗少、只在开始时跑一次，开销可忽略）。
+        LycheeReplayFrame current = CurrentFrame;
+        int fromCurrent = ContestTotalRoundsIn(current, payload.contestId);
+        if (fromCurrent > 0) return fromCurrent;
+        for (int i = 0; i < frames.Count; i++)
+        {
+            int found = ContestTotalRoundsIn(frames[i], payload.contestId);
+            if (found > 0) return found;
+        }
+        return payload.totalRounds;
+    }
+
+    static int ContestTotalRoundsIn(LycheeReplayFrame frame, string contestId)
+    {
+        if (frame == null || frame.contests == null) return 0;
+        for (int i = 0; i < frame.contests.Length; i++)
+        {
+            LycheeReplayContestState c = frame.contests[i];
+            if (c != null && c.contestId == contestId && c.totalRounds > 0) return c.totalRounds;
+        }
+        return 0;
+    }
+
     void RestoreContestStartBeforeReveal(int targetIndex, LycheeReplayMessage message)
     {
         if (message == null || message.type != "WINDOW_CARD_REVEAL" || message.payload == null) return;
@@ -1904,7 +1934,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (message.type == "WINDOW_CONTEST_START")
         {
             if (runtimeHud != null)
-                runtimeHud.ShowCombatStart(round, payload.targetNodeId, payload.totalRounds, payload.contestType);
+                runtimeHud.ShowCombatStart(round, payload.targetNodeId, ResolveContestTotalRounds(payload), payload.contestType);
             if (!string.IsNullOrEmpty(payload.targetNodeId) && stations.TryGetValue(payload.targetNodeId, out MapStationAnchor contestStation))
             {
                 // 缓存对抗节点位置：后续 WINDOW_CARD_REVEAL 没有 targetNodeId，靠它续期聚焦

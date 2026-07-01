@@ -454,10 +454,11 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 控制条加宽到 640：按钮、速度下拉和回合标签不再贴边，WebGL 小窗口缩放后也不会溢出边框。
         // 顶部按钮行与底部滑杆行垂直间隔 12px，内容距背景边缘 16px。
         RectTransform panel = MakeRect("ControlPanel", parent);
-        // 面板 720 宽：panel_frame 九宫格描金边框按短边(108)算，单侧描金边区≈45px；内容须内缩到 ≥45px
-        // 才不压到四角金花（旧版 640 宽 + 16px 内缩，按钮/回合标签整块盖在描金花上=用户说的「内容比边框宽溢出」）。
-        // 720 − 两侧各 50 内缩 = 620 可用，正好容下 按钮行 + 回合标签，四角金花清爽露出。别改回 640/别把内缩缩回 16。
-        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(720f, 108f));
+        // 面板 580 宽：panel_frame 九宫格描金边按短边(108)算，单侧描金边区≈45px；内容内缩到 ≥45px 不压四角金花。
+        // 回合标签改成紧跟速度下拉（左对齐、间隔 ~14px），不再右贴边——旧版 720 宽 + 右锚定让 R xxx/xxx 离下拉
+        // 隔了一大段空、整条也太长（用户反馈）。580 − 两侧各 50 内缩 = 480 可用，按钮行 + 紧凑回合标签正好铺满、不留大空。
+        // 别改回 720 拉长、别把回合标签改回右贴边。
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(580f, 108f));
         controlGroup = panel.gameObject.AddComponent<CanvasGroup>();
         controlGroup.alpha = 0f;
         Image bg = panel.gameObject.AddComponent<Image>();
@@ -482,13 +483,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         playGlyph = "播放";
         pauseGlyph = "暂停";
 
-        // 按钮行自左缘内缩 50px 起（清四角金花），按钮间隔 12px；回合标签右缘同样内缩 50px。
+        // 按钮行自左缘内缩 50px 起（清四角金花），按钮间隔 12px；速度下拉止于 386。
         MakeButton(panel, "ReplayButton", replayLabel, new Vector2(50f, -16f), new Vector2(112f, 36f), OnReplayClicked, out _);
         MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(174f, -16f), new Vector2(84f, 36f), OnPlayPauseClicked, out playButtonLabel);
         speedDropdown = MakeSpeedDropdown(panel, new Vector2(270f, -16f), new Vector2(116f, 36f));
 
-        roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleRight);
-        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-50f, -16f), new Vector2(252f, 36f));
+        // 回合标签紧跟速度下拉（下拉止于 386，标签自 400 起、间隔 14px），左对齐、不再右贴边。
+        roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
+        SetRect(roundLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(400f, -16f), new Vector2(128f, 36f));
         roundLabel.text = "R 0 / 0";
         roundLabel.resizeTextForBestFit = true;
         roundLabel.resizeTextMinSize = 13;
@@ -502,8 +504,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         GameObject go = new GameObject("SeekSlider", typeof(RectTransform), typeof(Slider));
         go.transform.SetParent(parent, false);
         RectTransform rt = go.GetComponent<RectTransform>();
-        // 滑杆行 y 16..40，与上方按钮行下缘（52）保持 12px 净空；左右各内缩 50px 清四角金花（同按钮行）。
-        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(50f, 16f), new Vector2(620f, 24f));
+        // 滑杆行 y 16..40，与上方按钮行下缘（52）保持 12px 净空；左右各内缩 50px 清四角金花（面板 580 → 宽 480）。
+        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(50f, 16f), new Vector2(480f, 24f));
 
         RectTransform bgRt = MakeRect("Background", rt);
         SetRect(bgRt, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(0f, 8f));
