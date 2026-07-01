@@ -31,10 +31,11 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const int BadgeTextOrder = 24004;
     const int RingSegments = 32;
     const float RingRadius = 0.8f;
-    // 处理/核验进度：原为环形，改成「文字 +横向进度条」（用户要求）。
-    const float ProgressBarWidth = 1.95f;      // 进度条满宽（世界单位；billboard 恒定屏幕大小）
-    const float ProgressBarThickness = 0.18f;  // 进度条粗细（LineRenderer 宽）
-    const float ProgressBarLabelY = 0.36f;     // 「核验中/转运中…」文字在条上方的偏移
+    // 处理/核验进度：原为环形，改成「队色文字 + 队色横向进度条」（用户要求：红队红/蓝队蓝、字要大、要好看）。
+    const float ProgressBarWidth = 2.1f;       // 进度条满宽（世界单位；billboard 恒定屏幕大小）
+    const float ProgressBarThickness = 0.24f;  // 填充条粗细（LineRenderer 宽）
+    const float ProgressBarBorder = 0.075f;    // 底条比填充条外扩，形成深色描边
+    const float ProgressBarLabelY = 0.46f;     // 「核验中/转运中…」文字在条上方的偏移（字加大后上移）
 
     static readonly Color RedTeamColor = new Color(0.95f, 0.18f, 0.11f, 1f);
     static readonly Color BlueTeamColor = new Color(0.20f, 0.48f, 1.0f, 1f);
@@ -1093,18 +1094,23 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         root.AddComponent<LycheeReplayBillboard>();
 
         Color teamColor = player == null ? GoldColor : player.TeamColorOf(playerId);
-        Material backgroundMaterial = GetUnlitMaterial("ring_background", new Color(0.05f, 0.05f, 0.08f, 0.55f), true);
-        Material arcMaterial = GetUnlitMaterial("ring_player_" + playerId, teamColor, false);
+        Color fillColor = Color.Lerp(teamColor, Color.white, 0.15f);           // 队色略提亮，填充更醒目
+        Material backgroundMaterial = GetUnlitMaterial("ring_bar_bg", new Color(0.04f, 0.04f, 0.06f, 0.82f), true);
+        Material arcMaterial = GetUnlitMaterial("ring_fill_" + playerId, fillColor, false);
 
-        // 横向进度条：底条铺满、填充条按进度从左向右长（原环形 arc 改横条 bar）。
-        LineRenderer background = CreateRingLine(root.transform, "BarBackground", backgroundMaterial, ProgressBarThickness, 0.03f);
+        // 横向进度条：底条(深色、外扩成描边)铺满，填充条(队色)按进度从左向右长；圆角端(CreateRingLine 已用圆头)。
+        LineRenderer background = CreateRingLine(root.transform, "BarBackground", backgroundMaterial, ProgressBarThickness + ProgressBarBorder, 0.03f);
         SetBarPositions(background, 1f);
         LineRenderer arc = CreateRingLine(root.transform, "BarFill", arcMaterial, ProgressBarThickness, 0f);
         SetBarPositions(arc, 0f);
 
-        // 「核验中 / 转运中 / 领资源中 …」文字在进度条上方（取代原环心 N/M 文字）。
+        // 「核验中/转运中/…」文字：按队色(红队红/蓝队蓝)、加大到 40 号、带深色阴影描边，草地上也看得清。
+        string actionText = RingActionName(payload, isVerify);
+        Color labelColor = Color.Lerp(teamColor, Color.white, 0.28f);
+        CreateWorldLabel(root.transform, new Vector3(0.05f, ProgressBarLabelY - 0.05f, 0.02f),
+            actionText, new Color(0.03f, 0.03f, 0.05f, 0.94f), 40, 0.075f, false);   // 阴影层
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarLabelY, -0.02f),
-            RingActionName(payload, isVerify), new Color(0.98f, 0.95f, 0.86f, 1f), 30, 0.05f, false);
+            actionText, labelColor, 40, 0.075f, false);
 
         // PROCESS_PROGRESS/合成 START 的 payload 只带 remainingRound（首拍≈总拍数），不带 processRound。
         int totalRounds = payload.remainingRound > 0 ? payload.remainingRound
@@ -1205,13 +1211,14 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         if (ring == null || ring.finishStart >= 0f) return;
         ring.finishStart = Time.time;
         SetBarPositions(ring.arc, 1f);
+        // 完成用鎏金(不用绿——用户明确不要绿)、中断用琥珀红；都不与队色(红/蓝)撞。
         Material flash = GetUnlitMaterial(success ? "ring_flash_ok" : "ring_flash_fail",
-            success ? new Color(0.45f, 1f, 0.50f, 1f) : new Color(1f, 0.40f, 0.30f, 1f), false);
+            success ? new Color(1f, 0.86f, 0.38f, 1f) : new Color(1f, 0.52f, 0.30f, 1f), false);
         if (ring.arc != null && flash != null) ring.arc.material = flash;
         if (ring.label != null)
         {
             ring.label.text = ring.actionName + "\n" + (success ? "完成" : "中断");
-            ring.label.color = success ? new Color(0.60f, 1f, 0.60f, 1f) : new Color(1f, 0.55f, 0.45f, 1f);
+            ring.label.color = success ? new Color(1f, 0.88f, 0.45f, 1f) : new Color(1f, 0.62f, 0.5f, 1f);
         }
     }
 
@@ -1263,7 +1270,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         line.useWorldSpace = false;
         line.loop = false;
         line.widthMultiplier = width;
-        line.numCapVertices = 2;
+        line.numCapVertices = 10;   // 圆头端，进度条呈胶囊形更好看
         line.numCornerVertices = 2;
         line.shadowCastingMode = ShadowCastingMode.Off;
         line.receiveShadows = false;

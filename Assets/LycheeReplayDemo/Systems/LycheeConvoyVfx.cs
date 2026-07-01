@@ -48,6 +48,10 @@ public class LycheeConvoyVfx : MonoBehaviour
         public float dustRateApplied;  // 上次写入的 rateOverDistance，避免每帧无谓改模块
         public bool rushApplied;
         public float breathSeed;
+        public bool onEdge;                // 当前是否在路段上（=行进中）；用于把马信标延后到"骑行时"再冒
+        public bool pendingHorse;          // 用了短驿马/快马但当时车队停在站点处理，等它开始移动再冒
+        public bool pendingHorseFast;
+        public int pendingHorseArmedRound;
         public readonly Dictionary<string, GameObject> activeEventIconRoots = new Dictionary<string, GameObject>();
         public readonly Dictionary<string, float> lastEventIconAt = new Dictionary<string, float>();
     }
@@ -143,6 +147,8 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (current == null) return;
         rushPhase = current.phase == "RUSH";
         if (current.players == null) return;
+        // 跳转/倒带(非相邻帧)时清掉挂起的马信标，避免 seek 后错位冒出。
+        bool sequential = previous != null && current.round - previous.round == 1;
         foreach (LycheeReplayPlayerState state in current.players)
         {
             if (state == null) continue;
@@ -150,6 +156,21 @@ public class LycheeConvoyVfx : MonoBehaviour
             if (rig == null) continue;
             rig.targetFreshness = state.freshness;
             rig.waterMode = IsWaterEdge(state.routeEdgeId);
+            rig.onEdge = !string.IsNullOrEmpty(state.routeEdgeId);   // 在路段=行进中
+
+            // 马信标延后到"骑行时"：用户反馈短驿马/快马在【停站获取/使用】那一刻就冒出、像获取时出现。
+            // 真因是使用 RESOURCE_USE 发生在车队停站处理时。改成用时先挂起，等车队真正开始移动(上路)再冒，
+            // 让 3D 奔马表达"骑马赶路"而非停在站里。超过 40 回合仍没上路(极少)就作废，不硬冒在站里。
+            if (rig.pendingHorse)
+            {
+                if (!sequential || current.round - rig.pendingHorseArmedRound > 40)
+                    rig.pendingHorse = false;
+                else if (rig.onEdge)
+                {
+                    rig.pendingHorse = false;
+                    PlayHorseVfx(rig.playerId, rig.pendingHorseFast);
+                }
+            }
         }
     }
 
@@ -180,8 +201,23 @@ public class LycheeConvoyVfx : MonoBehaviour
     {
         string resource = resourceType ?? string.Empty;
         if (resource == "ICE_BOX") PlayIceBoxVfx(playerId);
-        else if (resource == "FAST_HORSE") PlayHorseVfx(playerId, true);
-        else if (resource == "SHORT_HORSE") PlayHorseVfx(playerId, false);
+        else if (resource == "FAST_HORSE") QueueOrPlayHorse(playerId, true);
+        else if (resource == "SHORT_HORSE") QueueOrPlayHorse(playerId, false);
+    }
+
+    // 马信标：车队已在路上(行进中)就立刻冒；停在站里用的就挂起，等它上路再冒(见 OnRoundApplied)——避免"获取/停站时"出现。
+    void QueueOrPlayHorse(int playerId, bool fastHorse)
+    {
+        ConvoyVfxRig rig = FindRig(playerId);
+        if (rig == null) { PlayHorseVfx(playerId, fastHorse); return; }
+        if (rig.onEdge)
+        {
+            PlayHorseVfx(playerId, fastHorse);
+            return;
+        }
+        rig.pendingHorse = true;
+        rig.pendingHorseFast = fastHorse;
+        rig.pendingHorseArmedRound = player != null ? player.CurrentRound : 0;
     }
 
     ConvoyVfxRig FindRig(int playerId)
