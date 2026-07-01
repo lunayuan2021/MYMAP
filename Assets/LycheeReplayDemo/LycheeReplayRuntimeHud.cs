@@ -138,7 +138,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // 且左侧事件流（LycheeHudExtensions）已承担最新事件展示职责。
     // 底部 9 维度对比行(鲜度/好果/坏果/任务数/总分/任务分/惩罚分/状态/整体进度)，取代原 4 条进度条。
     StatRow[] statRows;
-    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "总分", "任务分", "惩罚分", "状态", "整体进度" };
+    // 第4行原名「总分」：过程中 totalScore/scoreDetail 恒为 0、只有 taskScore 在涨，该行退化成 == 任务分、
+    // 到交付(约末35帧)后端才把送达/鲜度/好果/用时一次性结算进来、瞬跳到真总分(742/671)。标签「总分」在过程中
+    // 误导（像固定终值），改名「当前得分」：如实表达"当前累计、会随交付结算继续涨"，与结算页的固定终值口径区分。
+    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "当前得分", "任务分", "惩罚分", "状态", "整体进度" };
     CanvasGroup combatGroup;
     RectTransform combatRect;
     Vector2 combatBasePos;

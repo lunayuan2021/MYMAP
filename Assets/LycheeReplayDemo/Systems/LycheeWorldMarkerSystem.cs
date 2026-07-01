@@ -31,6 +31,10 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const int BadgeTextOrder = 24004;
     const int RingSegments = 32;
     const float RingRadius = 0.8f;
+    // 处理/核验进度：原为环形，改成「文字 +横向进度条」（用户要求）。
+    const float ProgressBarWidth = 1.95f;      // 进度条满宽（世界单位；billboard 恒定屏幕大小）
+    const float ProgressBarThickness = 0.18f;  // 进度条粗细（LineRenderer 宽）
+    const float ProgressBarLabelY = 0.36f;     // 「核验中/转运中…」文字在条上方的偏移
 
     static readonly Color RedTeamColor = new Color(0.95f, 0.18f, 0.11f, 1f);
     static readonly Color BlueTeamColor = new Color(0.20f, 0.48f, 1.0f, 1f);
@@ -110,8 +114,15 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public float startRound;
         public int processRound;
         public string actionName;
+        public string processTypeKey;   // 该条对应的 processType；换了类型=新一段处理，需重建
         public int lastElapsed = -1;
         public float finishStart = -1f;
+    }
+
+    sealed class ScoutMarker
+    {
+        public GameObject root;
+        public int expireRound;   // 到该回合（或收到 EXPIRE）移除；前向 seek 越过时也据此清理
     }
 
     LycheeReplayPlayer player;
@@ -125,6 +136,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     readonly Dictionary<string, PillarMarker> bountyPillars = new Dictionary<string, PillarMarker>();
     readonly Dictionary<string, ObstacleBadge> obstacleBadges = new Dictionary<string, ObstacleBadge>();
     readonly Dictionary<int, ProgressRing> rings = new Dictionary<int, ProgressRing>();
+    // 探路标记（SCOUT_MARKER_ADD/EXPIRE）：绑定节点、到期移除。key=nodeId（两队在同节点探路视为同一标记）。
+    readonly Dictionary<string, ScoutMarker> scoutMarkers = new Dictionary<string, ScoutMarker>();
 
     readonly HashSet<string> activeKeyBuffer = new HashSet<string>();
     readonly HashSet<string> iconSeenBuffer = new HashSet<string>();
@@ -132,6 +145,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     readonly HashSet<string> activeObstacleNodes = new HashSet<string>();
     readonly List<string> removalBuffer = new List<string>();
     readonly List<int> ringRemovalBuffer = new List<int>();
+    readonly List<string> scoutRemovalBuffer = new List<string>();
     readonly List<(string type, int count)> stockBuffer = new List<(string, int)>();
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -210,6 +224,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         RefreshObstacleBadges(current);
         RefreshTaskPillars(current);
         RefreshBountyPillars(current);
+        PruneScoutMarkers(current.round);  // 前向 seek 越过到期回合时也清理探路标记
     }
 
     void HandleReplayEvent(LycheeReplayMessage message, int round)
@@ -223,6 +238,16 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 break;
             case "VERIFY_GATE_START":
                 CreateProgressRing(payload, round, true);
+                break;
+            case "PROCESS_PROGRESS":
+                // 数据不发 PROCESS_START，据进度流让 8 类普通处理 + 核验都出「XX中 + 进度条」。
+                EnsureProgressRing(payload, round);
+                break;
+            case "SCOUT_MARKER_ADD":
+                CreateScoutMarker(payload, round);
+                break;
+            case "SCOUT_MARKER_EXPIRE":
+                RemoveScoutMarker(payload);
                 break;
             case "RESOURCE_CLAIM":
                 MarkResourceBadgeResult(payload, true);
@@ -1071,13 +1096,19 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         Material backgroundMaterial = GetUnlitMaterial("ring_background", new Color(0.05f, 0.05f, 0.08f, 0.55f), true);
         Material arcMaterial = GetUnlitMaterial("ring_player_" + playerId, teamColor, false);
 
-        LineRenderer background = CreateRingLine(root.transform, "RingBackground", backgroundMaterial, 0.085f, 0.03f);
-        SetArcPositions(background, 1f);
-        LineRenderer arc = CreateRingLine(root.transform, "RingArc", arcMaterial, 0.105f, 0f);
+        // 横向进度条：底条铺满、填充条按进度从左向右长（原环形 arc 改横条 bar）。
+        LineRenderer background = CreateRingLine(root.transform, "BarBackground", backgroundMaterial, ProgressBarThickness, 0.03f);
+        SetBarPositions(background, 1f);
+        LineRenderer arc = CreateRingLine(root.transform, "BarFill", arcMaterial, ProgressBarThickness, 0f);
+        SetBarPositions(arc, 0f);
 
-        TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.02f),
-            string.Empty, new Color(0.96f, 0.94f, 0.86f, 1f), 28, 0.045f, false);
+        // 「核验中 / 转运中 / 领资源中 …」文字在进度条上方（取代原环心 N/M 文字）。
+        TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarLabelY, -0.02f),
+            RingActionName(payload, isVerify), new Color(0.98f, 0.95f, 0.86f, 1f), 30, 0.05f, false);
 
+        // PROCESS_PROGRESS/合成 START 的 payload 只带 remainingRound（首拍≈总拍数），不带 processRound。
+        int totalRounds = payload.remainingRound > 0 ? payload.remainingRound
+            : (payload.processRound > 0 ? payload.processRound : 1);
         rings[playerId] = new ProgressRing
         {
             root = root,
@@ -1086,9 +1117,80 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             label = label,
             playerId = playerId,
             startRound = round,
-            processRound = Mathf.Max(1, payload.processRound),
-            actionName = RingActionName(payload, isVerify)
+            processRound = Mathf.Max(1, totalRounds),
+            actionName = RingActionName(payload, isVerify),
+            processTypeKey = payload.processType
         };
+    }
+
+    // 数据只发 PROCESS_PROGRESS、不发 PROCESS_START：直接据进度流建/换进度条（不合成事件，避免触发音效/播报/动画）。
+    // 已有同一段(同 processType)的活动条就跳过；换了 processType = 新一段处理，重建。VERIFY_GATE 若已被
+    // VERIFY_GATE_START 建好条也会因同 processType 被跳过，不重复建。
+    void EnsureProgressRing(LycheeReplayPayload payload, int round)
+    {
+        if (payload == null || payload.playerId <= 0 || string.IsNullOrEmpty(payload.processType)) return;
+        if (rings.TryGetValue(payload.playerId, out ProgressRing existing) && existing != null
+            && existing.finishStart < 0f && existing.processTypeKey == payload.processType)
+            return;
+        CreateProgressRing(payload, round, payload.processType == "VERIFY_GATE");
+    }
+
+    // ------------------------------------------------------------------ 探路标记（SCOUT_MARKER）
+
+    void CreateScoutMarker(LycheeReplayPayload payload, int round)
+    {
+        if (payload == null || markerRoot == null) return;
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        if (string.IsNullOrEmpty(nodeId) || player == null) return;
+        if (!player.TryGetStationPosition(nodeId, out Vector3 position, out _)) return;
+        // 已在该节点有探路标记（另一队同回合也探同点）→ 只续期到期回合，不重复建。
+        if (scoutMarkers.TryGetValue(nodeId, out ScoutMarker existing) && existing != null && existing.root != null)
+        {
+            if (payload.expireRound > existing.expireRound) existing.expireRound = payload.expireRound;
+            return;
+        }
+
+        GameObject root = new GameObject("ScoutMarker_" + nodeId);
+        root.transform.SetParent(markerRoot, false);
+        root.transform.position = position + Vector3.up * 5.4f;
+        root.AddComponent<LycheeReplayBillboard>();
+
+        // 仅文字「探路」（青蓝）飘在节点上方——billboard 让 root 的 +Z 朝相机反向，Quad 底盘会被背面剔除，
+        // 故不用底盘；TextMesh 标签与站名一样可读（同 CreateWorldLabel 路径）。带阴影描边保证草地上看得清。
+        Color scoutColor = new Color(0.52f, 0.90f, 0.98f, 1f);
+        CreateWorldLabel(root.transform, new Vector3(0.04f, -0.04f, 0.01f), "探路", new Color(0.02f, 0.06f, 0.08f, 0.9f), 30, 0.052f, false);
+        CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.02f), "探路", scoutColor, 30, 0.052f, false);
+
+        scoutMarkers[nodeId] = new ScoutMarker { root = root, expireRound = payload.expireRound };
+    }
+
+    void RemoveScoutMarker(LycheeReplayPayload payload)
+    {
+        if (payload == null) return;
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        if (string.IsNullOrEmpty(nodeId)) return;
+        if (scoutMarkers.TryGetValue(nodeId, out ScoutMarker marker))
+        {
+            if (marker != null && marker.root != null) Destroy(marker.root);
+            scoutMarkers.Remove(nodeId);
+        }
+    }
+
+    void PruneScoutMarkers(int round)
+    {
+        if (scoutMarkers.Count == 0) return;
+        scoutRemovalBuffer.Clear();
+        foreach (KeyValuePair<string, ScoutMarker> pair in scoutMarkers)
+        {
+            ScoutMarker m = pair.Value;
+            if (m == null || m.root == null || (m.expireRound > 0 && round >= m.expireRound))
+                scoutRemovalBuffer.Add(pair.Key);
+        }
+        foreach (string key in scoutRemovalBuffer)
+        {
+            if (scoutMarkers.TryGetValue(key, out ScoutMarker m) && m != null && m.root != null) Destroy(m.root);
+            scoutMarkers.Remove(key);
+        }
     }
 
     void FinishRingForPlayer(LycheeReplayPayload payload, bool success)
@@ -1102,7 +1204,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     {
         if (ring == null || ring.finishStart >= 0f) return;
         ring.finishStart = Time.time;
-        SetArcPositions(ring.arc, 1f);
+        SetBarPositions(ring.arc, 1f);
         Material flash = GetUnlitMaterial(success ? "ring_flash_ok" : "ring_flash_fail",
             success ? new Color(0.45f, 1f, 0.50f, 1f) : new Color(1f, 0.40f, 0.30f, 1f), false);
         if (ring.arc != null && flash != null) ring.arc.material = flash;
@@ -1144,13 +1246,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             }
 
             float progress = Mathf.Clamp01((replayRound - ring.startRound) / ring.processRound);
-            SetArcPositions(ring.arc, progress);
-            int elapsed = Mathf.Clamp(Mathf.FloorToInt(replayRound - ring.startRound), 0, ring.processRound);
-            if (elapsed != ring.lastElapsed && ring.label != null)
-            {
-                ring.lastElapsed = elapsed;
-                ring.label.text = ring.actionName + "\n" + elapsed + "/" + ring.processRound;
-            }
+            SetBarPositions(ring.arc, progress);
+            // 文字恒为「核验中/转运中…」（进度靠条表达，不再逐拍改写 N/M）。
             if (replayRound > ring.startRound + ring.processRound + 2f)
                 BeginRingFinish(ring, true); // 超时兜底：当作完成收尾
         }
@@ -1177,7 +1274,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         return line;
     }
 
-    static void SetArcPositions(LineRenderer line, float progress)
+    // 横向进度条：从左端 (-W/2) 向右画到 (-W/2 + W*progress)。progress<1 为填充条，=1 用作底条铺满。
+    static void SetBarPositions(LineRenderer line, float progress)
     {
         if (line == null) return;
         float clamped = Mathf.Clamp01(progress);
@@ -1186,34 +1284,51 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             line.positionCount = 0;
             return;
         }
-        int count = Mathf.Max(2, Mathf.CeilToInt(RingSegments * clamped) + 1);
-        line.positionCount = count;
-        for (int i = 0; i < count; i++)
-        {
-            float angle = (90f - 360f * clamped * i / (count - 1)) * Mathf.Deg2Rad;
-            line.SetPosition(i, new Vector3(Mathf.Cos(angle) * RingRadius, Mathf.Sin(angle) * RingRadius, 0f));
-        }
+        float half = ProgressBarWidth * 0.5f;
+        line.positionCount = 2;
+        line.SetPosition(0, new Vector3(-half, 0f, 0f));
+        line.SetPosition(1, new Vector3(-half + ProgressBarWidth * clamped, 0f, 0f));
     }
 
     static string RingActionName(LycheeReplayPayload payload, bool isVerify)
     {
+        // 优先按 processType 出「XX中」进行时文案（PROCESS_PROGRESS/合成 START 的 payload 带 processType）；
+        // 兜底再看 action/rushTactic；verify 恒「核验中」。
+        string byType = ProcessTypeChineseName(payload == null ? null : payload.processType);
+        if (!string.IsNullOrEmpty(byType)) return byType;
         string action = payload == null ? null : payload.action;
         if (string.IsNullOrEmpty(action) && payload != null) action = payload.rushTactic;
         string mapped = ActionChineseName(action);
         if (!string.IsNullOrEmpty(mapped)) return mapped;
-        return isVerify ? "宫门验核" : "处理中";
+        return isVerify ? "核验中" : "处理中";
     }
+
+    // processType → 进行时中文（本回放全 9 种：转运/领任务/领资源/登船/休整/清障/过关转运/皇榜转运/宫门核验）。
+    static string ProcessTypeChineseName(string processType) => processType switch
+    {
+        "VERIFY_GATE" => "核验中",
+        "TRANSFER" => "转运中",
+        "CLAIM_TASK" => "领任务中",
+        "CLAIM_RESOURCE" => "领资源中",
+        "BOARD" => "登船中",
+        "RESTING" => "休整中",
+        "CLEAR_OBSTACLE" => "清障中",
+        "PASS_TRANSFER" => "过关转运中",
+        "PALACE_TRANSFER" => "皇榜转运中",
+        "WATER_TRANSFER" => "水路换运中",
+        _ => null
+    };
 
     static string ActionChineseName(string action) => action switch
     {
-        "BOARD" => "登船",
-        "WATER_TRANSFER" => "水路换运",
-        "BREAK_GUARD" => "破关",
-        "CLAIM_RESOURCE" => "领取资源",
-        "VERIFY_GATE" => "宫门验核",
-        "BREAK_ORDER" => "破令验核",
-        "SET_GUARD" => "设卡",
-        "GUARD_SET" => "设卡",
+        "BOARD" => "登船中",
+        "WATER_TRANSFER" => "水路换运中",
+        "BREAK_GUARD" => "破关中",
+        "CLAIM_RESOURCE" => "领资源中",
+        "VERIFY_GATE" => "核验中",
+        "BREAK_ORDER" => "破令验核中",
+        "SET_GUARD" => "设卡中",
+        "GUARD_SET" => "设卡中",
         _ => null
     };
 
@@ -1243,6 +1358,10 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         foreach (ProgressRing ring in rings.Values)
             if (ring != null && ring.root != null) DestroyMarkerRoot(ring.root);
         rings.Clear();
+
+        foreach (ScoutMarker scout in scoutMarkers.Values)
+            if (scout != null && scout.root != null) DestroyMarkerRoot(scout.root);
+        scoutMarkers.Clear();
     }
 
     static void DestroyMarkerRoot(GameObject root)
