@@ -163,7 +163,10 @@ public class LycheeConvoyVfx : MonoBehaviour
         LycheeReplayPayload payload = message.payload;
         if (payload.playerId <= 0) return;
 
-        if (message.type == "RESOURCE_USE" || message.type == "RESOURCE_CLAIM")
+        // 用户要求：冰鉴 / 快马 / 短驿马 三个 3D 信标只在【真正使用】资源那一刻冒出（RESOURCE_USE），
+        // 不在【获得/领取】时提前冒（RESOURCE_CLAIM）——冰鉴常在获得后很多回合才用（本回放：第90回合领、
+        // 第202回合才用），早早冒出会误导观众以为已经用了。荔枝转坏走 GOOD_TO_BAD（那本身就是触发时刻）。
+        if (message.type == "RESOURCE_USE")
         {
             PlayResourceVfx(payload.playerId, payload.resourceType);
             return;

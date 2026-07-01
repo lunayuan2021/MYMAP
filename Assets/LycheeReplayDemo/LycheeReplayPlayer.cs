@@ -275,7 +275,12 @@ public class LycheeReplayPlayer : MonoBehaviour
             default: return null;
         }
 
-        if (model != null)
+        // WebGL/IL2CPP 下场景对 baked prefab 的引用不只会变 null，还可能被错误重定向到别的
+        // 场景对象——实测 eventModelSpoil 在 WebGL 包里解析成了 `PathPoint_43`（一个无 Renderer 的
+        // 路点），非 null 却画不出东西，导致「好果转坏没有 3D 模型」而冰鉴/快马正常（它们的场景引用
+        // 恰好变成了 null → 走下面 preloaded 兜底找回）。所以这里只认「确实带 Renderer」的场景引用；
+        // 无 Renderer 一律当作无效，落到 preloadedAssets 按名找回 event_*_baked，与冰鉴/快马同一条路。
+        if (model != null && model.GetComponentInChildren<Renderer>(true) != null)
         {
             LogEventModelLookupOnce(key, model, "scene");
             return model;

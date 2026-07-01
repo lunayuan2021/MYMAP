@@ -403,7 +403,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         caption.text = "提示";
 
         tickerClip = MakeRect("TickerClip", tickerRoot);
-        SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(72f, 0f), new Vector2(-132f, -10f));
+        // 裁剪区左缘留到「提示」标签之后(≈110)、右缘内缩到描金边内(≈1140)。旧值 offset(72)/size(-132) 会把
+        // 右缘算到 1166——比 1160 宽的面板还超出 6px，于是滚动的解释文字会戳出右侧描金边（用户说的「下方播报内容比边框宽」）。
+        // 新 offset(45)/size(-130) → 裁剪区 [110,1140]，两侧都收进描金边内，RectMask2D 再把超出的滚动文字裁掉。
+        SetRect(tickerClip, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(45f, 0f), new Vector2(-130f, -10f));
         tickerClip.gameObject.AddComponent<RectMask2D>();
 
         tickerText = MakeText("TickerText", tickerClip, 17, FontStyle.Bold, SilkText, TextAnchor.MiddleLeft);
@@ -451,7 +454,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         // 控制条加宽到 640：按钮、速度下拉和回合标签不再贴边，WebGL 小窗口缩放后也不会溢出边框。
         // 顶部按钮行与底部滑杆行垂直间隔 12px，内容距背景边缘 16px。
         RectTransform panel = MakeRect("ControlPanel", parent);
-        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(640f, 108f));
+        // 面板 720 宽：panel_frame 九宫格描金边框按短边(108)算，单侧描金边区≈45px；内容须内缩到 ≥45px
+        // 才不压到四角金花（旧版 640 宽 + 16px 内缩，按钮/回合标签整块盖在描金花上=用户说的「内容比边框宽溢出」）。
+        // 720 − 两侧各 50 内缩 = 620 可用，正好容下 按钮行 + 回合标签，四角金花清爽露出。别改回 640/别把内缩缩回 16。
+        SetRect(panel, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16f, -16f), new Vector2(720f, 108f));
         controlGroup = panel.gameObject.AddComponent<CanvasGroup>();
         controlGroup.alpha = 0f;
         Image bg = panel.gameObject.AddComponent<Image>();
@@ -476,13 +482,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         playGlyph = "播放";
         pauseGlyph = "暂停";
 
-        // 按钮行（自面板左缘起，按钮间隔 12px）：给中文按钮和 R 600 / 600 留足宽度。
-        MakeButton(panel, "ReplayButton", replayLabel, new Vector2(16f, -16f), new Vector2(112f, 36f), OnReplayClicked, out _);
-        MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(140f, -16f), new Vector2(84f, 36f), OnPlayPauseClicked, out playButtonLabel);
-        speedDropdown = MakeSpeedDropdown(panel, new Vector2(236f, -16f), new Vector2(116f, 36f));
+        // 按钮行自左缘内缩 50px 起（清四角金花），按钮间隔 12px；回合标签右缘同样内缩 50px。
+        MakeButton(panel, "ReplayButton", replayLabel, new Vector2(50f, -16f), new Vector2(112f, 36f), OnReplayClicked, out _);
+        MakeButton(panel, "PlayPauseButton", playGlyph, new Vector2(174f, -16f), new Vector2(84f, 36f), OnPlayPauseClicked, out playButtonLabel);
+        speedDropdown = MakeSpeedDropdown(panel, new Vector2(270f, -16f), new Vector2(116f, 36f));
 
         roundLabel = MakeText("RoundLabel", panel, 18, FontStyle.Bold, SilkText, TextAnchor.MiddleRight);
-        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, -16f), new Vector2(252f, 36f));
+        SetRect(roundLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-50f, -16f), new Vector2(252f, 36f));
         roundLabel.text = "R 0 / 0";
         roundLabel.resizeTextForBestFit = true;
         roundLabel.resizeTextMinSize = 13;
@@ -496,8 +502,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         GameObject go = new GameObject("SeekSlider", typeof(RectTransform), typeof(Slider));
         go.transform.SetParent(parent, false);
         RectTransform rt = go.GetComponent<RectTransform>();
-        // 滑杆行 y 16..40，与上方按钮行下缘（52）保持 12px 净空；左右各留 16px 边距。
-        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(16f, 16f), new Vector2(608f, 24f));
+        // 滑杆行 y 16..40，与上方按钮行下缘（52）保持 12px 净空；左右各内缩 50px 清四角金花（同按钮行）。
+        SetRect(rt, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(50f, 16f), new Vector2(620f, 24f));
 
         RectTransform bgRt = MakeRect("Background", rt);
         SetRect(bgRt, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(0f, 8f));
