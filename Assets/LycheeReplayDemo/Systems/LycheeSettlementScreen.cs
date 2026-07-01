@@ -20,6 +20,9 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     /// <summary>全局开关：置 true 后不再弹出结算界面。</summary>
     public static bool Disabled;
 
+    /// <summary>结算界面正在展示（canvasRoot 已激活）。运行时 HUD 据此隐藏底部面板，避免和结算页下方内容重叠。</summary>
+    public static bool IsShowing { get; private set; }
+
     const int RowCount = 7;
     const float RowSpacing = 44f;   // 7 行(含破关悬赏分)压进原 6 行(52f)的纵向带内，末行约 -668，不压到 -700 分隔线
     const float NumberRollSeconds = 1.2f;
@@ -333,6 +336,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
     {
         if (canvasRoot == null) yield break;
         canvasRoot.SetActive(true);
+        IsShowing = true;   // 结算展示中：运行时 HUD 底部面板据此隐藏，避免重叠
         StartVictoryVideo();
 
         SetGroupAlpha(fadeGroup, 0f);
@@ -582,6 +586,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         StopAllCoroutines();
         StopVictoryVideo();
         if (canvasRoot != null) canvasRoot.SetActive(false);
+        IsShowing = false;   // 结算关闭/再看一遍：恢复运行时 HUD 底部面板
     }
 
     static void EnsureEventSystem()

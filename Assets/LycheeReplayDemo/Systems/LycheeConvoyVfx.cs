@@ -396,6 +396,19 @@ public class LycheeConvoyVfx : MonoBehaviour
         if (rig.activeEventIconRoots.TryGetValue(key, out GameObject oldRoot) && oldRoot != null)
             Destroy(oldRoot);
         rig.activeEventIconRoots.Remove(key);
+
+        // 全局同类去重：同一时刻整张地图只保留一个「冰鉴/快马/荔枝转坏」头顶信标（用户要求"一次一个"）。
+        // 冰鉴常被两队在相邻回合各用一次（本回放 202/204），而每个信标活 ~6s（约 18 回合），两个会在屏上叠住；
+        // 快马各次使用相隔很远（81/207/294）不会撞，所以只有冰鉴看着"叠了好几个"。新信标出现前，先销毁其它车队上
+        // 同类型的旧信标，只留最新这一个。
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            ConvoyVfxRig other = rigs[i];
+            if (other == null || other == rig) continue;
+            if (other.activeEventIconRoots.TryGetValue(key, out GameObject otherRoot) && otherRoot != null)
+                Destroy(otherRoot);
+            other.activeEventIconRoots.Remove(key);
+        }
         return true;
     }
 

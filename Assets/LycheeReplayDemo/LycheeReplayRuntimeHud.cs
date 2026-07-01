@@ -129,6 +129,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Font font;
     Canvas canvas;
     RectTransform root;
+    CanvasGroup bottomPanelGroup;   // 底部比分面板整组：结算展示时置 alpha 0，避免和结算页下方内容重叠
     TeamWidgets redTeam;
     TeamWidgets blueTeam;
     Text roundText;
@@ -628,6 +629,15 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         if (bottomReady)
         {
+        // 结算界面展示时隐藏底部比分面板：RuntimeHud(sort 260) 在结算 Canvas(sort 220) 之上，
+        // 不藏就会把红蓝队头像/维度行画在结算页下方的「交付回合/贡运状元/再看一遍·关闭」上，重叠。
+        if (bottomPanelGroup != null)
+        {
+            bool settlement = LycheeSettlementScreen.IsShowing;
+            bottomPanelGroup.alpha = settlement ? 0f : 1f;
+            bottomPanelGroup.blocksRaycasts = !settlement;
+            bottomPanelGroup.interactable = !settlement;
+        }
         int redScore = TotalScoreOf(red, scores, true);
         int blueScore = TotalScoreOf(blue, scores, false);
         bool newRound = round != lastRound;
@@ -1391,6 +1401,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // 其余（头像/队名/比分）直接浮在画面上。
         RectTransform panel = Rect("BottomStatus_Runtime", parent, new Vector2(0.5f, BottomHudAnchorY), new Vector2(0f, WebSafeBottomInset), new Vector2(BottomWidth, BottomHeight), new Vector2(0.5f, 0f));
         AttachOverlayCanvas(panel, 2);
+        bottomPanelGroup = panel.gameObject.AddComponent<CanvasGroup>();   // 结算展示时整组隐藏
 
         // 中央维度背板(墨底 + 顶部暗金分隔线)：容纳回合标题 + 9 行维度对比。宽 500，落在左右队伍块之间。
         RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(500f, 192f), new Vector2(0.5f, 0f));
@@ -1472,20 +1483,18 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         if (text == null) return;
         float now = Time.unscaledTime;
-        bool rawChanged = Mathf.Abs(delta) >= 0.0001f;
-        bool valueChanged = string.IsNullOrEmpty(oldValue) || oldValue != newValue;
-        bool largeEnough = Mathf.Abs(delta) >= (suffix == "%" ? 0.5f : 0.5f);
+        // ±X 指示器要反映「屏幕上显示的数字」的跳变，而不是每回合的原始增量。
+        // 旧逻辑用原始 delta 且要求 |delta|>=0.5 才显示：鲜度每回合只掉 ~0.05、送达进度每回合只涨零点几，
+        // 显示的整数百分比要攒很多回合才跳 1，单回合原始增量永远 <0.5 → 被阈值挡掉 →「鲜度明明在掉却没 -x /
+        // 进度明明在涨却没 +x」。改成直接比较新旧【显示串】解析出的数值差：显示一变就给 ±x，量级正好等于
+        // 屏幕上看到的跳变；整数项（好果/坏果/分数…）显示值=真值，行为不变。传入的 delta 不再使用。
+        float shownDelta = ParseStatNumber(newValue) - ParseStatNumber(oldValue);
+        bool displayChanged = !string.IsNullOrEmpty(oldValue) && oldValue != newValue && Mathf.Abs(shownDelta) >= 0.0001f;
 
-        if (rawChanged && (!valueChanged || !largeEnough))
+        if (displayChanged)
         {
-            ClearStatDelta(text, ref visibleUntil);
-            return;
-        }
-
-        if (valueChanged && largeEnough)
-        {
-            text.text = FormatStatDelta(delta, suffix);
-            text.color = delta > 0f
+            text.text = FormatStatDelta(shownDelta, suffix);
+            text.color = shownDelta > 0f
                 ? new Color(0.45f, 1f, 0.45f, 1f)
                 : new Color(1f, 0.36f, 0.26f, 1f);
             text.rectTransform.localScale = Vector3.one * 1.12f;
@@ -1503,6 +1512,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         color.a = alpha;
         text.color = color;
         text.rectTransform.localScale = Vector3.one * (1f + 0.12f * alpha);
+    }
+
+    /// <summary>从显示串解析数值（去掉 % 后缀，支持负号/小数）。解析失败当 0。</summary>
+    static float ParseStatNumber(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return 0f;
+        string t = s.Replace("%", "").Trim();
+        return float.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : 0f;
     }
 
     static void ClearStatDelta(Text text, ref float visibleUntil)
