@@ -140,7 +140,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     readonly Dictionary<string, PillarMarker> bountyPillars = new Dictionary<string, PillarMarker>();
     readonly Dictionary<string, ObstacleBadge> obstacleBadges = new Dictionary<string, ObstacleBadge>();
     readonly Dictionary<int, ProgressRing> rings = new Dictionary<int, ProgressRing>();
-    // 探路标记（SCOUT_MARKER_ADD/EXPIRE）：绑定节点、到期移除。key=nodeId（两队在同节点探路视为同一标记）。
+    // 探路标记（SCOUT_MARKER_ADD/APPLY/CONSUME/EXPIRE）：绑定节点、到期移除。
+    // D2: key=nodeId|playerId 复合键——两队同点各自独立标记(队色区分归属)、EXPIRE/CONSUME 只删本队的，
+    // 修原按 nodeId 单键导致的"任一队过期就删掉两队共享标记→对方有效标记提前消失"bug(§3.6/§9.3 标记公开可见归属)。
     readonly Dictionary<string, ScoutMarker> scoutMarkers = new Dictionary<string, ScoutMarker>();
 
     readonly HashSet<string> activeKeyBuffer = new HashSet<string>();
@@ -1196,31 +1198,39 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     // ------------------------------------------------------------------ 探路标记（SCOUT_MARKER）
 
+    // D2: 探路标记复合键 nodeId|playerId——scout 事件带 playerId/targetNodeId(不带 markerId)，用 playerId 区分两队。
+    static string ScoutMarkerKey(LycheeReplayPayload payload, string nodeId)
+    {
+        return nodeId + "|" + (payload != null ? payload.playerId : 0);
+    }
+
     void CreateScoutMarker(LycheeReplayPayload payload, int round)
     {
         if (payload == null || markerRoot == null) return;
         string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
         if (string.IsNullOrEmpty(nodeId) || player == null) return;
         if (!player.TryGetStationPosition(nodeId, out Vector3 position, out _)) return;
-        // 已在该节点有探路标记（另一队同回合也探同点）→ 只续期到期回合，不重复建。
-        if (scoutMarkers.TryGetValue(nodeId, out ScoutMarker existing) && existing != null && existing.root != null)
+        // D2: 同队同点续期、两队同点各自独立建标记(复合键)，不再合并成一个。
+        string key = ScoutMarkerKey(payload, nodeId);
+        if (scoutMarkers.TryGetValue(key, out ScoutMarker existing) && existing != null && existing.root != null)
         {
             if (payload.expireRound > existing.expireRound) existing.expireRound = payload.expireRound;
             return;
         }
 
-        GameObject root = new GameObject("ScoutMarker_" + nodeId);
+        GameObject root = new GameObject("ScoutMarker_" + key);
         root.transform.SetParent(markerRoot, false);
-        root.transform.position = position + Vector3.up * 5.4f;
+        // D2: 两队同点标记错开高度(按 playerId 奇偶)，避免队色文字叠在一起看不清。
+        float yOffset = 5.4f + (payload.playerId % 2 == 0 ? 0f : 0.7f);
+        root.transform.position = position + Vector3.up * yOffset;
         root.AddComponent<LycheeReplayBillboard>();
 
-        // 仅文字「探路」（青蓝）飘在节点上方——billboard 让 root 的 +Z 朝相机反向，Quad 底盘会被背面剔除，
-        // 故不用底盘；TextMesh 标签与站名一样可读（同 CreateWorldLabel 路径）。带阴影描边保证草地上看得清。
-        Color scoutColor = new Color(0.52f, 0.90f, 0.98f, 1f);
+        // D2: 用队色区分归属(§3.6/§9.3 标记公开、对方可见归属)，不再固定青蓝；playerId 缺失时兜底青蓝。
+        Color scoutColor = payload.playerId > 0 ? player.TeamColorOf(payload.playerId) : new Color(0.52f, 0.90f, 0.98f, 1f);
         CreateWorldLabel(root.transform, new Vector3(0.04f, -0.04f, 0.01f), "探路", new Color(0.02f, 0.06f, 0.08f, 0.9f), 40, 0.07f, false);
         CreateWorldLabel(root.transform, new Vector3(0f, 0f, -0.02f), "探路", scoutColor, 40, 0.07f, false);
 
-        scoutMarkers[nodeId] = new ScoutMarker { root = root, expireRound = payload.expireRound };
+        scoutMarkers[key] = new ScoutMarker { root = root, expireRound = payload.expireRound };
     }
 
     void RemoveScoutMarker(LycheeReplayPayload payload)
@@ -1228,10 +1238,12 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         if (payload == null) return;
         string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
         if (string.IsNullOrEmpty(nodeId)) return;
-        if (scoutMarkers.TryGetValue(nodeId, out ScoutMarker marker))
+        // D2: 按复合键只删本队标记，不再误删对方在同节点的有效标记。
+        string key = ScoutMarkerKey(payload, nodeId);
+        if (scoutMarkers.TryGetValue(key, out ScoutMarker marker))
         {
             if (marker != null && marker.root != null) Destroy(marker.root);
-            scoutMarkers.Remove(nodeId);
+            scoutMarkers.Remove(key);
         }
     }
 

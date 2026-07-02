@@ -732,9 +732,10 @@ public class LycheeReplayPlayer : MonoBehaviour
         url = AddCacheBust(url);
         using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
         {
-            // 12 秒对正式回放不够：文件几十 MB、内网/远程桌面下载超时会被掐断，
-            // 表现成和 404 一样的「找不到 replay.txt」。放宽到 60 秒；真正的 404 仍然秒回。
-            request.timeout = 60;
+            // 12 秒对正式回放不够：现场实锤两种死法——大文件慢网下载超时、以及低配机浏览器
+            // 整页冻结十几秒后 JS 超时定时器先于「已到货」回调开枪把请求废掉（服务器 80ms 发完仍报找不到，
+            // 见 WebRequest.js 的 setTimeout→abort 实现）。放宽到 600 秒：404 仍秒回，只有服务器真死才等满。
+            request.timeout = 600;
             yield return request.SendWebRequest();
             if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
@@ -2215,6 +2216,13 @@ public class LycheeReplayPlayer : MonoBehaviour
             eventType == "RUSH_TACTIC_USE" ||
             eventType == "ACTION_REJECTED" ||
             eventType == "INVALID_ACTION")
+            return true;
+        // D4: 补几类原来只在左侧文字流、世界层无脉冲的事件(退赛/交付后扣分/清障残留税/破关令绑定)。
+        // 标签走 WorldEventLabel→EventNameCn(全中文)，色用 EventColor 兜底、无专属图标(ResolveEventIcon 返回 null 由脉冲系统兜底)。
+        if (eventType == "PLAYER_RETIRED" ||
+            eventType == "POST_DELIVER_PENALTY" ||
+            eventType == "OBSTACLE_RESIDUAL_TAX" ||
+            eventType == "BREAK_ORDER_BIND")
             return true;
         return false;
     }

@@ -5,8 +5,10 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UnityEngine.Video;
 #if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 #endif
+using System;
 
 /// <summary>
 /// 中段视频插播：回放进行到关键事件时，插播一段短视频，播放期间暂停回放、播完恢复，让整体更有观赏性。
@@ -30,6 +32,9 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     // 插播短片要在天气氛围层(125)之上，但在运行时 HUD(130/140)之下；
     // 否则左侧事件流、右侧事件卡和中央窗口争夺会被视频盖住。
     const int CanvasSortingOrder = 128;
+    const float HintVisibleSeconds = 3.5f;  // 跳过提示完整显示时长
+    const float HintFadeSeconds = 1f;        // 之后淡隐时长
+    const float HintBaseAlpha = 0.9f;        // 提示文字基础不透明度
 
     public static bool IsPresentationVisible { get; private set; }
     public static bool IsPresentationActive { get; private set; }
@@ -64,6 +69,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
     VideoPlayer videoPlayer;
     bool videoFinished;
     bool videoErrored;
+    Text skipHint;
+    Font hintFont;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap()
@@ -214,6 +221,7 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         IsPresentationVisible = true;
         if (group != null) group.blocksRaycasts = true; // 开始展示：恢复点击跳过
         videoImage.gameObject.SetActive(true);
+        if (skipHint != null) { var hc = skipHint.color; hc.a = HintBaseAlpha; skipHint.color = hc; } // 每次插播把提示重置为完整可见
         yield return Fade(0f, 1f, FadeSeconds);
 
         videoPlayer.Play();
@@ -222,6 +230,8 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         while (!videoFinished && !videoErrored && !skipRequested && watched < guard)
         {
             watched += Time.unscaledDeltaTime;
+            if (SkipKeyPressed()) skipRequested = true;   // 键盘跳过（空格/Esc，新输入系统）
+            UpdateSkipHint(watched);                       // 开头完整显示、几秒后淡隐
             EnforcePause(wasPlaying);
             yield return null;
         }
@@ -300,6 +310,29 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         videoImage.color = Color.white;
         videoImage.raycastTarget = false;
 
+        // 跳过提示：右下角半透明文字，播放开头显示几秒后淡隐——旧版能点跳但无提示、用户不知道能跳。
+        // raycastTarget=false 让点击穿透到底层黑底 Button；随包中文字体避免 WebGL 空白；verticalOverflow=Overflow 防行高裁没。
+        hintFont = LoadHintFont();
+        var hintRect = new GameObject("SkipHint").AddComponent<RectTransform>();
+        hintRect.SetParent(canvasRoot.transform, false);
+        hintRect.anchorMin = new Vector2(1f, 0f);
+        hintRect.anchorMax = new Vector2(1f, 0f);
+        hintRect.pivot = new Vector2(1f, 0f);
+        hintRect.anchoredPosition = new Vector2(-48f, 48f);
+        hintRect.sizeDelta = new Vector2(560f, 64f);
+        skipHint = hintRect.gameObject.AddComponent<Text>();
+        if (hintFont != null) skipHint.font = hintFont;
+        skipHint.text = "点击或按空格跳过";
+        skipHint.fontSize = 30;
+        skipHint.alignment = TextAnchor.LowerRight;
+        skipHint.horizontalOverflow = HorizontalWrapMode.Overflow;
+        skipHint.verticalOverflow = VerticalWrapMode.Overflow;
+        skipHint.color = new Color(1f, 1f, 1f, HintBaseAlpha);
+        skipHint.raycastTarget = false;
+        var hintShadow = skipHint.gameObject.AddComponent<Shadow>();
+        hintShadow.effectColor = new Color(0f, 0f, 0f, 0.85f);
+        hintShadow.effectDistance = new Vector2(2f, -2f);
+
         videoPlayer = canvasRoot.AddComponent<VideoPlayer>();
         videoPlayer.playOnAwake = false;
         videoPlayer.isLooping = false;
@@ -310,6 +343,38 @@ public sealed class LycheeVideoInterlude : MonoBehaviour
         videoPlayer.errorReceived += (_, msg) => { videoErrored = true; Debug.LogWarning("[LycheeVideoInterlude] 视频加载失败: " + msg); };
 
         canvasRoot.SetActive(false);
+    }
+
+    /// <summary>跳过提示：开头 HintVisibleSeconds 内完整显示，之后 HintFadeSeconds 内淡隐（点击/空格皆可跳过）。</summary>
+    void UpdateSkipHint(float watched)
+    {
+        if (skipHint == null) return;
+        float a = watched <= HintVisibleSeconds
+            ? 1f
+            : Mathf.Clamp01(1f - (watched - HintVisibleSeconds) / HintFadeSeconds);
+        var c = skipHint.color;
+        c.a = a * HintBaseAlpha;
+        skipHint.color = c;
+    }
+
+    /// <summary>键盘跳过：新输入系统读 Keyboard.current（旧 Input 类在本工程会抛异常，仅旧系统编译时回退）。</summary>
+    static bool SkipKeyPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        var kb = Keyboard.current;
+        return kb != null && (kb.spaceKey.wasPressedThisFrame || kb.escapeKey.wasPressedThisFrame);
+#else
+        return Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Escape);
+#endif
+    }
+
+    /// <summary>提示文字字体：优先随包中文字体（WebGL 取不到系统字体），退内置。</summary>
+    static Font LoadHintFont()
+    {
+        Font bundled = Resources.Load<Font>("Fonts/LXGWWenKai-Regular");
+        if (bundled != null) return bundled;
+        try { return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); }
+        catch (Exception) { return null; }
     }
 
     void CleanupVideo()

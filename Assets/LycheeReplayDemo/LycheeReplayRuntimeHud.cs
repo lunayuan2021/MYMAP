@@ -137,12 +137,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Text phaseText;
     // 原中央“最新事件”文本（EventText）已删除：它与四条进度条的中央标签文字重叠，
     // 且左侧事件流（LycheeHudExtensions）已承担最新事件展示职责。
-    // 底部 9 维度对比行(鲜度/好果/坏果/任务数/总分/任务分/惩罚分/状态/整体进度)，取代原 4 条进度条。
+    // 底部 10 维度对比行(鲜度/好果/坏果/任务数/当前得分/任务分/破关悬赏分/惩罚分/状态/整体进度)，取代原 4 条进度条。
     StatRow[] statRows;
     // 第4行原名「总分」：过程中 totalScore/scoreDetail 恒为 0、只有 taskScore 在涨，该行退化成 == 任务分、
     // 到交付(约末35帧)后端才把送达/鲜度/好果/用时一次性结算进来、瞬跳到真总分(742/671)。标签「总分」在过程中
     // 误导（像固定终值），改名「当前得分」：如实表达"当前累计、会随交付结算继续涨"，与结算页的固定终值口径区分。
-    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "当前得分", "任务分", "惩罚分", "状态", "整体进度" };
+    // D1: 加"破关悬赏分"维度(§1.4/§6.2 独立正向分项)——某队靠悬赏拿分时任务分不动而当前得分跳涨，原来看不到来源。
+    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "当前得分", "任务分", "破关悬赏分", "惩罚分", "状态", "整体进度" };
     CanvasGroup combatGroup;
     RectTransform combatRect;
     Vector2 combatBasePos;
@@ -224,6 +225,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     int lastBlueTaskCount;
     int lastRedTaskScore;
     int lastBlueTaskScore;
+    int lastRedBounty;
+    int lastBlueBounty;
     int lastRedPenalty;
     int lastBluePenalty;
     float lastRedProgress;
@@ -334,9 +337,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SetStatRow(3, "3", "2");
         SetStatRow(4, "420", "390");
         SetStatRow(5, "120", "100");
-        SetStatRow(6, "-15", "-8");
-        SetStatRow(7, "在线", "在线");
-        SetStatRow(8, "42.0%", "38.0%");
+        SetStatRow(6, "60", "45");
+        SetStatRow(7, "-15", "-8");
+        SetStatRow(8, "在线", "在线");
+        SetStatRow(9, "42.0%", "38.0%");
         SetGroup(combatGroup, false, 0f);
         SetGroup(contestGroup, false, 0f);
         SetGroup(openingGroup, false, 0f);
@@ -683,6 +687,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         int blueBadFruit = blue == null ? 0 : blue.badFruit;
         int redTaskScore = TaskScoreOf(red);
         int blueTaskScore = TaskScoreOf(blue);
+        int redBounty = BountyScoreOf(red);
+        int blueBounty = BountyScoreOf(blue);
         int redPenalty = PenaltyScoreOf(red);
         int bluePenalty = PenaltyScoreOf(blue);
         // 送达进度 = 整段总进度(0..1，由 LycheeReplayPlayer.RouteProgressOf 按站号 S01→S15 推出，单调不抖)。
@@ -691,7 +697,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
         bool showDelta = newRound && lastRound >= 0;
 
-        // 9 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。
+        // 10 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。
         SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%",
             showDelta ? redFresh - lastRedFresh : 0f, showDelta ? blueFresh - lastBlueFresh : 0f, "%");
         SetStatRow(1, redFruit.ToString(), blueFruit.ToString(),
@@ -704,10 +710,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             showDelta ? redScore - lastRedScore : 0f, showDelta ? blueScore - lastBlueScore : 0f);
         SetStatRow(5, redTaskScore.ToString(), blueTaskScore.ToString(),
             showDelta ? redTaskScore - lastRedTaskScore : 0f, showDelta ? blueTaskScore - lastBlueTaskScore : 0f);
-        SetStatRow(6, redPenalty.ToString(), bluePenalty.ToString(),
+        SetStatRow(6, redBounty.ToString(), blueBounty.ToString(),
+            showDelta ? redBounty - lastRedBounty : 0f, showDelta ? blueBounty - lastBlueBounty : 0f);
+        SetStatRow(7, redPenalty.ToString(), bluePenalty.ToString(),
             showDelta ? redPenalty - lastRedPenalty : 0f, showDelta ? bluePenalty - lastBluePenalty : 0f);
-        SetStatRow(7, StatusTextOf(red), StatusTextOf(blue));
-        SetStatRow(8, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
+        SetStatRow(8, StatusTextOf(red), StatusTextOf(blue));
+        SetStatRow(9, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
             showDelta ? redProgress - lastRedProgress : 0f, showDelta ? blueProgress - lastBlueProgress : 0f, "%");
 
         if (newRound)
@@ -723,6 +731,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             lastBlueTaskCount = blueTaskCount;
             lastRedTaskScore = redTaskScore;
             lastBlueTaskScore = blueTaskScore;
+            lastRedBounty = redBounty;
+            lastBlueBounty = blueBounty;
             lastRedPenalty = redPenalty;
             lastBluePenalty = bluePenalty;
             lastRedProgress = redProgress;
@@ -1270,7 +1280,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         bool ready = roundText != null && phaseText != null &&
             redTeam != null && redTeam.name != null && redTeam.roster != null && redTeam.score != null &&
             blueTeam != null && blueTeam.name != null && blueTeam.roster != null && blueTeam.score != null &&
-            statRows != null && statRows.Length >= 9;
+            statRows != null && statRows.Length >= StatLabels.Length;   // D1: 随 StatLabels 维数(现10)自适应，别写死
         if (!ready) LogMissingHudOnce(context);
         return ready;
     }
@@ -1418,11 +1428,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         redTeam = BuildTeam(panel, true);
         blueTeam = BuildTeam(panel, false);
 
-        // 9 行维度对比(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
-        // rowTop/rowStep 收一点：9 行 + 回合/阶段标题全落在背板 [10,202] 内，
-        // 最底行(整体进度)不再探出背板下缘(用户反馈「最下面一行的 +x% 溢出背景」)。
+        // 维度对比行(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
+        // D1: 行距按维数自适应——底行恒落在背板下缘、顶行 rowTop，加第10维(破关悬赏分)也不探出背板下缘。
+        // (原 9 维 step=16 即 (138-10)/8；10 维自动收到 ≈14.2；行框仍 18px 不触发中文竖向截断。)
         statRows = new StatRow[StatLabels.Length];
-        const float rowTop = 138f, rowStep = 16f;
+        const float rowTop = 138f, rowBottom = 10f;
+        float rowStep = StatLabels.Length > 1 ? (rowTop - rowBottom) / (StatLabels.Length - 1) : 0f;
         for (int i = 0; i < StatLabels.Length; i++)
             statRows[i] = BuildStatRow(backdrop, StatLabels[i], rowTop - i * rowStep);
     }
@@ -1465,8 +1476,15 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     static string TeamNameLine(string campName, LycheeReplayPlayerState s)
     {
         string name = s == null ? null : s.name;
-        if (string.IsNullOrEmpty(name)) return campName;
-        return campName + " · " + name;
+        string line = string.IsNullOrEmpty(name) ? campName : campName + " · " + name;
+        // D8: 已验核/已交付里程碑角标(§3.2 验核=交付前置里程碑、DELIVERED=终态)——
+        // 冲刺阶段观众一眼看出哪队过了宫门验核/已交付；状态行仍显实时 state，不丢信息。用纯中文避免字体缺字。
+        if (s != null)
+        {
+            if (s.delivered) line += " 【已交付】";
+            else if (s.verified) line += " 【已验核】";
+        }
+        return line;
     }
 
     void SetStatRow(int index, string redVal, string blueVal, float redDelta = 0f, float blueDelta = 0f, string suffix = "")
@@ -1588,6 +1606,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (s == null) return 0;
         if (s.penaltyScore != 0) return -Mathf.Abs(s.penaltyScore);
         return s.scoreDetail != null ? -Mathf.Abs(s.scoreDetail.penalty) : 0;
+    }
+
+    // D1: 破关悬赏分(独立正向分项, §1.4/§6.2)。优先顶层 bountyScore，回退 scoreDetail.bounty。
+    static int BountyScoreOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0;
+        if (s.bountyScore != 0) return s.bountyScore;
+        return s.scoreDetail != null ? s.scoreDetail.bounty : 0;
     }
 
     // B5: 状态行映射主车队真实状态枚举(设计§3.2)，不再恒显"在线/离线"。优先级：退赛 > 离线 > 真实state > 兜底。
