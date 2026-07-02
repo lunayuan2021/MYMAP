@@ -849,6 +849,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             return "获取" + ResourceName(payload == null ? null : payload.resourceType);
         if (type == "WINDOW_CONTEST_DRAW")
             return ContestDrawText(payload);
+        // C5: 终局急策按 rushTactic 分疾行令/护果令/破关令(§5.6)，不再泛化"冲刺策略"。HudExt 的 ActionName/ProcessName 不识别急策，需专用映射。
+        if (type == "RUSH_TACTIC_USE")
+            return RushTacticNameCn(payload == null ? null : payload.rushTactic);
         if (type == "PROCESS_PROGRESS" && IsRestingProcess(payload))
             return RestingProgressText(payload);
         if (IsProcessEvent(type))
@@ -985,12 +988,64 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (type == "SQUAD_DISPATCH")
         {
             string eta = payload.completeRound > round ? "，预计 R" + payload.completeRound + " 完成" : "";
-            text = "回合 " + round + " " + team + " 派出 " + SquadMemberCount(payload) + " 人小队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";
+            text = "回合 " + round + " " + team + " 派出小分队前往 " + SafeNode(node) + " " + ActionName(payload.action) + eta + "；清掉障碍是打开路线，后续站点仍可能另有处理耗时。";   // C11: 去掉杜撰的"N 人"(§3.7 提交成本非人数)
             return true;
         }
         if (type == "SQUAD_CLEAR" || type == "SQUAD_CLEAR_SUCCESS" || type == "OBSTACLE_CLEAR")
         {
-            text = "回合 " + round + " " + team + " 清掉 " + SafeNode(node) + " 的障碍：路线恢复；若对方随后仍 +6s，通常是登船、转运、验核等站点处理时间。";
+            text = "回合 " + round + " " + team + " 清掉 " + SafeNode(node) + " 的障碍：路线恢复；若对方随后仍 +6 个结算帧，是清障残留通行税(非站点处理耗时)。";   // C10: §3.7 单位为结算帧、归因为清障残留税
+            return true;
+        }
+        // E1(确认口径,审查报告第五部分): 补全服务端实际发出的小分队事件全集(SCOUT/REINFORCE/WEAKEN/FAILED；
+        // DISPATCH/CLEAR 上面已有)。字段以真实回放为准：SCOUT=playerId/targetNodeId；REINFORCE/WEAKEN=
+        // playerId/targetNodeId/before/after(防守值,defenseBefore/After 为旧命名兜底)；FAILED=action/targetNodeId(常无 playerId)。
+        if (type == "SQUAD_SCOUT" || type == "SQUAD_SCOUT_SUCCESS")
+        {
+            text = "回合 " + round + " " + team + " 小分队探路生效：" + SafeNode(node) + " 获得探路标记，之后在该点处理更省时。";
+            return true;
+        }
+        if (type == "SQUAD_REINFORCE" || type == "SQUAD_REINFORCE_SUCCESS" || type == "SQUAD_WEAKEN" || type == "SQUAD_WEAKEN_SUCCESS")
+        {
+            bool weaken = type.Contains("WEAKEN");
+            int defBefore = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? payload.defenseBefore : Mathf.RoundToInt(payload.before);
+            int defAfter = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? payload.defenseAfter : Mathf.RoundToInt(payload.after);
+            string change = defBefore != 0 || defAfter != 0 ? "：防守 " + defBefore + " → " + defAfter : "";
+            text = "回合 " + round + " " + team + " 小分队" + (weaken ? "削弱" : "增援") + "生效 " + SafeNode(node) + change
+                + (weaken ? "，之后攻破该点更容易。" : "，之后该点更难被攻破。");
+            return true;
+        }
+        if (type == "SQUAD_FAILED" || type == "SQUAD_FAIL")
+        {
+            // 确认口径：UI 只表明失败即可，可附带 action/targetNodeId；**不展示失败原因、不读 payload.reason**。
+            string failTeam = payload.playerId > 0 ? team + " " : "";
+            text = "回合 " + round + " " + failTeam + "小分队行动失败：" + SafeNode(node) + " 的" + ActionName(payload.action) + "未完成。";
+            return true;
+        }
+        // E5(确认口径): 探路标记四事件都上机制播报；字段用 playerId/targetNodeId/expireRound/remainingTriggers/
+        // processType/beforeRound/afterRound，**不依赖 markerId**(服务端无此字段)。文案统一"探路标记"。
+        if (type == "SCOUT_MARKER_ADD")
+        {
+            string expire = payload.expireRound > round ? "，R" + payload.expireRound + " 前有效" : "";
+            string triggers = payload.remainingTriggers > 0 ? "，可触发 " + payload.remainingTriggers + " 次" : "";
+            text = "回合 " + round + " " + team + " 在 " + SafeNode(node) + " 布下探路标记" + expire + triggers + "。";
+            return true;
+        }
+        if (type == "SCOUT_MARKER_APPLY")
+        {
+            string delta = payload.beforeRound > 0 && payload.afterRound > 0 && payload.beforeRound != payload.afterRound
+                ? "：" + ProcessName(payload.processType) + "耗时 " + payload.beforeRound + " → " + payload.afterRound + " 回合" : "";
+            text = "回合 " + round + " " + SafeNode(node) + " 探路标记生效" + delta + "。";
+            return true;
+        }
+        if (type == "SCOUT_MARKER_CONSUME")
+        {
+            string left = payload.remainingTriggers > 0 ? "，剩余 " + payload.remainingTriggers + " 次" : "，已用尽";
+            text = "回合 " + round + " " + SafeNode(node) + " 探路标记消耗" + left + "。";
+            return true;
+        }
+        if (type == "SCOUT_MARKER_EXPIRE")
+        {
+            text = "回合 " + round + " " + SafeNode(node) + " 的探路标记过期，不再提供处理减时。";
             return true;
         }
         if (type == "TASK_REFRESH" || type == "TASK_SPAWN")
@@ -998,7 +1053,13 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             int score = FindTaskScore(payload);
             string scoreText = score > 0 ? " +" + score + " 分" : " 任务分";
             string expire = payload.expireRound > round ? "，R" + payload.expireRound + " 前有效" : "";
-            text = "回合 " + round + " 任务刷新 " + SafeNode(node) + "：完成可获得" + scoreText + expire + "；被抢先或过期就不会到账。";
+            // E4(确认口径): routeBucket/protectionPlayerId 从 tasks[] 状态读(FindTaskState)，别假设事件 payload 带全量字段。
+            LycheeReplayTaskState refreshTask = FindTaskState(payload);
+            string bucket = refreshTask != null ? RouteBucketCn(refreshTask.routeBucket) : null;
+            string bucketTag = string.IsNullOrEmpty(bucket) ? "" : "（" + bucket + "）";
+            string protect = refreshTask != null && refreshTask.protectionPlayerId > 0
+                ? "；保护期内仅 " + TeamName(refreshTask.protectionPlayerId) + " 可完成" : "";
+            text = "回合 " + round + " 任务刷新 " + SafeNode(node) + bucketTag + "：完成可获得" + scoreText + expire + protect + "；被抢先或过期就不会到账。";
             return true;
         }
         if (type == "TASK_COMPLETE")
@@ -1009,7 +1070,10 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         }
         if (type == "TASK_EXPIRE")
         {
-            text = "回合 " + round + " " + SafeNode(node) + " 任务过期：没有队伍在窗口内完成，所以这部分收益不会计入得分。";
+            // E4(确认口径): failureReason 从 tasks[] 状态读；为 null/未知就保持原通用文案，不杜撰原因。
+            LycheeReplayTaskState expiredTask = FindTaskState(payload);
+            string failReason = expiredTask != null ? FailureReasonCn(expiredTask.failureReason) : null;
+            text = "回合 " + round + " " + SafeNode(node) + " 任务过期：" + (failReason ?? "没有队伍在窗口内完成") + "，这部分收益不会计入得分。";
             return true;
         }
         if (type == "BOUNTY_SPAWN" || type == "BOUNTY_CREATE")   // BOUNTY_CREATE 为 V4.8.12 新名
@@ -1044,7 +1108,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         }
         if (type == "FORCED_PASS_START")
         {
-            string tax = payload.timeTax > 0 ? "，时间税 +" + payload.timeTax + " 回合" : "";
+            string tax = payload.timeTax > 0 ? "，时间税 +" + payload.timeTax + " 帧" : "";   // C2: §4.5 1点时间税=1个结算帧
             text = "回合 " + round + " " + team + " 强制通行 " + SafeNode(node) + tax + "：能绕过阻拦，但会用时间换进度。";
             return true;
         }
@@ -1177,6 +1241,56 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         return 0;
     }
 
+    /// <summary>E4: 按 taskId → taskTemplateId → 节点 依次匹配当前帧 tasks[] 状态(与 FindTaskScore 同口径)。
+    /// routeBucket/failureReason/protectionPlayerId 是任务状态字段、不保证出现在事件 payload 里，必须从这里读。</summary>
+    LycheeReplayTaskState FindTaskState(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        LycheeReplayFrame frame = player != null ? player.CurrentFrame : null;
+        LycheeReplayTaskState[] tasks = frame == null ? null : frame.tasks;
+        if (tasks == null) return null;
+        string nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId;
+        LycheeReplayTaskState nodeMatch = null;
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            LycheeReplayTaskState task = tasks[i];
+            if (task == null) continue;
+            if (!string.IsNullOrEmpty(payload.taskId) && task.taskId == payload.taskId) return task;
+            if (!string.IsNullOrEmpty(payload.taskTemplateId) &&
+                (task.taskTemplateId == payload.taskTemplateId || task.templateId == payload.taskTemplateId)) return task;
+            string taskNode = !string.IsNullOrEmpty(task.targetNodeId) ? task.targetNodeId : task.nodeId;
+            if (nodeMatch == null && !string.IsNullOrEmpty(nodeId) && taskNode == nodeId) nodeMatch = task;
+        }
+        return nodeMatch;
+    }
+
+    /// <summary>E4(确认口径): 路线桶→中文。ROAD=官道/WATER=水路/MOUNTAIN=山路/BRANCH=支线；未知值返回 null 不显示。</summary>
+    internal static string RouteBucketCn(string bucket)
+    {
+        if (string.IsNullOrEmpty(bucket)) return null;
+        switch (bucket.ToUpperInvariant())
+        {
+            case "ROAD": return "官道";
+            case "WATER": return "水路";
+            case "MOUNTAIN": return "山路";
+            case "BRANCH": return "支线";
+            default: return null;
+        }
+    }
+
+    /// <summary>E4(确认口径): 任务失败原因→中文；null/未知返回 null(调用方保持通用文案，不杜撰)。</summary>
+    static string FailureReasonCn(string reason)
+    {
+        if (string.IsNullOrEmpty(reason)) return null;
+        switch (reason.ToUpperInvariant())
+        {
+            case "FAILED_TARGET_LOST": return "任务目标已失效(如障碍已被提前清除)";
+            case "FAILED_EXPIRED":
+            case "EXPIRED": return "窗口期内没有队伍完成";
+            default: return null;
+        }
+    }
+
     int FindBountyScore(LycheeReplayPayload payload)
     {
         if (payload == null) return 0;
@@ -1212,6 +1326,15 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     static string SafeNode(string node)
     {
         return string.IsNullOrEmpty(node) ? "当前位置" : node;
+    }
+
+    // C5: 终局急策名(§5.6) → 中文。与 LycheeReplayPlayer.ActionName 的急策映射保持一致；空/未知兜底"冲刺策略"。
+    static string RushTacticNameCn(string value)
+    {
+        if (value == "RUSH_SPEED") return "疾行令";
+        if (value == "RUSH_PROTECT") return "护果令";
+        if (value == "BREAK_ORDER") return "破关令";
+        return "冲刺策略";
     }
 
     static string ProcessName(string value)
@@ -2038,8 +2161,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "SQUAD_REINFORCE":             // V4.8.12 裸名
             case "SQUAD_REINFORCE_SUCCESS": return "增援奏效";
             case "SQUAD_CLEAR_SUCCESS": return "清障完成";
-            case "SQUAD_SCOUT":                  // V4.8.12 裸名
-            case "SQUAD_SCOUT_SUCCESS": return "侦察完成";
+            case "SQUAD_SCOUT": return "派出探路";              // C8: 裸名=刚派出，不能报"完成"(原误显"侦察完成"语义反)
+            case "SQUAD_SCOUT_SUCCESS": return "探路完成";   // E5(确认口径): 统一"探路"，不用"侦察/侦路"
             case "SQUAD_FAILED": return "小队失败";
             case "GUARD_SET": return "设卡布防";
             case "GUARD_WEATHERING":             // V4.8.12 新名（旧 GUARD_DECAY）
@@ -2052,7 +2175,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "BOUNTY_COMPLETE": return "悬赏完成";
             case "COST_COMMIT": return "代价投入";
             case "FORCED_PASS_START": return "强制通行";
-            case "FORCED_PASS_END": return "通行结束";
+            case "FORCED_PASS_END": return "强制通行结束";   // C9: 与配对的"强制通行"成对，不漏"强制"
             case "ACTION_REJECTED": return "行动被拒";
             case "INVALID_ACTION": return "行动无效";
             case "RUSH_PHASE_START": return "宫宴冲刺开启";
@@ -2087,7 +2210,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
             case "PASS_CONTEST_WIN": return "强制通行胜出";
             case "PASS_CONTEST_DEFENDED": return "守卡成功";
             case "SCOUT_MARKER_ADD": return "探路标记添加";
-            case "SCOUT_MARKER_APPLY": return "探路减时生效";
+            case "SCOUT_MARKER_APPLY": return "探路标记生效";   // E5(确认口径)统一措辞
             case "SCOUT_MARKER_CONSUME": return "探路标记消耗";
             case "SCOUT_MARKER_EXPIRE": return "探路标记过期";
             case "TASK_TARGET_LOST": return "任务目标丢失";

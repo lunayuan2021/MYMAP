@@ -691,7 +691,9 @@ public class LycheeCombatPresentation : MonoBehaviour
             return;
         }
         if (duel.endStart >= 0f) return;
-        int winnerCamp = ParseWinnerCamp(payload.winner);
+        // E2(确认口径): 三拍窗口最终胜方在 payload.winnerTeamId("RED"/"BLUE"/"DRAW")——真实数据 WINDOW_CONTEST_END
+        // 没有 winner 字段(那是单拍 WINDOW_CARD_REVEAL 的)，旧代码读 winner 恒 -1 → 胜方灰化/高亮全错。winner 仅留作旧数据兜底。
+        int winnerCamp = ParseWinnerCamp(!string.IsNullOrEmpty(payload.winnerTeamId) ? payload.winnerTeamId : payload.winner);
         duel.flashes.Clear();
         duel.endStart = Time.time;
         duel.endWinnerCamp = winnerCamp;

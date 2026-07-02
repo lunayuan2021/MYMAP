@@ -113,9 +113,18 @@ static class LycheeWebGLBuild_20260612
             // 回放包需要支持 ?path=http://... 从黄区/内网 HTTP 地址读取 replay.txt。
             // Unity 6 默认禁止非 HTTPS 请求，Linux/Chrome 会直接抛 Insecure connection not allowed。
             PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed;
-            // 场景里无序列化碰撞体，引擎裁剪会删掉 Collider 类，
-            // 运行时 CreatePrimitive 附带的碰撞体组件就会报错刷屏；关闭裁剪（wasm 仅增大几 MB）
-            PlayerSettings.stripEngineCode = false;
+            // 引擎代码裁剪开：CreatePrimitive 依赖的物理模块改由 Assets/link.xml 显式保留
+            //（PhysicsModule preserve all），不再靠整体关裁剪兜底。
+            PlayerSettings.stripEngineCode = true;
+            // 异常支持回退发布档：FullWithStacktrace 是 20260630 排查 IL2CPP 崩溃临时开的，
+            // 它给每个托管调用插桩（wasm 代码段被撑到 100MB+、全程 CPU 变慢），崩溃修复后一直忘了退。
+            // 再要诊断崩溃时临时改回 FullWithStacktrace 重出包即可。
+            PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly;
+            // 调试符号外置：wasm 内嵌 name 段约 17MB，改为旁挂 .symbols 文件，浏览器不下载不驻留。
+            PlayerSettings.WebGL.debugSymbolMode = WebGLDebugSymbolMode.External;
+            // 托管裁剪 Minimal→Medium 进一步瘦 wasm；若出现反射缺类，降回 Low 或在 link.xml 补保留。
+            PlayerSettings.SetManagedStrippingLevel(
+                UnityEditor.Build.NamedBuildTarget.WebGL, ManagedStrippingLevel.Medium);
 
             CleanOutputDir();
             Append("Starting WebGL build to " + OutputDir + " ...");
@@ -478,6 +487,13 @@ static class LycheeWebGLBuild_20260612
         backup.SetFloat(pipelineSo, "m_RenderScale", 1f);
         backup.SetInt(pipelineSo, "m_MSAA", 1);
         backup.SetInt(pipelineSo, "m_UpscalingFilter", 1); // Bilinear: avoid FSR auto-selection on WebGL.
+        // 阴影降级（老机器专项）：单方向光 + 40m 阴影距离，2 级联意味着所有投影物画两遍阴影 pass，
+        // 1 级联砍半；软阴影 High→Low 省 PCF 采样。视觉差异在回放俯视机位下几乎不可辨。
+        backup.SetInt(pipelineSo, "m_ShadowCascadeCount", 1);
+        backup.SetInt(pipelineSo, "m_SoftShadowQuality", 1); // Low
+        // 场景零附加光：整个关掉附加光路径与其阴影支持，还能裁掉对应 shader 变体。
+        backup.SetInt(pipelineSo, "m_AdditionalLightsRenderingMode", 0); // Disabled
+        backup.SetBool(pipelineSo, "m_AdditionalLightShadowsSupported", false);
 
         SerializedProperty rendererList = pipelineSo.FindProperty("m_RendererDataList");
         if (rendererList != null && rendererList.isArray)
@@ -832,6 +848,11 @@ static class LycheeWebGLBuild_20260612
             "- 指定地图：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=map_1\n" +
             "- 地图选择页：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=select\n" +
             "- 指定地图 + 外部回放：http://服务器地址:" + ServePort + "/" + DeployPrefix + "/?map=map_1&path=/data/results/game/replay/serve/replay.txt\n\n" +
+            "替换回放文件（StreamingAssets/replay.txt）：\n" +
+            "- 文件名必须全小写 replay.txt（Linux 服务器区分大小写，Replay.txt / replay.TXT 都读不到）。\n" +
+            "- 替换后确认文件可读：执行 chmod 644 StreamingAssets/replay.txt（用 sudo/sftp 上传的文件常是 600 权限，服务器会回 404，页面显示「读不到回放文件」）。\n" +
+            "- Mac 上别直接从「下载」目录拷文件：下载来的文件可能带系统锁（com.apple.macl），本地服务器读不了；先把文件挪到家目录再拷入包内。\n" +
+            "- 替换无需重启服务，刷新页面即可生效（客户端每次都带时间戳参数取最新文件）。\n\n" +
             "离线使用：\n" +
             "- 本包已包含 Build、StreamingAssets、UITheme、Video、默认 replay.txt，不需要访问外网。\n" +
             "- 默认地址 http://127.0.0.1:" + ServePort + "/" + DeployPrefix + "/ 读取包内 StreamingAssets/replay.txt。\n" +
@@ -844,7 +865,12 @@ static class LycheeWebGLBuild_20260612
             "- 双击 index.html：浏览器会阻止 StreamingAssets 文本读取，回放无法启动。\n" +
             "- 只上传 Build/：缺少 StreamingAssets/Tournament/map1.txt，Unity 能开但车队/镜头不会推进。\n" +
             "- 黄区服务器缓存旧包：地址可加 ?v=日期，或清掉浏览器缓存后重试。\n" +
-            "- 机器性能不足：首次加载约 500MB WebGL 资源，内存不足时可能加载很久或浏览器终止页面。\n\n" +
+            "- 机器性能不足：首次加载约 500MB WebGL 资源，内存不足时可能加载很久或浏览器终止页面。\n" +
+            "- 回放文件放在网络盘/U盘：读取慢会触发下载超时（本包客户端超时 60 秒），把整个包拷到本机硬盘再起服务。\n\n" +
+            "排查日志（报「找不到 replay.txt」时看这里）：\n" +
+            "- 用 start.sh / start.bat 起的本地服务器会在包根目录写 .lychee_web_server_requests.log，每个请求一行。\n" +
+            "- 找带 404 的行，箭头(->)后是服务器实际去找的磁盘路径：路径目录不对=起错目录/旧服务器串台；路径对仍 404=文件真名不是 replay.txt（Windows 隐藏扩展名，常是 replay.txt.txt）。\n" +
+            "- 页面上的红色报错框也会显示「加载记录」，含 HTTP 状态码：404=文件名/权限，error=timeout=太大太慢，200 bytes=0=空文件。\n\n" +
             "画质参数：\n" +
             "- 默认：跟随屏幕 DPI，最高 DPR 2，比旧包强制 DPR 1 更清晰。\n" +
             "- 4K/UHD 验收：地址后加 ?quality=4k；如果已有 ?path=...，则追加 &quality=4k；也可显式加 ?dpr=2 或 ?dpr=3。\n" +
@@ -899,13 +925,27 @@ static class LycheeWebGLBuild_20260612
             "  '.json'='application/json'; '.txt'='text/plain; charset=utf-8'; '.png'='image/png'; '.jpg'='image/jpeg';\r\n" +
             "  '.jpeg'='image/jpeg'; '.ico'='image/x-icon'; '.mp4'='video/mp4'; '.md'='text/plain; charset=utf-8'\r\n" +
             "}\r\n" +
+            // gzip 白名单：replay.txt(6.4MB JSON)在慢机器/远程桌面上 12 秒发不完会被客户端超时掐断，
+            // 表现成「找不到 replay.txt」+服务器端「指定的网络名不再可用」。文本压缩后约 1/10 体积，
+            // 浏览器自动解压，Unity 拿到的仍是原文。二进制(png/mp4/unityweb)不压。
+            "$gzipExts = @('.txt', '.json')\r\n" +
+            // 请求日志：现场排查「找不到 replay.txt」全靠它——404 会记下解析出的磁盘路径，
+            // 一眼看出 replay.txt.txt 双扩展名/放错目录。写日志失败(文件被占用等)静默忽略，不影响服务。
+            "$logFile = Join-Path $root '.lychee_web_server_requests.log'\r\n" +
+            "function Log-Line($text) {\r\n" +
+            "  try { Add-Content -Path $logFile -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $text) -Encoding UTF8 } catch {}\r\n" +
+            "}\r\n" +
+            // Send-Status 必须整体套 try：客户端已断开时 Write/Close 会抛异常，
+            // 配合顶部 $ErrorActionPreference='Stop' 会把整个服务器进程带崩（最小化窗口、无人察觉）。
             "function Send-Status($ctx, $code, $text) {\r\n" +
-            "  $bytes = [Text.Encoding]::UTF8.GetBytes($text)\r\n" +
-            "  $ctx.Response.StatusCode = $code\r\n" +
-            "  $ctx.Response.ContentType = 'text/plain; charset=utf-8'\r\n" +
-            "  $ctx.Response.ContentLength64 = $bytes.Length\r\n" +
-            "  $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)\r\n" +
-            "  $ctx.Response.Close()\r\n" +
+            "  try {\r\n" +
+            "    $bytes = [Text.Encoding]::UTF8.GetBytes($text)\r\n" +
+            "    $ctx.Response.StatusCode = $code\r\n" +
+            "    $ctx.Response.ContentType = 'text/plain; charset=utf-8'\r\n" +
+            "    $ctx.Response.ContentLength64 = $bytes.Length\r\n" +
+            "    $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)\r\n" +
+            "    $ctx.Response.Close()\r\n" +
+            "  } catch {}\r\n" +
             "}\r\n" +
             "function Get-ContentType($full) {\r\n" +
             "  if ($full.EndsWith('.wasm.unityweb', [StringComparison]::OrdinalIgnoreCase)) { return 'application/wasm' }\r\n" +
@@ -915,48 +955,109 @@ static class LycheeWebGLBuild_20260612
             "  if ($mime.ContainsKey($ext)) { return $mime[$ext] }\r\n" +
             "  return 'application/octet-stream'\r\n" +
             "}\r\n" +
+            // HTTP.SYS 只对字面量 localhost 豁免 URL ACL 检查：非管理员运行时绑定 127.0.0.1 可能
+            // Access Denied，回退改绑 localhost（同为回环，页面相对请求不受影响）。
             "try { $listener.Start() } catch {\r\n" +
-            "  Write-Host \"Failed to start http://127.0.0.1:$port/\"\r\n" +
-            "  Write-Host $_.Exception.Message\r\n" +
-            "  Read-Host 'Press Enter to close'\r\n" +
-            "  exit 1\r\n" +
+            "  try {\r\n" +
+            "    $listener = [System.Net.HttpListener]::new()\r\n" +
+            "    $listener.Prefixes.Add(\"http://localhost:$port/\")\r\n" +
+            "    $listener.Start()\r\n" +
+            "    $url = \"http://localhost:$port/" + DeployPrefix + "/\"\r\n" +
+            "    Write-Host \"127.0.0.1 binding denied (needs elevation); fell back to $url\"\r\n" +
+            "    Log-Line \"START-FALLBACK localhost binding in use\"\r\n" +
+            "  } catch {\r\n" +
+            "    Write-Host \"Failed to start http://127.0.0.1:$port/ and http://localhost:$port/\"\r\n" +
+            "    Write-Host $_.Exception.Message\r\n" +
+            "    Read-Host 'Press Enter to close'\r\n" +
+            "    exit 1\r\n" +
+            "  }\r\n" +
             "}\r\n" +
-            "Write-Host \"Serving $root at http://127.0.0.1:$port/\"\r\n" +
+            "Write-Host \"Serving $root at $url\"\r\n" +
             "Write-Host \"Opening $url\"\r\n" +
-            "Start-Process $url\r\n" +
+            "Log-Line \"START root=$root port=$port\"\r\n" +
+            // 开浏览器只是便利动作，无 http 协议关联的机器上失败不许拖死服务器（EAP=Stop 会升级成终止错误）。
+            "try { Start-Process $url } catch { Write-Host \"Could not open a browser automatically. Open $url manually.\" }\r\n" +
             "try {\r\n" +
             "  while ($listener.IsListening) {\r\n" +
             "    $ctx = $listener.GetContext()\r\n" +
-            "    $requestPath = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)\r\n" +
-            "    $prefix = '/" + DeployPrefix + "'\r\n" +
-            "    if ($requestPath -eq $prefix -or $requestPath -eq ($prefix + '/')) { $requestPath = '/' }\r\n" +
-            "    elseif ($requestPath.StartsWith($prefix + '/', [StringComparison]::OrdinalIgnoreCase)) { $requestPath = $requestPath.Substring($prefix.Length) }\r\n" +
-            "    $rootFull = [IO.Path]::GetFullPath($root)\r\n" +
-            "    if ([string]::IsNullOrWhiteSpace($requestPath) -or $requestPath -eq '/') {\r\n" +
-            "      $full = [IO.Path]::GetFullPath([IO.Path]::Combine($root, 'index.html'))\r\n" +
-            "    } elseif ($requestPath.StartsWith('/data/', [StringComparison]::OrdinalIgnoreCase)) {\r\n" +
-            "      $full = [IO.Path]::GetFullPath($requestPath)\r\n" +
-            "    } else {\r\n" +
-            "      $relative = $requestPath.TrimStart('/') -replace '/', [IO.Path]::DirectorySeparatorChar\r\n" +
-            "      $full = [IO.Path]::GetFullPath([IO.Path]::Combine($root, $relative))\r\n" +
-            "      if (-not $full.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase)) { Send-Status $ctx 403 'Forbidden'; continue }\r\n" +
-            "    }\r\n" +
-            "    if (-not [IO.File]::Exists($full)) { Send-Status $ctx 404 'Not Found'; continue }\r\n" +
-            "    $ctx.Response.StatusCode = 200\r\n" +
-            "    $ctx.Response.ContentType = Get-ContentType $full\r\n" +
-            "    if ($full.EndsWith('.unityweb', [StringComparison]::OrdinalIgnoreCase)) { $ctx.Response.Headers['Content-Encoding'] = 'gzip' }\r\n" +
-            "    $ctx.Response.Headers['Cache-Control'] = 'no-store'\r\n" +
-            "    $stream = [IO.File]::OpenRead($full)\r\n" +
+            // 单个请求的任何异常（文件被记事本/WPS 占用、客户端中断下载、URL 带非法字符）都不许
+            // 逃出循环：旧版没有这层 catch，一次异常就让整个服务器静默退出，之后一切请求都失败，
+            // 页面上表现成「找不到 replay.txt」。
+            "    $rawUrl = $ctx.Request.RawUrl\r\n" +
+            "    $sw = $null\r\n" +
             "    try {\r\n" +
-            "      $ctx.Response.ContentLength64 = $stream.Length\r\n" +
-            "      $buffer = New-Object byte[] 65536\r\n" +
-            "      while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) { $ctx.Response.OutputStream.Write($buffer, 0, $read) }\r\n" +
-            "    } finally {\r\n" +
-            "      $stream.Dispose()\r\n" +
-            "      $ctx.Response.Close()\r\n" +
+            "      $requestPath = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)\r\n" +
+            "      $prefix = '/" + DeployPrefix + "'\r\n" +
+            "      if ($requestPath -eq $prefix -or $requestPath -eq ($prefix + '/')) { $requestPath = '/' }\r\n" +
+            "      elseif ($requestPath.StartsWith($prefix + '/', [StringComparison]::OrdinalIgnoreCase)) { $requestPath = $requestPath.Substring($prefix.Length) }\r\n" +
+            "      $rootFull = [IO.Path]::GetFullPath($root)\r\n" +
+            "      if ([string]::IsNullOrWhiteSpace($requestPath) -or $requestPath -eq '/') {\r\n" +
+            "        $full = [IO.Path]::GetFullPath([IO.Path]::Combine($root, 'index.html'))\r\n" +
+            "      } elseif ($requestPath.StartsWith('/data/', [StringComparison]::OrdinalIgnoreCase)) {\r\n" +
+            "        $full = [IO.Path]::GetFullPath($requestPath)\r\n" +
+            "      } else {\r\n" +
+            "        $relative = $requestPath.TrimStart('/') -replace '/', [IO.Path]::DirectorySeparatorChar\r\n" +
+            "        $full = [IO.Path]::GetFullPath([IO.Path]::Combine($root, $relative))\r\n" +
+            "        if (-not $full.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase)) { Log-Line \"403 $rawUrl\"; Send-Status $ctx 403 'Forbidden'; continue }\r\n" +
+            "      }\r\n" +
+            "      if (-not [IO.File]::Exists($full)) { Log-Line \"404 $rawUrl -> $full\"; Send-Status $ctx 404 'Not Found'; continue }\r\n" +
+            "      $sw = [Diagnostics.Stopwatch]::StartNew()\r\n" +
+            "      $ctx.Response.StatusCode = 200\r\n" +
+            "      $ctx.Response.ContentType = Get-ContentType $full\r\n" +
+            "      $ctx.Response.Headers['Cache-Control'] = 'no-store'\r\n" +
+            "      $ext = [IO.Path]::GetExtension($full).ToLowerInvariant()\r\n" +
+            "      $acceptEnc = [string]$ctx.Request.Headers['Accept-Encoding']\r\n" +
+            "      if ($full.EndsWith('.unityweb', [StringComparison]::OrdinalIgnoreCase)) {\r\n" +
+            "        $stream = [IO.File]::OpenRead($full)\r\n" +
+            "        $sent = 0\r\n" +
+            "        try {\r\n" +
+            // gzip 头必须等 OpenRead 成功后再设：文件被占用时若头已设，外层 catch 发的 500
+            // 明文会顶着 gzip 头出去，浏览器报解码错误而不是可读的 500。
+            "          $ctx.Response.Headers['Content-Encoding'] = 'gzip'\r\n" +
+            "          $ctx.Response.ContentLength64 = $stream.Length\r\n" +
+            "          $buffer = New-Object byte[] 65536\r\n" +
+            "          while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) { $ctx.Response.OutputStream.Write($buffer, 0, $read); $sent += $read }\r\n" +
+            "        } finally {\r\n" +
+            "          $stream.Dispose()\r\n" +
+            "          try { $ctx.Response.Close() } catch {}\r\n" +
+            "        }\r\n" +
+            "        Log-Line (\"200 $rawUrl (\" + $sent + \" bytes, \" + $sw.ElapsedMilliseconds + \" ms)\")\r\n" +
+            // GZipStream(CompressionMode 两参构造)在 System.dll 里，Windows PowerShell 5.1 免 Add-Type 直接可用；
+            // 不要换成 CompressionLevel 构造（那在 System.IO.Compression.dll，5.1 下要额外加载）。
+            "      } elseif (($gzipExts -contains $ext) -and $acceptEnc.Contains('gzip')) {\r\n" +
+            "        $raw = [IO.File]::ReadAllBytes($full)\r\n" +
+            "        $ms = New-Object IO.MemoryStream\r\n" +
+            "        $gz = New-Object IO.Compression.GZipStream($ms, [IO.Compression.CompressionMode]::Compress, $true)\r\n" +
+            "        $gz.Write($raw, 0, $raw.Length)\r\n" +
+            "        $gz.Dispose()\r\n" +
+            "        $bytes = $ms.ToArray()\r\n" +
+            "        $ms.Dispose()\r\n" +
+            "        $ctx.Response.Headers['Content-Encoding'] = 'gzip'\r\n" +
+            "        $ctx.Response.ContentLength64 = $bytes.Length\r\n" +
+            "        $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)\r\n" +
+            "        try { $ctx.Response.Close() } catch {}\r\n" +
+            "        Log-Line (\"200 $rawUrl (\" + $raw.Length + \" -> \" + $bytes.Length + \" bytes gzip, \" + $sw.ElapsedMilliseconds + \" ms)\")\r\n" +
+            "      } else {\r\n" +
+            "        $stream = [IO.File]::OpenRead($full)\r\n" +
+            "        $sent = 0\r\n" +
+            "        try {\r\n" +
+            "          $ctx.Response.ContentLength64 = $stream.Length\r\n" +
+            "          $buffer = New-Object byte[] 65536\r\n" +
+            "          while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) { $ctx.Response.OutputStream.Write($buffer, 0, $read); $sent += $read }\r\n" +
+            "        } finally {\r\n" +
+            "          $stream.Dispose()\r\n" +
+            "          try { $ctx.Response.Close() } catch {}\r\n" +
+            "        }\r\n" +
+            "        Log-Line (\"200 $rawUrl (\" + $sent + \" bytes, \" + $sw.ElapsedMilliseconds + \" ms)\")\r\n" +
+            "      }\r\n" +
+            "    } catch {\r\n" +
+            "      $elapsed = -1\r\n" +
+            "      if ($sw) { $elapsed = $sw.ElapsedMilliseconds }\r\n" +
+            "      Log-Line (\"ERR $rawUrl :: \" + $_.Exception.Message + \" (after \" + $elapsed + \" ms)\")\r\n" +
+            "      Send-Status $ctx 500 'Server Error'\r\n" +
             "    }\r\n" +
             "  }\r\n" +
-            "} finally { $listener.Stop(); $listener.Close() }\r\n");
+            "} finally { $listener.Stop(); $listener.Close(); Log-Line 'STOP' }\r\n");
         File.WriteAllText(Path.Combine(OutputDir, "start_local_server.bat"),
             "@echo off\r\n" +
             "cd /d \"%~dp0\"\r\n" +
@@ -1017,14 +1118,48 @@ static class LycheeWebGLBuild_20260612
             "Write-Host 'Stopped Lychee WebGL server.'\r\n");
         File.WriteAllText(Path.Combine(OutputDir, "lychee_server.py"),
             "#!/usr/bin/env python3\n" +
-            "import argparse, os, posixpath, signal, sys, urllib.parse\n" +
+            "import argparse, datetime, gzip, os, posixpath, signal, sys, urllib.parse\n" +
             "from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer\n\n" +
-            "ROOT = os.path.dirname(os.path.abspath(__file__))\n\n" +
+            "ROOT = os.path.dirname(os.path.abspath(__file__))\n" +
+            "REQUEST_LOG = os.path.join(ROOT, '.lychee_web_server_requests.log')\n\n" +
+            // 请求日志：与 Windows/PowerShell 版同名、同格式，现场排查「找不到 replay.txt」用。
+            // 404 行会带上服务器解析出的磁盘路径，一眼看出文件名/目录错在哪。写日志失败静默忽略。
+            "def log_request_line(text):\n" +
+            "    try:\n" +
+            "        with open(REQUEST_LOG, 'a', encoding='utf-8') as handle:\n" +
+            "            handle.write('[' + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '] ' + text + '\\n')\n" +
+            "    except OSError:\n" +
+            "        pass\n\n" +
             "try:\n" +
             "    signal.signal(signal.SIGPIPE, signal.SIG_IGN)\n" +
             "except (AttributeError, ValueError):\n" +
             "    pass\n\n" +
             "class LycheeHandler(SimpleHTTPRequestHandler):\n" +
+            // 文本类响应按需 gzip：replay.txt 几 MB 的 JSON 在慢消费端(远程桌面/低配机)上
+            // 12 秒发不完会被客户端超时掐断，压成 ~1/10 体积后浏览器自动解压、Unity 拿到原文。
+            "    GZIP_EXTS = ('.txt', '.json')\n\n" +
+            "    def do_GET(self):\n" +
+            "        full = self.translate_path(self.path)\n" +
+            "        accept = self.headers.get('Accept-Encoding') or ''\n" +
+            "        if full.endswith(self.GZIP_EXTS) and 'gzip' in accept and os.path.isfile(full):\n" +
+            "            try:\n" +
+            "                with open(full, 'rb') as handle:\n" +
+            "                    raw = handle.read()\n" +
+            "            except OSError:\n" +
+            "                self.send_error(404, 'File not found')\n" +
+            "                return\n" +
+            "            data = gzip.compress(raw)\n" +
+            "            self.send_response(200)\n" +
+            "            self.send_header('Content-Type', self.guess_type(full))\n" +
+            "            self.send_header('Content-Encoding', 'gzip')\n" +
+            "            self.send_header('Content-Length', str(len(data)))\n" +
+            "            self.end_headers()\n" +
+            "            try:\n" +
+            "                self.wfile.write(data)\n" +
+            "            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):\n" +
+            "                pass\n" +
+            "            return\n" +
+            "        super().do_GET()\n\n" +
             "    def guess_type(self, path):\n" +
             "        request_path = urllib.parse.urlparse(path).path\n" +
             "        if request_path.endswith('.wasm.unityweb'):\n" +
@@ -1046,6 +1181,11 @@ static class LycheeWebGLBuild_20260612
             "        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):\n" +
             "            pass\n\n" +
             "    def translate_path(self, path):\n" +
+            // 记录解析出的磁盘路径供日志用（log_request 时读 self._last_full）。
+            "        result = self._resolve_path(path)\n" +
+            "        self._last_full = result\n" +
+            "        return result\n\n" +
+            "    def _resolve_path(self, path):\n" +
             "        request_path = urllib.parse.urlparse(path).path\n" +
             "        request_path = urllib.parse.unquote(request_path)\n" +
             "        prefix = '/" + DeployPrefix + "'\n" +
@@ -1060,6 +1200,25 @@ static class LycheeWebGLBuild_20260612
             "        clean = posixpath.normpath(request_path.lstrip('/'))\n" +
             "        parts = [p for p in clean.split('/') if p and p not in (os.curdir, os.pardir)]\n" +
             "        return os.path.join(ROOT, *parts)\n\n" +
+            "    def log_request(self, code='-', size='-'):\n" +
+            "        try:\n" +
+            "            code_str = str(getattr(code, 'value', code))\n" +
+            "            line = code_str + ' ' + self.requestline\n" +
+            "            if code_str == '404':\n" +
+            "                line += ' -> ' + getattr(self, '_last_full', '')\n" +
+            "            log_request_line(line)\n" +
+            "        except Exception:\n" +
+            "            pass\n" +
+            "        super().log_request(code, size)\n\n" +
+            "    def log_error(self, fmt, *args):\n" +
+            "        try:\n" +
+            "            msg = fmt % args if args else fmt\n" +
+            // 404 已由 log_request 记成更有用的「404 ... -> 磁盘路径」，这里跳过避免每次 miss 重复两行；
+            // 只保留真异常(500/403 等)。
+            "            if not msg.startswith('code 404'):\n" +
+            "                log_request_line('ERR ' + msg)\n" +
+            "        except Exception:\n" +
+            "            pass\n\n" +
             "class LycheeHTTPServer(ThreadingHTTPServer):\n" +
             "    daemon_threads = True\n" +
             "    allow_reuse_address = True\n\n" +

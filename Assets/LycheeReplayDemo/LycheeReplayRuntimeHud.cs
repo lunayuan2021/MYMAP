@@ -32,11 +32,12 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // 底部维度对比行：一行一个维度，中央金色标签，红值居左、蓝值居右。
     sealed class StatRow
     {
-        public Text label;
-        public Text redValue;
-        public Text blueValue;
+        public string label;
+        public Text mainLine;
         public Text redDelta;
         public Text blueDelta;
+        public string redValueText;
+        public string blueValueText;
         public float redDeltaUntil;
         public float blueDeltaUntil;
     }
@@ -1238,26 +1239,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         SafeBuild("Opening", () => BuildOpening(root));
         SafeBuild("Toast", () => BuildToast(root));
         built = true;
-#if UNITY_WEBGL && !UNITY_EDITOR
-        if (!s_loggedHudBuild)
-        {
-            s_loggedHudBuild = true;
-            RectTransform bottom = root != null ? root.Find("BottomStatus_Runtime") as RectTransform : null;
-            int instances = FindObjectsByType<LycheeReplayRuntimeHud>(FindObjectsSortMode.None).Length;
-            Debug.Log("[RuntimeHud-DIAG] canvasActive=" + (canvas != null && canvas.isActiveAndEnabled)
-                + " rootActive=" + (root != null && root.gameObject.activeInHierarchy)
-                + " sort=" + (canvas != null ? canvas.sortingOrder : -99)
-                + " bottom=" + (bottom != null) + " bottomWorldY=" + (bottom != null ? bottom.position.y.ToString("F0") : "-")
-                + " rootRect=" + (root != null ? root.rect.width.ToString("F0") + "x" + root.rect.height.ToString("F0") : "-")
-                + " scale=" + (canvas != null ? canvas.scaleFactor.ToString("F2") : "-")
-                + " screen=" + Screen.width + "x" + Screen.height
-                + " redTeam=" + (redTeam != null) + " contestScore=" + (contestScore != null)
-                + " instances=" + instances);
-        }
-#endif
     }
 
-    static bool s_loggedHudBuild;
     static readonly HashSet<string> s_loggedMissingHudContexts = new HashSet<string>();
     bool built;
 
@@ -1320,7 +1303,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     {
         if (string.IsNullOrEmpty(context)) context = "unknown";
         if (!s_loggedMissingHudContexts.Add(context)) return;
-        Debug.Log("[RuntimeHud-DIAG] missing widgets at " + context
+        Debug.LogWarning("[RuntimeHud] missing widgets at " + context
             + " canvas=" + (canvas != null)
             + " root=" + (root != null)
             + " bottom=" + (roundText != null && redTeam != null && blueTeam != null)
@@ -1439,33 +1422,27 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         // rowTop/rowStep 收一点：9 行 + 回合/阶段标题全落在背板 [10,202] 内，
         // 最底行(整体进度)不再探出背板下缘(用户反馈「最下面一行的 +x% 溢出背景」)。
         statRows = new StatRow[StatLabels.Length];
-        const float rowTop = 148f, rowStep = 16f;
+        const float rowTop = 138f, rowStep = 16f;
         for (int i = 0; i < StatLabels.Length; i++)
-            statRows[i] = BuildStatRow(panel, StatLabels[i], rowTop - i * rowStep);
+            statRows[i] = BuildStatRow(backdrop, StatLabels[i], rowTop - i * rowStep);
     }
 
     // 一行维度对比：中央金色标签 + 红值(右对齐居左)/蓝值(左对齐居右)。
     StatRow BuildStatRow(Transform parent, string label, float y)
     {
         StatRow r = new StatRow();
-        // 字号 14→16(标签/数值)、13→14(增量)，行高 16→18：配合近乎不透明背板，字段名+值一开场就清楚可读。
-        r.label = Text(label + "StatLabel", parent, 16, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        r.label.text = label;   // Text() 帮手不写 .text，必须显式赋值，否则中央标签列全空白
-        SetRect(r.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(92f, 18f), new Vector2(0.5f, 0.5f));
-        // 横向排布(以背板中轴为 0，背板宽 500 → 半宽 ±250)：
-        //   红增量[-240..-178] 红值[-174..-54] 标签[±46] 蓝值[54..174] 蓝增量[178..240]
-        // 增量块右/左对齐 pivot，之前 x=±212/宽58 会探到 ±270、越过背板 ±250 → 收到 ±178/宽62 落回板内。
-        r.redValue = Text(label + "StatRed", parent, 16, FontStyle.Bold, new Color(1f, 0.62f, 0.5f, 1f), TextAnchor.MiddleRight);
-        SetRect(r.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-54f, y), new Vector2(120f, 18f), new Vector2(1f, 0.5f));
-        r.blueValue = Text(label + "StatBlue", parent, 16, FontStyle.Bold, new Color(0.6f, 0.8f, 1f, 1f), TextAnchor.MiddleLeft);
-        SetRect(r.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(54f, y), new Vector2(120f, 18f), new Vector2(0f, 0.5f));
+        r.label = label;
+        // 主显示用单个 Text 承载「红值  字段名  蓝值」，并作为 StatBackdrop 的子节点渲染。
+        // 之前三列 Text 在 WebGL 包中出现只剩 delta、主值/标签整组不显示的情况；合并成一行可避免列节点被排序或字体重建遗漏。
+        r.mainLine = Text(label + "StatMainLine", parent, 16, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        r.mainLine.supportRichText = true;
+        r.mainLine.text = FormatStatMainLine(label, "0", "0");
+        SetRect(r.mainLine.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(296f, 18f), new Vector2(0.5f, 0.5f));
         r.redDelta = Text(label + "StatRedDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
         SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-178f, y), new Vector2(62f, 18f), new Vector2(1f, 0.5f));
         r.blueDelta = Text(label + "StatBlueDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
         SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(178f, y), new Vector2(62f, 18f), new Vector2(0f, 0.5f));
-        AddTextShadow(r.label);
-        AddTextShadow(r.redValue);
-        AddTextShadow(r.blueValue);
+        AddTextShadow(r.mainLine);
         AddTextShadow(r.redDelta);
         AddTextShadow(r.blueDelta);
         return r;
@@ -1497,12 +1474,26 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (statRows == null || index < 0 || index >= statRows.Length) return;
         StatRow r = statRows[index];
         if (r == null) return;
-        string oldRed = r.redValue != null ? r.redValue.text : null;
-        string oldBlue = r.blueValue != null ? r.blueValue.text : null;
-        if (r.redValue != null) r.redValue.text = redVal;
-        if (r.blueValue != null) r.blueValue.text = blueVal;
+        string oldRed = r.redValueText;
+        string oldBlue = r.blueValueText;
+        r.redValueText = redVal;
+        r.blueValueText = blueVal;
+        if (r.mainLine != null) r.mainLine.text = FormatStatMainLine(r.label, redVal, blueVal);
         UpdateStatDelta(r.redDelta, redDelta, suffix, oldRed, redVal, ref r.redDeltaUntil);
         UpdateStatDelta(r.blueDelta, blueDelta, suffix, oldBlue, blueVal, ref r.blueDeltaUntil);
+    }
+
+    static string FormatStatMainLine(string label, string redVal, string blueVal)
+    {
+        return "<color=#FF9E80>" + RichTextEscape(redVal) + "</color>   " +
+            "<color=#D4AF5C>" + RichTextEscape(label) + "</color>   " +
+            "<color=#99CCFF>" + RichTextEscape(blueVal) + "</color>";
+    }
+
+    static string RichTextEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
     }
 
     static void UpdateStatDelta(Text text, float delta, string suffix, string oldValue, string newValue, ref float visibleUntil)
@@ -1562,15 +1553,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         return (delta > 0f ? "+" : "") + delta.ToString(format) + suffix;
     }
 
-    // 总分：首选 player.totalScore；为 0 回退 scoreDetail 各分项之和；再回退顶层分项(任务+悬赏+惩罚)
-    // ——本回放 totalScore/scoreDetail/frame.scores 整局恒为 0，只有 taskScore 真在累加，故顶层分项求和才有意义；
-    // 最后才回退 frame.scores[camp] / player.score。
+    // 总分(E3 确认口径)：首选 player.totalScore(权威)；为 0 回退 scoreDetail.total(分项总计)→分项求和→顶层分项(任务+悬赏+惩罚)。
+    // F2 注意：totalScore **不是**整局恒 0——过程帧多为 0、交付结算段(约末 35 帧)会被填成真总分(如 742)，
+    // 首选分支正是靠它在交付后显示真总分，**别删**；过程中只有 taskScore 在涨，靠顶层分项求和兜底。
     static int TotalScoreOf(LycheeReplayPlayerState s, LycheeReplayScores scores, bool isRed)
     {
         if (s != null && s.totalScore != 0) return s.totalScore;
         if (s != null && s.scoreDetail != null)
         {
             LycheeReplayScoreDetail d = s.scoreDetail;
+            if (d.total != 0) return d.total;   // E3/F1: 真实数据 scoreDetail 带 total(分项总计)，比手工求和更权威
             int sum = d.delivery + d.goodFruit + d.freshness + d.time + d.tasks + d.bounty + d.penalty;
             if (sum != 0) return sum;
         }
@@ -1592,9 +1584,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
     static int PenaltyScoreOf(LycheeReplayPlayerState s)
     {
+        // C14: 惩罚统一显负号，与结算页(LycheeSettlementScreen 用 -Mathf.Abs)一致；后端 penalty 约定为正数量，展示层取负。
         if (s == null) return 0;
-        if (s.penaltyScore != 0) return s.penaltyScore;
-        return s.scoreDetail != null ? s.scoreDetail.penalty : 0;
+        if (s.penaltyScore != 0) return -Mathf.Abs(s.penaltyScore);
+        return s.scoreDetail != null ? -Mathf.Abs(s.scoreDetail.penalty) : 0;
     }
 
     // B5: 状态行映射主车队真实状态枚举(设计§3.2)，不再恒显"在线/离线"。优先级：退赛 > 离线 > 真实state > 兜底。
@@ -2125,7 +2118,10 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         text.color = color;
         text.alignment = anchor;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
-        text.verticalOverflow = VerticalWrapMode.Truncate;
+        // 纵向必须 Overflow：横向已是 Overflow(永远单行)，纵向 Truncate 唯一效果是"行高塞不进矩形→整行消失"。
+        // LXGW 在 WebGL 包里的行高≈字号×1.25+(比编辑器略大)，字号/矩形高贴边的文本(9维行16/18、阶段15/16、
+        // 比分34/36)在编辑器可见、真机全隐身——即"HUD面板字都看不见"的真因。
+        text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
         return text;
     }

@@ -250,6 +250,15 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             case "SCOUT_MARKER_ADD":
                 CreateScoutMarker(payload, round);
                 break;
+            // E5(确认口径): 服务端探路标记全集 = ADD/APPLY/CONSUME/EXPIRE，世界层四个都接。
+            // 字段只用 playerId/targetNodeId/expireRound/remainingTriggers，**不依赖 markerId**。
+            case "SCOUT_MARKER_APPLY":
+                // 生效不改变标记存续，只确保标记在(中途 seek 进来时兜底补建)。
+                CreateScoutMarker(payload, round);
+                break;
+            case "SCOUT_MARKER_CONSUME":
+                ConsumeScoutMarker(payload);
+                break;
             case "SCOUT_MARKER_EXPIRE":
                 RemoveScoutMarker(payload);
                 break;
@@ -880,7 +889,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                         if (marker == null) continue;
                         taskPillars[key] = marker;
                     }
-                    if (marker.label != null) marker.label.text = TaskLabelText(task, frame.round);
+                    if (marker.label != null) marker.label.text = TaskLabelText(task, frame.round, frame);
                 }
                 else if (taskPillars.TryGetValue(key, out PillarMarker existing))
                 {
@@ -1045,13 +1054,31 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         }
     }
 
-    static string TaskLabelText(LycheeReplayTaskState task, int round)
+    static string TaskLabelText(LycheeReplayTaskState task, int round, LycheeReplayFrame frame)
     {
         if (task == null) return "皇榜·任务";
         string text = "皇榜·" + (string.IsNullOrEmpty(task.name) ? "限时任务" : task.name);
         if (task.score > 0) text += " +" + task.score + "分";
-        if (task.expireRound > 0) text += "\n余 " + Mathf.Max(0, task.expireRound - round) + " 回合";
+        // E4(确认口径,审查报告第五部分): routeBucket(官道/水路/山路/支线)与 protectionPlayerId 是任务**状态**字段，
+        // 从 tasks[] 状态读(这里的 task 即状态对象)，别指望 TASK_* 事件 payload 带全量字段。未知桶/0 保护期不显示。
+        string bucket = LycheeHudExtensions.RouteBucketCn(task.routeBucket);
+        string tail = string.IsNullOrEmpty(bucket) ? "" : bucket;
+        if (task.expireRound > 0) tail += (tail.Length > 0 ? " · " : "") + "余 " + Mathf.Max(0, task.expireRound - round) + " 回合";
+        if (tail.Length > 0) text += "\n" + tail;
+        if (task.protectionPlayerId > 0)
+            text += "\n保护期·仅" + CampNameOf(frame, task.protectionPlayerId) + "可完成";
         return text;
+    }
+
+    /// <summary>playerId→红队/蓝队(按当前帧 players[].camp 反查)；查不到退回 #playerId。</summary>
+    static string CampNameOf(LycheeReplayFrame frame, int playerId)
+    {
+        if (frame != null && frame.players != null)
+        {
+            foreach (LycheeReplayPlayerState p in frame.players)
+                if (p != null && p.playerId == playerId) return p.camp == 0 ? "红队" : "蓝队";
+        }
+        return "#" + playerId;
     }
 
     static string BountyLabelText(LycheeReplayBountyState bounty)
@@ -1206,6 +1233,15 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             if (marker != null && marker.root != null) Destroy(marker.root);
             scoutMarkers.Remove(nodeId);
         }
+    }
+
+    /// <summary>E5: SCOUT_MARKER_CONSUME——剩余次数用尽(remainingTriggers<=0)才移除标记；
+    /// 还有剩余就保留(等 EXPIRE 或到期回合)。payload 若不带 remainingTriggers(=0)按用尽处理。</summary>
+    void ConsumeScoutMarker(LycheeReplayPayload payload)
+    {
+        if (payload == null) return;
+        if (payload.remainingTriggers > 0) return;
+        RemoveScoutMarker(payload);
     }
 
     void PruneScoutMarkers(int round)

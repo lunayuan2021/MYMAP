@@ -144,7 +144,9 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         int blueTotal = ResolveTotal(blueOver, scores, blueFrame, 1);
 
         SetText(bannerTitle, ResolveWinnerTitle(over, redTotal, blueTotal));
-        SetText(bannerScore, "最终比分 " + redTotal + " : " + blueTotal);
+        // E3(确认口径): 惩罚触底时服务端按 max(0, 正向分-惩罚) 结算，总分显示 0 是正常现象(行和≠总分)；
+        // 结算页无 tooltip 基建，用横幅备注替代"tooltip: 总分已按惩罚和0分下限结算"。
+        SetText(bannerScore, "最终比分 " + redTotal + " : " + blueTotal + PenaltyFloorNote(redOver, blueOver));
         SetText(redHeader, HeaderText(0, redOver, redFrame));
         SetText(blueHeader, HeaderText(1, blueOver, blueFrame));
 
@@ -320,6 +322,13 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         if (detail == null)
         {
             for (int i = 0; i < targets.Length; i++) targets[i] = null;
+            // A5: scoreDetail 缺失时用 over 玩家顶层字段兜底(任务/悬赏/惩罚)，避免整列"--"；送达/好果/鲜度/用时无顶层等价字段，保留 null。
+            if (overPlayer != null)
+            {
+                targets[4] = overPlayer.taskScore;
+                targets[5] = overPlayer.bountyScore;
+                targets[6] = -Mathf.Abs(overPlayer.penaltyScore);
+            }
             return;
         }
         targets[0] = detail.delivery;
@@ -331,11 +340,33 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         targets[6] = -Mathf.Abs(detail.penalty);    // 惩罚恒为最后一行（penaltyRow = i == RowCount-1）
     }
 
+    // E3(确认口径,审查报告第五部分): 排名/胜负/高亮全以 players[].totalScore 为准；分项明细(scoreDetail)只解释
+    // 分数来源；scoreDetail.total 仅可作"分项总计"展示；数据里的 totalGold 是兼容字段、任何时候不得覆盖 totalScore。
+    // **别改成用可见分项自行相加判胜负**——惩罚触底时行和≠总分(见 PenaltyFloorNote)。
     int ResolveTotal(LycheeReplayOverPlayer overPlayer, LycheeReplayScores scores, LycheeReplayPlayerState framePlayer, int camp)
     {
         if (overPlayer != null) return overPlayer.totalScore;
         if (scores != null) return camp == 0 ? scores.RED : scores.BLUE;
         return framePlayer == null ? 0 : framePlayer.score;
+    }
+
+    /// <summary>E3: 某方正向分-惩罚为负、被 0 分下限截断时，横幅补一句说明；未触底返回空串。</summary>
+    static string PenaltyFloorNote(LycheeReplayOverPlayer red, LycheeReplayOverPlayer blue)
+    {
+        bool redFloor = HitPenaltyFloor(red);
+        bool blueFloor = HitPenaltyFloor(blue);
+        if (redFloor && blueFloor) return "（双方惩罚触底，总分已按 0 分下限结算）";
+        if (redFloor) return "（红队惩罚触底，总分已按 0 分下限结算）";
+        if (blueFloor) return "（蓝队惩罚触底，总分已按 0 分下限结算）";
+        return "";
+    }
+
+    static bool HitPenaltyFloor(LycheeReplayOverPlayer p)
+    {
+        if (p == null || p.totalScore != 0 || p.scoreDetail == null) return false;
+        LycheeReplayScoreDetail d = p.scoreDetail;
+        int positive = d.delivery + d.goodFruit + d.freshness + d.time + d.tasks + d.bounty;
+        return positive - Mathf.Abs(d.penalty) < 0;
     }
 
     static void ApplyAux(Text text, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)

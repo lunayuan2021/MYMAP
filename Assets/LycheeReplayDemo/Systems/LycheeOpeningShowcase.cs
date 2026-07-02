@@ -409,13 +409,27 @@ public class LycheeOpeningShowcase : MonoBehaviour
 
     // ---------------------------------------------------------------- 数据填充
 
+    // C16: 判断队名是否像回放内部 id(纯小写英文/数字/连字符，或含 -l+数字，如 blue-l4)——这类不是正式中文/英文队名，兜底显"红队/蓝队"。
+    static bool IsInternalTeamId(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return true;
+        // 含中文或大写字母即视为正式队名(不兜底)；否则(纯小写字母/数字/连字符/空格)视为内部 id。
+        for (int i = 0; i < name.Length; i++)
+        {
+            char c = name[i];
+            if (c > 127 || (c >= 'A' && c <= 'Z')) return false;
+        }
+        return true;
+    }
+
     void PopulateContent()
     {
         LycheeReplayPlayerState red = FindCampPlayer(0);
         LycheeReplayPlayerState blue = FindCampPlayer(1);
 
-        SetTextValue(redNameText, red != null && !string.IsNullOrEmpty(red.name) ? red.name : "红队");
-        SetTextValue(blueNameText, blue != null && !string.IsNullOrEmpty(blue.name) ? blue.name : "蓝队");
+        // C16: 疑似回放内部 id(如 blue-l4/纯小写英文)不上屏，兜底"红队/蓝队"，避免开场第一屏红蓝错位观感差。
+        SetTextValue(redNameText, red != null && !string.IsNullOrEmpty(red.name) && !IsInternalTeamId(red.name) ? red.name : "红队");
+        SetTextValue(blueNameText, blue != null && !string.IsNullOrEmpty(blue.name) && !IsInternalTeamId(blue.name) ? blue.name : "蓝队");
         SetTextValue(redSubText, "岭南出发 · 贡运 " + ResolveFruitCount(red) + " 篓");
         SetTextValue(blueSubText, "岭南出发 · 贡运 " + ResolveFruitCount(blue) + " 篓");
         SetTextValue(infoText, ResolveMatchInfo());

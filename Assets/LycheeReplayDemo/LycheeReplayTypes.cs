@@ -164,6 +164,10 @@ public class LycheeReplayTaskState
     public bool active;
     public bool completed;
     public bool failed;
+    // E4(确认口径): 任务状态字段——从 tasks[] 状态读取，别假设 TASK_REFRESH/TASK_COMPLETE 事件 payload 一定带全量字段。
+    public string routeBucket;      // 路线桶: ROAD(官道)/WATER(水路)/MOUNTAIN(山路)/BRANCH(支线)，见 RouteBucketCn
+    public string failureReason;    // 任务失败原因(如 FAILED_TARGET_LOST)；null/空 = 不显示
+    public int protectionPlayerId;  // 保护期玩家；0 = 无保护期，非 0 = 仅该玩家可完成
 }
 
 [Serializable]
@@ -216,6 +220,9 @@ public class LycheeReplayScoreDetail
     public int tasks;
     public int bounty;   // 破关悬赏分（设计 §1.4 / §10.5 scoreDetail.bounty），6 个正向分项之一
     public int penalty;
+    // E3/F1(确认口径): 真实数据 scoreDetail 带 total(分项总计)。只作"分项总计"展示或兜底解释，
+    // 主总分/排名/胜负一律以 players[].totalScore 为准，不得用分项之和或 total 覆盖它。
+    public int total;
 }
 
 [Serializable]
@@ -236,6 +243,9 @@ public class LycheeReplayOverPlayer
     public int taskScore;
     public int penaltyScore;    // §10.5 顶层扣分（通常为负）
     public int bountyScore;     // §10.5 顶层破关悬赏分
+    // E3(确认口径): 主总分/排名/胜负只认 totalScore。真实数据还有 totalGold——那是兼容展示字段，
+    // 故意不建模(JsonUtility 静默忽略)，任何时候不得拿它覆盖 totalScore。惩罚触底时 totalScore=max(0,正向-惩罚)，
+    // 所以 UI 必须允许最终总分显示为 0(行和≠总分是正常现象)。
     public int totalScore;
     public LycheeReplayScoreDetail scoreDetail;
 }
@@ -280,7 +290,12 @@ public class LycheeReplayPayload
     public string taskId;
     public string contestId;
     public string contestType;
+    // E2(确认口径,审查报告第五部分): 胜方字段分三层，别混用——
+    //   winner        = WINDOW_CARD_REVEAL 单拍亮牌胜方("RED"/"BLUE"/"DRAW")
+    //   winnerTeamId  = WINDOW_CONTEST_END 三拍窗口最终胜方("RED"/"BLUE"/"DRAW")；真实数据该事件只带此字段、没有 winner
+    //   winnerPlayerId= 玩家级胜方(悬赏/整局 over)
     public string winner;
+    public string winnerTeamId;
     public string result;
     public string redCard;
     public string blueCard;
@@ -321,6 +336,11 @@ public class LycheeReplayPayload
     public int durationRound;
     public int startRound;
     public int expireRound;
+    // E5(确认口径): SCOUT_MARKER_* 常见字段是 playerId/targetNodeId/expireRound/remainingTriggers/processType/beforeRound/afterRound，
+    // 不要依赖 markerId(服务端无此字段)。真实数据 SCOUT_MARKER_ADD 带 remainingTriggers。
+    public int remainingTriggers;  // 探路标记剩余可触发次数(ADD/CONSUME)
+    public int beforeRound;        // SCOUT_MARKER_APPLY: 生效前处理耗时(回合)
+    public int afterRound;         // SCOUT_MARKER_APPLY: 生效后处理耗时(回合)
     public int completeRound;
     public int verifiedEffectiveRound;
     public int count;

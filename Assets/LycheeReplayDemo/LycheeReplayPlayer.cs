@@ -732,7 +732,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         url = AddCacheBust(url);
         using (var request = UnityEngine.Networking.UnityWebRequest.Get(url))
         {
-            request.timeout = 12;
+            // 12 秒对正式回放不够：文件几十 MB、内网/远程桌面下载超时会被掐断，
+            // 表现成和 404 一样的「找不到 replay.txt」。放宽到 60 秒；真正的 404 仍然秒回。
+            request.timeout = 60;
             yield return request.SendWebRequest();
             if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
@@ -744,8 +746,12 @@ public class LycheeReplayPlayer : MonoBehaviour
                     yield break;
                 }
             }
+            int bodyBytes = request.downloadHandler != null && request.downloadHandler.data != null
+                ? request.downloadHandler.data.Length : 0;
             string detail = sourceLabel + " response=" + request.responseCode +
-                " error=" + (string.IsNullOrEmpty(request.error) ? "<none>" : request.error);
+                " bytes=" + bodyBytes +
+                " error=" + (string.IsNullOrEmpty(request.error) ? "<none>" : request.error) +
+                " url=" + url;
             replayLoadDiagnostics += detail + "\n";
             Debug.LogWarning("Failed to fetch " + detail, this);
         }
@@ -1005,11 +1011,18 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (string.IsNullOrEmpty(text))
         {
             // 用户：replay.txt 路径找不到就明确报错，不要回落去读内置样例/烘焙样例回放。
+            // 注意「文件在但读不到」也走这里：服务器对无读权限的文件回 404（替换后 chmod 600、
+            // Mac 从下载目录拷来的带锁文件都会这样），必须把 HTTP 状态码带出来才能区分。
             string full = System.IO.Path.Combine(Application.streamingAssetsPath, ReplayRelative);
             startupError =
-                "回放加载失败：找不到回放文件 " + ReplayRelative + "。\n" +
+                "回放加载失败：读不到回放文件 " + ReplayRelative + "。\n" +
                 "查找路径：" + full + "\n" +
-                "请确认该文件存在且可读。已按要求不再回落到内置样例回放。";
+                "文件明明存在时，请检查：\n" +
+                "1) 替换后文件是否可读（Linux 上执行 chmod 644 replay.txt；HTTP 404 常见就是权限问题）；\n" +
+                "2) 文件名是否全小写 replay.txt（Linux 服务器区分大小写）；\n" +
+                "3) 文件较大时是否下载超时（error=timeout），换有线网络或等待重试。\n" +
+                "已按要求不再回落到内置样例回放。" +
+                (string.IsNullOrEmpty(replayLoadDiagnostics) ? "" : "\n\n加载记录：\n" + replayLoadDiagnostics.Trim());
             Debug.LogError("Replay not found at " + full + "; not falling back to bundled sample (per design).", this);
             return;
         }
@@ -1379,9 +1392,6 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
         useRuntimeHud = true;
-        Debug.Log("[RuntimeHud-DIAG] CreateRuntimeHud useRuntimeHud=" + useRuntimeHud
-            + " existing=" + (GetComponent<LycheeReplayRuntimeHud>() != null)
-            + " frames=" + frames.Count);
 #endif
         if (!useRuntimeHud) return;
         runtimeHud = GetComponent<LycheeReplayRuntimeHud>();
@@ -2069,8 +2079,12 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type == "WINDOW_CONTEST_END")
         {
+            // E2(确认口径): 三拍窗口最终胜方读 payload.winnerTeamId("RED"/"BLUE"/"DRAW")——真实数据该事件**没有** winner 字段，
+            // 旧代码读 payload.winner 恒为空、全靠 redPoint/bluePoint 兜底撞对。winner 只在单拍 WINDOW_CARD_REVEAL 用；
+            // 玩家级胜负(悬赏/over)用 winnerPlayerId。保留 winner 兜底只为兼容旧数据。
+            string contestWinner = !string.IsNullOrEmpty(payload.winnerTeamId) ? payload.winnerTeamId : payload.winner;
             if (runtimeHud != null)
-                runtimeHud.ShowCombatEnd(round, payload.winner, payload.redPoint, payload.bluePoint);
+                runtimeHud.ShowCombatEnd(round, contestWinner, payload.redPoint, payload.bluePoint);
             // 对抗结束：清掉缓存节点，避免跳转回放后过期位置被误用；聚焦计时到期镜头自然拉远
             hasContestFocus = false;
             return;
@@ -2093,11 +2107,11 @@ public class LycheeReplayPlayer : MonoBehaviour
                 pendingOpeningRound = round;
                 return;
             }
-            int dispatchedCount = SquadMemberCount(payload);
             if (runtimeHud != null)
             {
                 // 用干净队名（红队/蓝队），不带 #2002·blue-l4 内部串——状态条窄，verbose 名会撑爆溢出。
-                runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 派出小分队 x" + dispatchedCount + " · 正在 " + DisplayNode(payload.targetNodeId) + " 执行 " + SquadActionCn(payload.action));
+                // C11: 去掉"xN"人数文案(§3.7 1/2 是提交成本非人数)，只保留派出小分队+动作。
+                runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 派出小分队 · 正在 " + DisplayNode(payload.targetNodeId) + " 执行 " + SquadActionCn(payload.action));
             }
             ShowKeyEventIllustration(message, payload, round);
             ShowObstacleCauseCue(payload.targetNodeId);
@@ -2113,15 +2127,30 @@ public class LycheeReplayPlayer : MonoBehaviour
 
         if (message.type.StartsWith("SQUAD_", StringComparison.Ordinal))
         {
+            // E1(确认口径): 服务端小分队事件全集 = DISPATCH/SCOUT/CLEAR/REINFORCE/WEAKEN/FAILED(+*_SUCCESS 变体)。
+            // 各事件实际字段(以真实回放为准)：DISPATCH=playerId/action/targetNodeId/completeRound；
+            // SCOUT=playerId/targetNodeId(无 action)；CLEAR=playerId/targetNodeId；
+            // REINFORCE/WEAKEN=playerId/targetNodeId/before/after(防守值)；FAILED=action/targetNodeId(**常无 playerId**，
+            // 靠 BackfillSquadPayloadPlayer 从在途小队回填；不读也不展示 payload.reason——确认口径：失败不展示原因)。
             BackfillSquadPayloadPlayer(payload);
             if (runtimeHud != null)
             {
                 string actCn = SquadActionCn(string.IsNullOrEmpty(payload.action) ? message.type : payload.action);
                 string verb = message.type == "SQUAD_FAILED" ? "未能完成" : "完成";
-                string extra = (message.type.Contains("WEAKEN") || message.type.Contains("REINFORCE"))
-                    ? "  防御 " + payload.defenseBefore + " → " + payload.defenseAfter : "";
-                // 「XX队小分队 在 站点名 完成/未能完成 动作」——带站点中文名。
-                runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 小分队 在 " + DisplayNode(payload.targetNodeId) + " " + verb + " " + actCn + extra);
+                string extra = "";
+                if (message.type.Contains("WEAKEN") || message.type.Contains("REINFORCE"))
+                {
+                    // 确认口径字段是 before/after；defenseBefore/defenseAfter 是旧命名兜底(两套都认，先具体后通用)。
+                    int defBefore = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? payload.defenseBefore : Mathf.RoundToInt(payload.before);
+                    int defAfter = payload.defenseBefore != 0 || payload.defenseAfter != 0 ? payload.defenseAfter : Mathf.RoundToInt(payload.after);
+                    extra = "  防守 " + defBefore + " → " + defAfter;
+                }
+                if (message.type == "SQUAD_SCOUT" || message.type == "SQUAD_SCOUT_SUCCESS")
+                    // 探路生效的价值是"目标节点获得探路标记"，比笼统的"完成 探路"更能解释后续减时。
+                    runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 小分队 探路生效 · " + DisplayNode(payload.targetNodeId) + " 获得探路标记");
+                else
+                    // 「XX队小分队 在 站点名 完成/未能完成 动作」——带站点中文名。
+                    runtimeHud.ShowDispatch(TeamShortName(payload.playerId) + " 小分队 在 " + DisplayNode(payload.targetNodeId) + " " + verb + " " + actCn + extra);
             }
             if (message.type == "SQUAD_CLEAR" || message.type == "SQUAD_CLEAR_SUCCESS")
                 ResolveSquadResult(payload, round, true);
@@ -2151,7 +2180,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             // 对抗类事件（设卡/攻坚/窗口/强行）延长聚焦时间并拉近到 15 米，让血条与对抗演出留在镜头里；
             // 普通事件给 30 米只轻微居中——平时保持远景看全局，是演出节奏的硬要求。
             bool combatEvent = message.type.Contains("GUARD") ||
-                message.type.Contains("WINDOW") ||
+                (message.type.Contains("WINDOW") && message.type != "WINDOW_EFFECTIVE_COMBAT") ||   // C15: 有效对抗是服务端审计记录(§9.3)，不抢镜头
                 message.type.Contains("FORCED") ||
                 message.type == "SQUAD_CLEAR" ||
                 message.type == "SQUAD_CLEAR_SUCCESS" ||
@@ -2171,6 +2200,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     static bool ShouldShowWorldPulse(string eventType)
     {
         if (string.IsNullOrEmpty(eventType)) return false;
+        if (eventType == "WINDOW_EFFECTIVE_COMBAT") return false;   // C15: 服务端审计记录(§9.3)，不冒世界脉冲(每拍一条=多余刀剑脉冲)，左侧文字流仍保留
         if (eventType.Contains("GUARD") || eventType.Contains("WINDOW") || eventType.Contains("FORCED")) return true;
         if (eventType.Contains("TASK") || eventType.Contains("BOUNTY")) return true;
         if (eventType.Contains("DELIVER") || eventType.Contains("VERIFY")) return true;
@@ -2366,7 +2396,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "SQUAD_DISPATCH")
         {
             title = team + "小分队出发";
-            subtitle = team + " 派出 " + SquadMemberCount(payload) + " 人前往 " + target;
+            subtitle = team + " 派出小分队前往 " + target;   // C11: §3.7 1/2 是单次提交成本非人数，不再杜撰"N 人"
             left = TacticName(PayloadTactic(payload));
             right = "预计 R" + PayloadArrivalRound(payload, round);
             center = "出发";
@@ -2377,7 +2407,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             title = team + "小分队抵达";
             subtitle = team + " 抵达 " + target;
-            left = TacticName(payload.tactic);
+            left = TacticName(PayloadTactic(payload));   // C7: 走 PayloadTactic 三层回退(tactic→action→processType)，裸名 SQUAD_SCOUT/WEAKEN/REINFORCE 也能出中文
             right = "准备生效";
             center = "抵达";
             imageIndex = 1;
@@ -2449,7 +2479,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             title = "强制通行";
             subtitle = team + " 强行通过 " + target;
             left = "时间税";
-            right = payload.timeTax > 0 ? payload.timeTax + "回合" : "额外等待";
+            right = payload.timeTax > 0 ? payload.timeTax + "帧" : "额外等待";   // C2: §4.5 1点时间税=1个结算帧
             imageIndex = 0;
         }
         else if (type == "FORCED_PASS_END")
@@ -2457,7 +2487,7 @@ public class LycheeReplayPlayer : MonoBehaviour
             title = "强制通行结束";
             subtitle = team + " 恢复推进";
             left = target;
-            right = "道路重新开放";
+            right = "本队已通过·阻挡仍在";   // C1: §4.5 强制通行只让本队本次通过，不清除设卡/障碍
             imageIndex = 2;
         }
         else if (type == "ACTION_REJECTED" || type == "INVALID_ACTION")
@@ -2825,7 +2855,8 @@ public class LycheeReplayPlayer : MonoBehaviour
                     squad.arrivedRealTime = Time.time;
                     squad.arrivedElapsed = 0f;
                     SpawnEventPulse(squad.end, "小队抵达 x" + squad.memberCount, new Color(1f, 0.72f, 0.16f), ResolveEventIcon("SQUAD_ARRIVE"));
-                    SpawnClearActionFx(squad.end, TeamColor(squad.playerId), "清障中", true);
+                    // C6: 抵达 FX 文案按 squad.tactic 动态生成(清障/增援/削弱/探路)，不再对增援/削弱/探路小队硬写"清障中"。
+                    SpawnClearActionFx(squad.end, TeamColor(squad.playerId), TacticName(squad.tactic) + "中", true);
                     SetEventFocus(squad.root.transform, 2.8f, 13.5f);
                     if (!string.IsNullOrEmpty(squad.targetNodeId))
                         LycheeContestBuildingXray.RequestXray(squad.targetNodeId, 3.0f);
@@ -3520,7 +3551,9 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (container == null) continue;
             foreach (MeshFilter filter in container.GetComponentsInChildren<MeshFilter>())
             {
-                if (filter.sharedMesh == null) continue;
+                // 不可读网格必须跳过：烘焙网格批量去了 Read/Write（省 WASM 堆），万一水面网格被误伤，
+                // 读 .vertices 会抛异常；跳过=按本方法既有约定优雅降级为"该处无水"。
+                if (filter.sharedMesh == null || !filter.sharedMesh.isReadable) continue;
                 Vector3[] vertices = filter.sharedMesh.vertices;
                 int[] triangles = filter.sharedMesh.triangles;
                 Transform t = filter.transform;
@@ -3855,11 +3888,11 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static string TacticName(string tactic)
     {
-        if (tactic == "WEAKEN") return "削弱";
-        if (tactic == "REINFORCE") return "增援";
-        if (tactic == "CLEAR" || tactic == "SQUAD_CLEAR" || tactic == "SQUAD_CLEAR_SUCCESS" || tactic == "CLEAR_OBSTACLE") return "清障";
-        if (tactic == "SCOUT") return "侦察";
-        return string.IsNullOrEmpty(tactic) ? "行动" : tactic;
+        // E1/E5(确认口径): 统一走 SquadActionCn 的 Contains 匹配——action/tactic 的值可能带 SQUAD_ 前缀
+        // (真实数据 DISPATCH.action="SQUAD_SCOUT" 等)也可能是裸名(WEAKEN/CLEAR)，旧写法漏配 SQUAD_SCOUT →
+        // 世界层小队跟随标签裸英文"SQUAD_SCOUT"上屏；且 SCOUT 必须译"探路"(不用"侦察/侦路")。
+        // 未知值兜底"行动"，不再把英文原串上屏。
+        return SquadActionCn(tactic);
     }
 
     static string ScoreText(int score)
@@ -3930,17 +3963,18 @@ public class LycheeReplayPlayer : MonoBehaviour
 
     static string TaskTemplateName(string templateId)
     {
+        // C4: 对齐 §5.1 九模板 T01/02/04/06/08/11/12/13/14；删杜撰的 T05/T07/T09/T10，补真实携带的 T06/T12/T13/T14。
         switch (templateId)
         {
             case "T01": return "限时过关";
             case "T02": return "抵驿催运";
             case "T04": return "清障任务";
-            case "T05": return "争柜取冰";
-            case "T07": return "官凭验牒";
+            case "T06": return "争马换乘";
             case "T08": return "码头争船";
-            case "T09": return "宫门催运";
-            case "T10": return "御前验鲜";
             case "T11": return "栈道复核";
+            case "T12": return "官道关验";
+            case "T13": return "水陆联运";
+            case "T14": return "山口急递";
             default: return "皇榜";
         }
     }
@@ -4279,6 +4313,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (eventType == "TASK_REFRESH" || eventType == "TASK_SPAWN") return "任务刷新";
         if (eventType == "DELIVER_SUCCESS") return "交付成功";
         if (eventType == "VERIFY_GATE_COMPLETE") return "验核通过";
+        // C5: 终局急策按 rushTactic 分疾行令/护果令/破关令(§5.6)，不再泛化"冲刺策略"。
+        if (eventType == "RUSH_TACTIC_USE") return string.IsNullOrEmpty(payload.rushTactic) ? "冲刺策略" : ActionName(payload.rushTactic);
         return ShortEventName(eventType);
     }
 
@@ -4539,7 +4575,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         {
             EnsureGuiStyles();
             float errorPanelWidth = Mathf.Min(760f, Screen.width - 48f);
-            float errorPanelHeight = Mathf.Min(260f, Screen.height - 48f);
+            // 340：报错文案带「常见原因 3 条 + 加载记录(HTTP 状态码)」约 11 行，260 会裁掉尾部诊断行。
+            float errorPanelHeight = Mathf.Min(340f, Screen.height - 48f);
             Rect errorPanel = new Rect((Screen.width - errorPanelWidth) * 0.5f, (Screen.height - errorPanelHeight) * 0.5f, errorPanelWidth, errorPanelHeight);
             GUI.Box(errorPanel, GUIContent.none);
             GUI.Label(new Rect(errorPanel.x + 24f, errorPanel.y + 22f, errorPanel.width - 48f, errorPanel.height - 44f), startupError, startupErrorStyle);

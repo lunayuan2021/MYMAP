@@ -1,0 +1,6 @@
+<linker>
+  <!-- stripEngineCode=true 配套：场景里无序列化碰撞体，引擎裁剪会删掉 Collider 类型，
+       而回放运行时用 CreatePrimitive 创建的物体自带碰撞体组件，缺类会报错刷屏。
+       整模块保留物理（体积代价很小），代替以前"整体关闭引擎裁剪"的兜底。 -->
+  <assembly fullname="UnityEngine.PhysicsModule" preserve="all"/>
+</linker>

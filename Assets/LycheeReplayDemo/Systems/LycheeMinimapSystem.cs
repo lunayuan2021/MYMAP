@@ -267,9 +267,10 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
             minimapTexture.Create();
             minimapCamera.targetTexture = minimapTexture;
 #if UNITY_WEBGL && !UNITY_EDITOR
-            // WebGL：相机常开，由 URP 正常渲染循环把它渲到 targetTexture（避开 SubmitRenderRequest 的 AOT 崩、
-            // 也避开 Camera.Render 的屏幕泼溅）。targetTexture 已设，只渲到纹理、不上主屏。
-            minimapCamera.enabled = true;
+            // WebGL：相机默认关，由 RenderLoop 每 RenderInterval 脉冲式打开一帧（URP 正常循环渲到
+            // targetTexture，避开 SubmitRenderRequest 的 AOT 崩、也避开 Camera.Render 的屏幕泼溅）。
+            // 之前"相机常开"让整个场景每帧被剔除+提交两遍，是老机器卡顿主因之一。
+            minimapCamera.enabled = false;
 #else
             minimapCamera.enabled = false;   // 桌面/编辑器：按需 SubmitRenderRequest 渲染
 #endif
@@ -300,7 +301,22 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         yield return null;
         while (true)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!Disabled)
+            {
+                RenderMinimapOnce();   // WebGL 下只做 RT/RawImage 绑定兜底，不主动渲染
+                if (minimapCamera != null && minimapTexture != null)
+                {
+                    // 脉冲渲染：开相机让 URP 正常循环渲一帧到 targetTexture（与主相机同一条
+                    // AOT 安全路径），下一帧立刻关掉。整景二次渲染从每帧降为每 0.6s 一帧。
+                    minimapCamera.enabled = true;
+                    yield return null;
+                    if (minimapCamera != null) minimapCamera.enabled = false;
+                }
+            }
+#else
             if (!Disabled) RenderMinimapOnce();
+#endif
             yield return wait;
         }
     }
@@ -319,8 +335,8 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         //   • RenderPipeline.SubmitRenderRequest 是「值类型泛型」(TRequest=struct SingleCameraRequest)，IL2CPP AOT 不生成代码
         //     → `RuntimeError: null function` 硬崩溃(WASM trap、try/catch 拦不住)，把整个程序打死(HUD/音乐/全没)。
         //   • Camera.Render() 在 URP 下又会把小地图泼到主屏幕(左上角叠一层) 且同样命中 AOT 缺口。
-        // 改为：相机 enabled=true(见 Setup)，由 URP **正常渲染循环**把它渲到 targetTexture——和主相机同一条已验证可用、
-        //   AOT 安全的路径；这里只保证 RawImage 绑了纹理即可。
+        // 改为：RenderLoop 每 RenderInterval 把相机 enabled 脉冲一帧，由 URP **正常渲染循环**渲到
+        //   targetTexture——和主相机同一条已验证可用、AOT 安全的路径；这里只保证 RawImage 绑了纹理即可。
         return;
 #else
         // 桌面/编辑器(Mono JIT，无 AOT 问题)：用 URP 单相机渲染请求（精确、同步、按需）。
@@ -755,13 +771,19 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         weatherMarkerText.fontStyle = FontStyle.Bold;
         weatherMarkerText.alignment = TextAnchor.MiddleCenter;
         weatherMarkerText.color = Color.white;
+        // 默认 verticalOverflow=Truncate + 22号字塞24高矩形：LXGW 在 WebGL 行高≈字号×1.25+，整行会被裁没(编辑器可见、真机隐身)。
+        weatherMarkerText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        weatherMarkerText.verticalOverflow = VerticalWrapMode.Overflow;
         weatherMarkerText.raycastTarget = false;
         weatherMarkerText.enabled = false;
     }
 
     Vector3 WeatherAnchor(LycheeReplayWeatherState weather)
     {
-        string region = NormalizeWeatherRegion(weather == null ? null : weather.region, weather == null ? null : weather.type);
+        string type = weather == null ? null : weather.type;
+        // C12: 酷暑(HOT)是全图天气(§2.11 FULLSCREEN_OVERLAY)，锚点用全图中心，不再摆到中段节点群质心误导成局部天气。
+        if (!string.IsNullOrEmpty(type) && type.Trim().ToUpperInvariant() == "HOT") return mapCenter;
+        string region = NormalizeWeatherRegion(weather == null ? null : weather.region, type);
         if (TryWeatherRegionCenter(region, out Vector3 center)) return center;
         return mapCenter;
     }
@@ -791,13 +813,16 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         string id = anchor.stationId ?? string.Empty;
         MapStationType type = anchor.stationType;
         string combined = (id + " " + type + " " + anchor.displayName).ToUpperInvariant();
+        // C13: 按站点类型/名称判定天气区，不再写死调测图站点 ID(原把 S10 武关误当水区、换图必错位)。
+        //      MapStationType 已有 WaterStation/Dock/MountainNode/Pass/Plain 专用类型，与 WeatherFxSystem 同口径。
         if (region == "WATER")
             return type == MapStationType.WaterStation || type == MapStationType.Dock ||
-                combined.Contains("WATER") || combined.Contains("DOCK") || id == "S04" || id == "S05" || id == "S10";
+                combined.Contains("WATER") || combined.Contains("DOCK");
         if (region == "MOUNTAIN")
-            return combined.Contains("MOUNTAIN") || combined.Contains("PASS") || id == "S06" || id == "S08";
+            return type == MapStationType.MountainNode || type == MapStationType.Pass ||
+                combined.Contains("MOUNTAIN") || combined.Contains("PASS");
         if (region == "PLAIN")
-            return id == "S07" || id == "S09" || id == "S11" || id == "S13";
+            return type == MapStationType.Plain || combined.Contains("PLAIN");
         return true;
     }
 
@@ -808,7 +833,7 @@ public sealed class LycheeMinimapSystem : MonoBehaviour
         if (!string.IsNullOrEmpty(r) && r != "ALL") return r;
         if (t == "HEAVY_RAIN") return "WATER";
         if (t == "MOUNTAIN_FOG") return "MOUNTAIN";
-        if (t == "HOT") return "PLAIN";
+        if (t == "HOT") return "ALL";   // C12: 酷暑是全图天气，不落到 PLAIN 局部质心(WeatherAnchor 也已提前拦截返回全图中心)
         return "ALL";
     }
 
