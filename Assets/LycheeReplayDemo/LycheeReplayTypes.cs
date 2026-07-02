@@ -354,4 +354,12 @@ public class LycheeReplayPayload
     public float before;
     public float after;
     public float loss;
+    // 强制通行(FORCED_PASS_START)：阻挡来源 + 总耗时(时间税另由 timeTax 承载)。契约见 UI↔字段表。
+    public string blockType;
+    public int totalRound;
+    // 残留通行税(OBSTACLE_RESIDUAL_TAX 事件顶层)：非清障方通过被清障节点的额外加帧 + 清障方 + 截止帧。
+    public int extraRound;
+    public string clearedByTeamId;
+    public int clearedByPlayerId;
+    public int untilRound;
 }

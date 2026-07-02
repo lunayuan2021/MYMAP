@@ -4,6 +4,7 @@ CardBorders/border_event_squad.png
 CardBorders/border_event_verification.png
 CardBorders/border_event_weather.png
 EventIcons/icon_event_action_invalid.png
+EventIcons/icon_event_action_reject.png
 EventIcons/icon_event_bounty.png
 EventIcons/icon_event_clear_obstacle.png
 EventIcons/icon_event_contest_swords.png
@@ -19,6 +20,7 @@ EventIcons/icon_event_move_progress.png
 EventIcons/icon_event_node_enter.png
 EventIcons/icon_event_player_status.png
 EventIcons/icon_event_process_progress.png
+EventIcons/icon_event_residual_tax.png
 EventIcons/icon_event_resource_claim.png
 EventIcons/icon_event_rush_phase.png
 EventIcons/icon_event_squad_arrive.png

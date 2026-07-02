@@ -2206,7 +2206,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (eventType.Contains("TASK") || eventType.Contains("BOUNTY")) return true;
         if (eventType.Contains("DELIVER") || eventType.Contains("VERIFY")) return true;
         if (eventType == "PROCESS_START" || eventType == "PROCESS_COMPLETE") return true;
-        if (eventType == "RESOURCE_CLAIM" || eventType == "RESOURCE_USE") return true;
+        // 徽章去杂(方案B): RESOURCE_CLAIM 不再冒世界脉冲——领资源时站点已有资源图标行(现已封顶/领取中收起)+左侧事件流+进度条，
+        // 再冒"获得X"飘字就是叠一堆。RESOURCE_USE(用冰鉴/马等)保留脉冲(有独立车队演出、语义是"使用"非"领取")。
+        if (eventType == "RESOURCE_USE") return true;
         if (eventType == "SQUAD_CLEAR" ||
             eventType == "SQUAD_CLEAR_SUCCESS" ||
             eventType == "SQUAD_FAILED" ||
@@ -2485,9 +2487,11 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "FORCED_PASS_START")
         {
             title = "强制通行";
-            subtitle = team + " 强行通过 " + target;
-            left = "时间税";
-            right = payload.timeTax > 0 ? payload.timeTax + "帧" : "额外等待";   // C2: §4.5 1点时间税=1个结算帧
+            // 契约表: subtitle 带阻挡来源(blockType); 左=时间税(§4.5 1点=1结算帧); 右=总耗时(totalRound)。
+            string blockName = BlockSourceName(payload.blockType);
+            subtitle = team + " 强行通过 " + target + (string.IsNullOrEmpty(blockName) ? "" : "（" + blockName + "）");
+            left = payload.timeTax > 0 ? "时间税 +" + payload.timeTax + " 帧" : "额外等待";
+            right = payload.totalRound > 0 ? "总耗 " + payload.totalRound + " 帧" : "强行通过";
             imageIndex = 0;
         }
         else if (type == "FORCED_PASS_END")
@@ -4082,6 +4086,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         return "道路障碍";   // 兜底改中文
     }
 
+    // 强制通行阻挡来源(blockType)→中文：已知障碍码复用 ObstacleName；设卡类→"对方设卡"；空→null(卡上不加后缀)。
+    // 注：设计文档/契约表未给 blockType 取值枚举，此处防御式映射，待后端确认后可收敛。
+    static string BlockSourceName(string blockType)
+    {
+        if (string.IsNullOrEmpty(blockType)) return null;
+        string t = blockType.Trim().ToUpperInvariant();
+        if (t.Contains("GUARD")) return "对方设卡";
+        string obs = ObstacleName(blockType);
+        return obs == "道路障碍" ? "道路阻挡" : obs;
+    }
+
     /// <summary>动作被拒/非法动作的 errorCode（及个别英文 message）→ 中文，全部兜底中文，绝不上屏英文。</summary>
     public static string ErrorCodeName(string code)
     {
@@ -4323,6 +4338,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (eventType == "VERIFY_GATE_COMPLETE") return "验核通过";
         // C5: 终局急策按 rushTactic 分疾行令/护果令/破关令(§5.6)，不再泛化"冲刺策略"。
         if (eventType == "RUSH_TACTIC_USE") return string.IsNullOrEmpty(payload.rushTactic) ? "冲刺策略" : ActionName(payload.rushTactic);
+        // 残留通行税脉冲带上额外加帧数(契约表 extraRound)，让"多耗了多少"一眼可见。
+        if (eventType == "OBSTACLE_RESIDUAL_TAX") return payload.extraRound > 0 ? "残留税 +" + payload.extraRound + "帧" : "清障残留税";
         return ShortEventName(eventType);
     }
 
@@ -4358,6 +4375,7 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t == "MATCH_START" || t == "NODE_ENTER") return "icon_task.png";
         if (t.StartsWith("WINDOW", StringComparison.Ordinal)) return "EventIcons/icon_event_contest_swords.png";
         if (t == "OBSTACLE_CLEAR" || t == "SQUAD_CLEAR" || t == "SQUAD_CLEAR_SUCCESS") return "EventIcons/icon_event_clear_obstacle.png";
+        if (t == "OBSTACLE_RESIDUAL_TAX") return "EventIcons/icon_event_residual_tax.png";   // D4/D5 专属图标(JSON 未载时兜底)
         if (t == "GUARD_SET") return "EventIcons/icon_event_guard_set.png";
         if (t == "GUARD_BREAK") return "EventIcons/icon_event_guard_break.png";
         if (t.Contains("GUARD")) return "icon_guard.png";
@@ -4368,7 +4386,8 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
         if (t.StartsWith("PROCESS_", StringComparison.Ordinal)) return "icon_task.png";
         if (t.StartsWith("RUSH_", StringComparison.Ordinal)) return "EventIcons/icon_event_contest_swords.png";
-        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐（JSON 缺载时的正确兜底）
+        if (t == "ACTION_REJECTED") return "EventIcons/icon_event_action_reject.png"; // 行动被拒专属图(用户新做，区别于无效)
+        if (t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐（JSON 缺载时的正确兜底）
         if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
         if (t.StartsWith("COST_", StringComparison.Ordinal)) return "icon_resource_passtoken.png";
         if (t == "MATCH_END") return "EventIcons/icon_event_match_end.png"; // 与 JSON 对齐（原 delivery_success 与 verify 撞图且偏离 JSON）

@@ -22,7 +22,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const float PillarFadeSeconds = 1.1f;
     const float RingFlashSeconds = 0.5f;
     const float ResourceHoverHeight = 4.55f;
-    const float StationBadgeSlotSpacing = 1.92f;
+    // 站点徽章去杂(方案A+B+D，交接见 Docs/交接_站点徽章去杂设计_20260702.md)：领任务/领资源时资源图标一长排太多、太乱。
+    const float StationBadgeSlotSpacing = 1.35f;   // 方案D: 徽章行间距收紧(原1.92)，配合封顶后整行更紧凑
+    const int MaxResourceIconsShown = 3;           // 方案A: 资源图标行封顶显示数(用户定3)，多出的收成"+K"角标；已盖章(刚领到)的优先占名额
     const float BadgeSpriteScale = 1.48f;
     const float ObstaclePlaqueWidth = 1.18f;
     const float ObstaclePlaqueHeight = 0.38f;
@@ -32,11 +34,12 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     const int RingSegments = 32;
     const float RingRadius = 0.8f;
     // 处理/核验进度：原为环形，改成「队色文字 + 队色横向进度条」（用户要求：红队红/蓝队蓝、字要大、要好看）。
-    const float ProgressBarWidth = 2.1f;       // 进度条满宽（世界单位；billboard 恒定屏幕大小）
-    const float ProgressBarThickness = 0.24f;  // 填充条粗细（LineRenderer 宽）
-    const float ProgressBarBorder = 0.075f;    // 底条比填充条外扩，形成深色描边
-    const float ProgressBarLabelY = 0.52f;     // 「核验中/转运中…」文字在条上方的偏移（字加大后上移）
-    const float ProgressBarDetailY = -0.40f;   // 「已用/总」帧数在条下方的偏移
+    // 用户点名进度条"整体小一点、条细一点、字更小、字别超出半透明背板"：以下一批同步收小(原 2.1/0.24/0.075/0.52/-0.40)。
+    const float ProgressBarWidth = 1.7f;       // 进度条满宽（世界单位；billboard 恒定屏幕大小）——收窄
+    const float ProgressBarThickness = 0.15f;  // 填充条粗细（LineRenderer 宽）——变细
+    const float ProgressBarBorder = 0.05f;     // 底条比填充条外扩，形成深色描边——同步收
+    const float ProgressBarLabelY = 0.40f;     // 「核验中/转运中…」文字在条上方的偏移（字收小后下移贴近条）
+    const float ProgressBarDetailY = -0.32f;   // 「已用/总」帧数在条下方的偏移
     const int ProgressSortBase = 23980;        // 进度条各层 sortingOrder 基准（背板 < 槽 < 填充 < 文字）
 
     static readonly Color RedTeamColor = new Color(0.95f, 0.18f, 0.11f, 1f);
@@ -78,6 +81,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public Transform row;
         public float bobSeed;
         public readonly Dictionary<string, ResourceIcon> icons = new Dictionary<string, ResourceIcon>();
+        public TextMesh overflowChip;   // 方案A: 封顶后多出的资源种类数"+K"角标(懒建，无溢出时隐藏)
     }
 
     sealed class PillarMarker
@@ -105,6 +109,10 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public float bobSeed;
         // 盖章底色 = 真正完成清障那一队的队色（默认中性金，收到带队号的事件后改写）。
         public Color teamColor = GoldColor;
+        // D5: 残留通行税持续态——清障后税期内(remainRound>0)在同一位置改显 icon_event_residual_tax + "剩N帧"(清障方队色)。
+        public GameObject residueRoot;
+        public SpriteRenderer residueRenderer;
+        public TextMesh residueLabel;
     }
 
     sealed class ProgressRing
@@ -121,6 +129,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         public string processTypeKey;   // 该条对应的 processType；换了类型=新一段处理，需重建
         public int lastElapsed = -1;
         public float finishStart = -1f;
+        public string nodeId;   // 方案B: 该进度条所在节点——用于领取/处理期间收起同站点的静态资源图标行
     }
 
     sealed class ScoutMarker
@@ -139,7 +148,13 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     readonly Dictionary<string, PillarMarker> taskPillars = new Dictionary<string, PillarMarker>();
     readonly Dictionary<string, PillarMarker> bountyPillars = new Dictionary<string, PillarMarker>();
     readonly Dictionary<string, ObstacleBadge> obstacleBadges = new Dictionary<string, ObstacleBadge>();
+    // D5: 每帧收集各节点的残留通行税状态(node.obstacleResidue)，供 badge 渲染"残留税 剩N帧"。
+    readonly Dictionary<string, LycheeReplayObstacleResidueState> obstacleResidueByNode = new Dictionary<string, LycheeReplayObstacleResidueState>();
     readonly Dictionary<int, ProgressRing> rings = new Dictionary<int, ProgressRing>();
+    // 方案B: 本帧"正在被领取/处理"(有活动进度条)的节点集合——LayoutStationBadgeRow 据此收起该站静态资源图标行。
+    readonly HashSet<string> claimingNodes = new HashSet<string>();
+    // 方案A: LayoutStationBadgeRow 重排用的复用槽位缓冲(避免每帧每站点 new List 产生 GC)。
+    readonly List<Transform> badgeSlotBuffer = new List<Transform>(8);
     // 探路标记（SCOUT_MARKER_ADD/APPLY/CONSUME/EXPIRE）：绑定节点、到期移除。
     // D2: key=nodeId|playerId 复合键——两队同点各自独立标记(队色区分归属)、EXPIRE/CONSUME 只删本队的，
     // 修原按 nodeId 单键导致的"任一队过期就删掉两队共享标记→对方有效标记提前消失"bug(§3.6/§9.3 标记公开可见归属)。
@@ -225,6 +240,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             ClearAllMarkers(); // SeekToRound 回跳 → 全量重建
         lastSeenRound = current.round;
 
+        RebuildClaimingNodes();   // 方案B: 先算出本帧"正在领取/处理"的节点，供下面的资源/障碍徽章行收起静态图标
         RefreshGuardMarkers(current);
         RefreshResourceMarkers(current);
         RefreshObstacleBadges(current);
@@ -501,6 +517,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         LayoutStationBadgeRow(marker);
     }
 
+    // 站点徽章去杂(方案A+B+D)：领任务/领资源时一站点常挤 7 种资源图标 + 障碍 = 一长排太多太乱。
+    // A: 资源图标封顶 MaxResourceIconsShown、多出收"+K"角标(已盖章的优先显)；B: 该站有活动进度条时整行收起；
+    // D: 间距收紧(StationBadgeSlotSpacing)。改动理由/取舍见 Docs/交接_站点徽章去杂设计_20260702.md，别改回全量常显。
     void LayoutStationBadgeRow(ResourceMarker marker)
     {
         if (marker == null || marker.row == null) return;
@@ -511,25 +530,101 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             && obstacle != null
             && obstacle.root != null;
 
-        int total = marker.icons.Count + (includeObstacle ? 1 : 0);
-        if (total <= 0) return;
+        // B: 该站点正在被领取/处理(有活动进度条)→ 收起静态资源图标行(进度条已表达"在干嘛")，只留障碍徽章。
+        bool claiming = !string.IsNullOrEmpty(marker.nodeId) && claimingNodes.Contains(marker.nodeId);
 
-        int index = 0;
-        foreach (string type in ResourceOrder)
+        // A: 选出要显示的资源图标(≤封顶)。已盖章(刚领到 resultMarked)的优先占名额，别把刚领的藏了；其余按 ResourceOrder 补满。
+        badgeSlotBuffer.Clear();
+        int presentCount = 0;
+        if (!claiming)
         {
-            if (!marker.icons.TryGetValue(type, out ResourceIcon icon) || icon == null || icon.root == null) continue;
-            icon.root.transform.localPosition = BadgeSlotPosition(index, total);
-            index++;
+            foreach (string type in ResourceOrder)   // pass1: 盖章的优先入选
+            {
+                if (!TryLiveResourceIcon(marker, type, out ResourceIcon icon)) continue;
+                presentCount++;
+                if (icon.resultMarked && badgeSlotBuffer.Count < MaxResourceIconsShown)
+                    badgeSlotBuffer.Add(icon.root.transform);
+            }
+            foreach (string type in ResourceOrder)   // pass2: 其余库存补满封顶名额
+            {
+                if (badgeSlotBuffer.Count >= MaxResourceIconsShown) break;
+                if (!TryLiveResourceIcon(marker, type, out ResourceIcon icon) || icon.resultMarked) continue;
+                badgeSlotBuffer.Add(icon.root.transform);
+            }
+        }
+        else
+        {
+            foreach (string type in ResourceOrder)
+                if (TryLiveResourceIcon(marker, type, out _)) presentCount++;
         }
 
+        // 设可见性：入选的显示，其余(被封顶挤掉/领取中)隐藏。(此时 buffer 里只有资源图标，chip/障碍尚未加入)
+        foreach (string type in ResourceOrder)
+        {
+            if (!TryLiveResourceIcon(marker, type, out ResourceIcon icon)) continue;
+            bool show = badgeSlotBuffer.Contains(icon.root.transform);
+            if (icon.root.activeSelf != show) icon.root.SetActive(show);
+        }
+
+        // A: 封顶挤掉的种类收成"+K"角标(领取中整行收起、不显角标)。
+        int hiddenExtra = presentCount - badgeSlotBuffer.Count;
+        bool showChip = !claiming && hiddenExtra > 0;
+        Transform chip = EnsureOverflowChip(marker, showChip ? hiddenExtra : 0);
+        if (chip != null) badgeSlotBuffer.Add(chip);
+
+        // 障碍徽章始终占一个槽(节点固有信息，不随领取收起)。
         if (includeObstacle)
         {
             Transform obstacleTransform = obstacle.root.transform;
             if (obstacleTransform.parent != marker.row)
                 obstacleTransform.SetParent(marker.row, false);
-            obstacleTransform.localPosition = BadgeSlotPosition(index, total);
             obstacleTransform.localRotation = Quaternion.identity;
             obstacleTransform.localScale = Vector3.one;
+            badgeSlotBuffer.Add(obstacleTransform);
+        }
+
+        int total = badgeSlotBuffer.Count;
+        for (int i = 0; i < total; i++)
+            badgeSlotBuffer[i].localPosition = BadgeSlotPosition(i, total);
+    }
+
+    bool TryLiveResourceIcon(ResourceMarker marker, string type, out ResourceIcon icon)
+    {
+        return marker.icons.TryGetValue(type, out icon) && icon != null && icon.root != null;
+    }
+
+    // 方案A: 懒建"+K"溢出角标(billboard 恒定屏幕大小、中性金)；count<=0 时隐藏并返回 null。
+    Transform EnsureOverflowChip(ResourceMarker marker, int count)
+    {
+        if (count <= 0)
+        {
+            if (marker.overflowChip != null && marker.overflowChip.transform.parent != null)
+                marker.overflowChip.transform.parent.gameObject.SetActive(false);
+            return null;
+        }
+        if (marker.overflowChip == null)
+        {
+            GameObject chipRoot = new GameObject("OverflowChip");
+            chipRoot.transform.SetParent(marker.row, false);
+            chipRoot.AddComponent<LycheeReplayBillboard>();
+            chipRoot.AddComponent<LycheeLabelUpgradeOptOut>();
+            marker.overflowChip = CreateWorldLabel(chipRoot.transform, Vector3.zero, "", GoldColor, 40, 0.085f, false);
+        }
+        Transform chipParent = marker.overflowChip.transform.parent;
+        if (!chipParent.gameObject.activeSelf) chipParent.gameObject.SetActive(true);
+        marker.overflowChip.text = "+" + count;
+        return chipParent;
+    }
+
+    // 方案B: 汇总本帧"正在领取/处理"的节点(有活动、未结束淡出的进度条)——供 LayoutStationBadgeRow 收起同站静态资源图标行。
+    void RebuildClaimingNodes()
+    {
+        claimingNodes.Clear();
+        foreach (KeyValuePair<int, ProgressRing> pair in rings)
+        {
+            ProgressRing ring = pair.Value;
+            if (ring == null || ring.root == null || ring.finishStart >= 0f) continue;   // 已结束/淡出的不算
+            if (!string.IsNullOrEmpty(ring.nodeId)) claimingNodes.Add(ring.nodeId);
         }
     }
 
@@ -662,11 +757,12 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         _ => GoldColor
     };
 
-    // ------------------------------------------------------------------ 2b. 障碍常驻徽章
+    // ------------------------------------------------------------------ 2b. 障碍常驻徽章 + D5 清障残留通行税持续态徽标
 
     void RefreshObstacleBadges(LycheeReplayFrame frame)
     {
         activeObstacleNodes.Clear();
+        obstacleResidueByNode.Clear();   // D5
         if (frame.nodes != null)
         {
             foreach (LycheeReplayNodeState node in frame.nodes)
@@ -678,6 +774,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 if (!known) continue;
                 if (node.hasObstacle)
                     activeObstacleNodes.Add(node.nodeId);
+                if (node.obstacleResidue != null)   // D5: 记录清障残留通行税状态
+                    obstacleResidueByNode[node.nodeId] = node.obstacleResidue;
             }
         }
 
@@ -690,7 +788,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 badge = CreateObstacleBadge(nodeId);
                 if (badge != null) obstacleBadges[nodeId] = badge;
             }
-            ApplyObstacleBadgeState(badge, activeObstacleNodes.Contains(nodeId));
+            obstacleResidueByNode.TryGetValue(nodeId, out LycheeReplayObstacleResidueState residue);   // D5
+            ApplyObstacleBadgeState(badge, activeObstacleNodes.Contains(nodeId), residue, frame.round);
             if (resources.TryGetValue(nodeId, out ResourceMarker resourceMarker))
                 LayoutStationBadgeRow(resourceMarker);
         }
@@ -765,6 +864,27 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         TextMesh status = CreateStatusMark(iconRoot.transform, new Vector3(0.42f, 0.42f, -0.04f), true);
         if (status != null) status.gameObject.SetActive(false);
 
+        // D5: 残留通行税持续态徽标——与主清障图标同位置，税期内改显、税期外隐藏(见 ApplyObstacleBadgeState)。
+        GameObject residueRoot = new GameObject("ResidueTax");
+        residueRoot.transform.SetParent(iconRoot.transform, false);
+        residueRoot.transform.localPosition = Vector3.zero;
+        residueRoot.AddComponent<LycheeLabelUpgradeOptOut>();
+        SpriteRenderer residueRenderer = null;
+        Sprite residueSprite = LycheeLoadThemeSprite("EventIcons/icon_event_residual_tax");
+        if (residueSprite != null)
+        {
+            GameObject residueSpriteObject = new GameObject("Sprite");
+            residueSpriteObject.transform.SetParent(residueRoot.transform, false);
+            residueSpriteObject.transform.localScale = Vector3.one * BadgeSpriteScale;
+            residueRenderer = residueSpriteObject.AddComponent<SpriteRenderer>();
+            residueRenderer.sprite = residueSprite;
+            residueRenderer.sortingOrder = BadgeSpriteOrder;
+            residueRenderer.color = Color.white;
+        }
+        // "剩N帧"置于残税牌匾下方(与清障 plaque 同高)，队色由 ApplyObstacleBadgeState 按 clearedByTeamId 写入。
+        TextMesh residueLabel = CreateWorldLabel(residueRoot.transform, new Vector3(0f, -0.86f, -0.04f), "", GoldColor, 36, 0.08f, false);
+        residueRoot.SetActive(false);
+
         return new ObstacleBadge
         {
             nodeId = nodeId,
@@ -772,22 +892,43 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             iconRoot = iconRoot.transform,
             iconRenderer = spriteRenderer,
             statusMark = status,
+            residueRoot = residueRoot,
+            residueRenderer = residueRenderer,
+            residueLabel = residueLabel,
             bobSeed = Mathf.Abs(nodeId.GetHashCode() % 628) * 0.01f
         };
     }
 
-    static void ApplyObstacleBadgeState(ObstacleBadge badge, bool active)
+    static void ApplyObstacleBadgeState(ObstacleBadge badge, bool active, LycheeReplayObstacleResidueState residue, int currentRound)
     {
         if (badge == null) return;
         badge.cleared = !active;
         if (badge.root != null && !badge.root.activeSelf) badge.root.SetActive(true);
+
+        // D5: 清障后(非 active)、税期内(remain>0)显示残留通行税徽标；优先按 untilRound-当前帧算剩余，退回 remainRound。
+        int remain = 0;
+        if (!active && residue != null)
+            remain = residue.untilRound > currentRound ? residue.untilRound - currentRound
+                   : (residue.remainRound > 0 ? residue.remainRound : 0);
+        bool showResidue = remain > 0;
+        if (badge.residueRoot != null && badge.residueRoot.activeSelf != showResidue)
+            badge.residueRoot.SetActive(showResidue);
+        if (showResidue && badge.residueLabel != null)
+        {
+            badge.residueLabel.text = "剩 " + remain + " 帧";
+            badge.residueLabel.color = TeamColorFromTeamId(residue == null ? null : residue.clearedByTeamId);
+        }
+
         if (badge.iconRenderer != null)
+        {
             badge.iconRenderer.color = Color.white;
+            badge.iconRenderer.enabled = !showResidue;   // 税期内让位给残留税徽标，税期外恢复清障图标
+        }
         if (badge.statusMark != null && !badge.resultMarked)
         {
-            if (active)
+            if (active || showResidue)
             {
-                // 障碍还在 → 收起盖章整块（含底色块根节点），避免遗留色块。
+                // 障碍还在、或税期内(残留税徽标已自带信息) → 收起盖章整块，避免遗留色块/重叠。
                 Transform smRoot = badge.statusMark.transform.parent;
                 if (smRoot != null) smRoot.gameObject.SetActive(false);
             }
@@ -1136,8 +1277,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         // 半透明圆角背板：把条与文字从草地里托起、拉高对比（复用事件牌 sprite），sortingOrder 压在最底。
         GameObject plateObject = new GameObject("Plate");
         plateObject.transform.SetParent(root.transform, false);
-        plateObject.transform.localPosition = new Vector3(0f, 0.06f, 0.07f);
-        plateObject.transform.localScale = new Vector3(2.55f, 2.7f, 1f);
+        plateObject.transform.localPosition = new Vector3(0f, 0.03f, 0.07f);
+        plateObject.transform.localScale = new Vector3(2.85f, 2.0f, 1f);   // 加宽到能容最长 5 字标签(过关转运中/皇榜转运中/水路换运中/强制通行中)，配合 charSize 0.048 使字不超出半透明背板
         SpriteRenderer plate = plateObject.AddComponent<SpriteRenderer>();
         plate.sprite = EventPlaqueSprite();
         plate.color = new Color(0.06f, 0.07f, 0.10f, 0.78f);
@@ -1151,19 +1292,22 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         SetBarPositions(arc, 0f);
         arc.sortingOrder = ProgressSortBase + 6;
 
-        // 「核验中/转运中/…」文字：按队色(红队红/蓝队蓝)、加大字号(charSize 0.09)、带深色阴影描边，草地上也看得清。
+        // 「核验中/转运中/过关转运中/…」文字：按队色(红队红/蓝队蓝)、带深色阴影描边。
+        // charSize 0.09→0.075→0.055→0.048：最长标签是 5 字(过关转运中/皇榜转运中/强制通行中/水路换运中)，
+        // 之前只按 4 字算(0.055)，5 字仍溢出(用户反馈"还是超出")；0.048 + 背板宽 2.85 才容得下不超。
+        // shadow 与 label 必须同 charSize 否则描边错位。
         string actionText = RingActionName(payload, isVerify);
         Color labelColor = Color.Lerp(teamColor, Color.white, 0.28f);
         TextMesh shadow = CreateWorldLabel(root.transform, new Vector3(0.05f, ProgressBarLabelY - 0.05f, 0.02f),
-            actionText, new Color(0.03f, 0.03f, 0.05f, 0.94f), 44, 0.09f, false);   // 阴影层
+            actionText, new Color(0.03f, 0.03f, 0.05f, 0.94f), 44, 0.048f, false);   // 阴影层
         SetLabelOrder(shadow, ProgressSortBase + 7);
         TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarLabelY, -0.02f),
-            actionText, labelColor, 44, 0.09f, false);
+            actionText, labelColor, 44, 0.048f, false);
         SetLabelOrder(label, ProgressSortBase + 8);
 
         // 条下方小号「已用/总」帧数，给观众量化感（进度靠条 + 数字双表达）。
         TextMesh detail = CreateWorldLabel(root.transform, new Vector3(0f, ProgressBarDetailY, -0.02f),
-            "1/1", labelColor, 34, 0.06f, false);
+            "1/1", labelColor, 34, 0.045f, false);   // 帧数也同步收小(原0.06)
         SetLabelOrder(detail, ProgressSortBase + 8);
 
         // PROCESS_PROGRESS/合成 START 的 payload 只带 remainingRound（首拍≈总拍数），不带 processRound。
@@ -1180,7 +1324,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
             startRound = round,
             processRound = Mathf.Max(1, totalRounds),
             actionName = RingActionName(payload, isVerify),
-            processTypeKey = payload.processType
+            processTypeKey = payload.processType,
+            nodeId = !string.IsNullOrEmpty(payload.targetNodeId) ? payload.targetNodeId : payload.nodeId   // 方案B: 记录本条所在节点
         };
     }
 
@@ -1410,6 +1555,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         "PASS_TRANSFER" => "过关转运中",
         "PALACE_TRANSFER" => "皇榜转运中",
         "WATER_TRANSFER" => "水路换运中",
+        "FORCED_PASS" => "强制通行中",   // 强制通行进度条(PROCESS_PROGRESS processType=FORCED_PASS)自动建条、remainingRound 驱动 N/M
         _ => null
     };
 

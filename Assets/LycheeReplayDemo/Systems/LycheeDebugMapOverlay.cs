@@ -121,9 +121,11 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         // 遮挡事件看不清（用户点3）。改贴顶、让到小地图左边，既不挡右列事件、也不挡左上控制条。
         float margin = 16f * ui;
         float bw = 112f * ui, bh = 34f * ui;
-        float minimapAllowance = 280f * ui;   // 右上小地图大致占宽，按钮让到它左侧
+        float minimapAllowance = 360f * ui;   // 右上小地图占宽(含外扩的中式装饰边框)，按钮让到它左侧。280→360:下移后按钮和小地图重叠，往左让开(用户反馈)
         float left = Mathf.Clamp(Screen.width - bw - margin - minimapAllowance, margin, Mathf.Max(margin, Screen.width - bw - margin));
-        float top = margin;
+        // 按钮在小地图左侧空地。原顶边与小地图上边对齐(26*ui)；用户嫌太靠上 → 整体下移到 90*ui，
+        // 仍在小地图左侧、不与小地图重叠(往右会顶到小地图，故按用户"往下挪"的方案)。想改回贴顶把 90 改回 26。
+        float top = 90f * ui;
         Rect btn = new Rect(left, top, bw, bh);
         if (GUI.Button(btn, show ? "调测:开" : "调测地图", buttonStyle))
         {
@@ -138,11 +140,14 @@ public sealed class LycheeDebugMapOverlay : MonoBehaviour
         DrawPanel(Mathf.Max(top + bh + 8f * ui, 300f * ui), margin, ui);
     }
 
+    // 全屏页面(视频插播/开场/结算)展示时，整个调测叠层(按钮+世界坐标标签)都收起——
+    // 否则调测开着时坐标会叠在结算页上(用户反馈"结算页调测开着就有坐标")。
     static bool ShouldHideForPresentation()
     {
         return LycheeVideoInterlude.IsPresentationActive ||
             LycheeVideoInterlude.IsPresentationVisible ||
-            LycheeOpeningShowcase.AnyShowing;
+            LycheeOpeningShowcase.AnyShowing ||
+            LycheeSettlementScreen.IsShowing;   // 结算页不叠坐标
     }
 
     // 在 3D 地图上每个站点 / 车队 / 小分队处贴坐标小标签

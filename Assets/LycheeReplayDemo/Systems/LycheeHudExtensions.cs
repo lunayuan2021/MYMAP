@@ -383,7 +383,9 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     void BuildMechanicTicker(Transform parent)
     {
         tickerRoot = MakeRect("MechanicTicker", parent);
-        SetRect(tickerRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 224f), new Vector2(TickerWidth, TickerHeight));
+        // 提示条下边框贴着底部 HUD 上边框(用户要求)：底部 HUD 底边留 6px 安全边(WebSafeBottomInset=6)、背板顶≈屏252(=6+背板高246)，
+        // 故提示条底边 y=252(锚底/pivot 底)。改 HUD 底边距或背板高记得同步这个 252。
+        SetRect(tickerRoot, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 252f), new Vector2(TickerWidth, TickerHeight));
         tickerGroup = tickerRoot.gameObject.AddComponent<CanvasGroup>();
         tickerGroup.alpha = 0f;
         tickerGroup.interactable = false;
@@ -1110,6 +1112,14 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         {
             string tax = payload.timeTax > 0 ? "，时间税 +" + payload.timeTax + " 帧" : "";   // C2: §4.5 1点时间税=1个结算帧
             text = "回合 " + round + " " + team + " 强制通行 " + SafeNode(node) + tax + "：能绕过阻拦，但会用时间换进度。";
+            return true;
+        }
+        if (type == "OBSTACLE_RESIDUAL_TAX")
+        {
+            // 契约表: 非清障方经过被清障节点被额外加帧(extraRound)；清障方免税(§2.12/§3.7)。
+            string extra = payload.extraRound > 0 ? "额外 +" + payload.extraRound + " 个结算帧" : "额外通行税";
+            string by = payload.clearedByPlayerId > 0 ? "（" + TeamName(payload.clearedByPlayerId) + "清障残留）" : "";
+            text = "回合 " + round + " " + team + " 通过 " + SafeNode(node) + "：非清障方" + extra + "通行税" + by + "。";
             return true;
         }
         if (type == "RUSH_START" || type == "RUSH_PHASE_START")
@@ -2068,6 +2078,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (t == "MATCH_START" || t == "NODE_ENTER") return "icon_task.png";
         if (t.Contains("WINDOW") || t.Contains("CONTEST") || t.Contains("CARD")) return "EventIcons/icon_event_contest_swords.png";
         if (t == "OBSTACLE_CLEAR" || t == "SQUAD_CLEAR" || t == "SQUAD_CLEAR_SUCCESS") return "EventIcons/icon_event_clear_obstacle.png";
+        if (t == "OBSTACLE_RESIDUAL_TAX") return "EventIcons/icon_event_residual_tax.png";   // 残留税专属图标(JSON 未载时兜底)
         if (t == "GUARD_SET") return "EventIcons/icon_event_guard_set.png";
         if (t == "GUARD_BREAK") return "EventIcons/icon_event_guard_break.png";
         if (t == "SQUAD_DISPATCH") return "EventIcons/icon_event_squad_dispatch.png";
@@ -2077,7 +2088,8 @@ public sealed class LycheeHudExtensions : MonoBehaviour
         if (t == "RESOURCE_CLAIM" || t == "RESOURCE_USE") return "EventIcons/icon_event_resource_claim.png";
         if (t.StartsWith("PROCESS_")) return "icon_task.png";
         if (t.StartsWith("RUSH_")) return "EventIcons/icon_event_contest_swords.png";
-        if (t == "ACTION_REJECTED" || t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐
+        if (t == "ACTION_REJECTED") return "EventIcons/icon_event_action_reject.png"; // 行动被拒专属图(用户新做，区别于无效)
+        if (t == "INVALID_ACTION") return "EventIcons/icon_event_action_invalid.png"; // 与 event_icon_mapping.json 对齐
         if (t == "FRESHNESS_DROP" || t == "GOOD_TO_BAD") return "icon_resource_icebox.png";
         if (t.StartsWith("COST_")) return "icon_resource_passtoken.png";
         if (t == "MATCH_END") return "EventIcons/icon_event_match_end.png"; // 与 JSON 对齐

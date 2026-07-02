@@ -79,13 +79,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     // Keep it above minimap/video/weather/extension HUD overlays, below settlement/opening.
     const int RuntimeCanvasSortingOrder = 260;
     const float BottomWidth = 1180f;
-    // 面板加高（164 -> 210）：让四条进度条完整收进背景内，并保证内容距背景边缘 >= 16px 留白。
-    const float BottomHeight = 210f;
+    // 面板加高（164 -> 210 -> 256）：256 版为容纳加高的墨底背板(236)+回合/阶段标题，让 9 维各行行距拉开、不再挤成一坨。
+    const float BottomHeight = 256f;
     // LOL 取向：面板贴画面下边缘（原 0.25 悬浮在画面 1/4 处）
     const float BottomHudAnchorY = 0f;
     // WebGL 浏览器全屏/缩放下，最底和最右侧容易被系统栏或 canvas 边缘吃掉；
     // 所有边缘 HUD 统一向内收一点，避免“全屏也看不到全部”。
-    const float WebSafeBottomInset = 30f;
+    const float WebSafeBottomInset = 6f;    // 底部 HUD 下边留 6px 安全边(用户定：接近齐平但防浏览器全屏吃掉最底一两像素；原30太多漏边、原0太贴)。
     const float WebSafeRightInset = 44f;
     // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
     const float BarTrackWidth = 190f;
@@ -137,13 +137,11 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     Text phaseText;
     // 原中央“最新事件”文本（EventText）已删除：它与四条进度条的中央标签文字重叠，
     // 且左侧事件流（LycheeHudExtensions）已承担最新事件展示职责。
-    // 底部 10 维度对比行(鲜度/好果/坏果/任务数/当前得分/任务分/破关悬赏分/惩罚分/状态/整体进度)，取代原 4 条进度条。
+    // 底部 9 维度对比行(鲜度/好果/坏果/任务数/任务分/破关悬赏分/惩罚分/状态/整体进度)，取代原 4 条进度条。
     StatRow[] statRows;
-    // 第4行原名「总分」：过程中 totalScore/scoreDetail 恒为 0、只有 taskScore 在涨，该行退化成 == 任务分、
-    // 到交付(约末35帧)后端才把送达/鲜度/好果/用时一次性结算进来、瞬跳到真总分(742/671)。标签「总分」在过程中
-    // 误导（像固定终值），改名「当前得分」：如实表达"当前累计、会随交付结算继续涨"，与结算页的固定终值口径区分。
-    // D1: 加"破关悬赏分"维度(§1.4/§6.2 独立正向分项)——某队靠悬赏拿分时任务分不动而当前得分跳涨，原来看不到来源。
-    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "当前得分", "任务分", "破关悬赏分", "惩罚分", "状态", "整体进度" };
+    // D1: 含"破关悬赏分"维度(§1.4/§6.2 独立正向分项)——某队靠悬赏拿分时任务分不动而当前得分跳涨，原来看不到来源。
+    // 「当前得分」不再单列一行：已由红蓝两侧的大号得分数字承担(数字上方标注"当前得分")，面板里再放一行属重复，去掉。
+    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "任务分", "破关悬赏分", "惩罚分", "状态", "整体进度" };
     CanvasGroup combatGroup;
     RectTransform combatRect;
     Vector2 combatBasePos;
@@ -231,8 +229,6 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
     int lastBluePenalty;
     float lastRedProgress;
     float lastBlueProgress;
-    int lastRedScore;
-    int lastBlueScore;
 #if UNITY_EDITOR
     bool editorPreviewQueued;
 #endif
@@ -330,17 +326,16 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         rollTargetBlueScore = 0;
         redScorePopStart = float.NegativeInfinity;
         blueScorePopStart = float.NegativeInfinity;
-        // 维度对比预览样例(鲜度/好果/坏果/任务数/总分/任务分/惩罚分/状态/整体进度)
+        // 维度对比预览样例(鲜度/好果/坏果/任务数/任务分/破关悬赏分/惩罚分/状态/整体进度)——「当前得分」已移到两侧大号得分
         SetStatRow(0, "92%", "88%");
         SetStatRow(1, "36", "32");
         SetStatRow(2, "4", "6");
         SetStatRow(3, "3", "2");
-        SetStatRow(4, "420", "390");
-        SetStatRow(5, "120", "100");
-        SetStatRow(6, "60", "45");
-        SetStatRow(7, "-15", "-8");
-        SetStatRow(8, "在线", "在线");
-        SetStatRow(9, "42.0%", "38.0%");
+        SetStatRow(4, "120", "100");
+        SetStatRow(5, "60", "45");
+        SetStatRow(6, "-15", "-8");
+        SetStatRow(7, "在线", "在线");
+        SetStatRow(8, "42.0%", "38.0%");
         SetGroup(combatGroup, false, 0f);
         SetGroup(contestGroup, false, 0f);
         SetGroup(openingGroup, false, 0f);
@@ -418,9 +413,13 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         else sub = "本拍平手";
         DisplayContest(1, contestTypeLabel + "  第" + Mathf.Max(1, roundIndex) + "拍 / 第" + round + "回合",
             sub, CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 3.0f);
-        // 亮牌瞬间双方卡片同时翻面：先露牌背、过中点换正面贴图（传原始牌名做映射）
-        StartCardFlip(contestRedFx, redCard);
-        StartCardFlip(contestBlueFx, blueCard);
+        // 亮牌瞬间：出真牌(验牒/强行/献贡/兵争，CardIndex>=0)的一方翻面亮牌；不出真牌的一方(空牌/弃权/未出，CardIndex<0)
+        // 改显队头像、不翻牌——让观众看清是哪队没出牌。修用户反馈"有的争夺不出牌的一方槽位空着没头像、有的又有"的不一致：
+        // 原来两边都无条件翻牌，没出牌的一方就被翻成空/弃权面把开局的头像盖掉了。
+        if (CardIndex(redCard) >= 0) StartCardFlip(contestRedFx, redCard);
+        else ShowContestAvatarSlot(contestRedFx, previewRedAvatar);
+        if (CardIndex(blueCard) >= 0) StartCardFlip(contestBlueFx, blueCard);
+        else ShowContestAvatarSlot(contestBlueFx, previewBlueAvatar);
         // 单局得势方的金色脉冲延迟到翻面落定后再亮，节拍上不与翻面抢戏
         if (winner == "RED") StartWinnerGlow(contestRedFx, CardFlipSeconds);
         else if (winner == "BLUE") StartWinnerGlow(contestBlueFx, CardFlipSeconds);
@@ -575,6 +574,22 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         if (fx.label != null) fx.label.enabled = true;
     }
 
+    // 不出真牌的一方在出牌窗口常显队头像(不翻牌、不给胜方脉冲)，与出牌的一方并排——
+    // 避免某队没出牌时槽位被翻空/盖掉头像(用户反馈:有的争夺有头像有的没有)。见 ShowCombatReveal 的 CardIndex<0 分支。
+    void ShowContestAvatarSlot(CardFx fx, Sprite avatar)
+    {
+        if (fx == null) return;
+        ApplyContestAvatar(fx, avatar);
+        if (fx.block != null)
+        {
+            fx.block.localScale = Vector3.one;          // 复位翻牌可能留下的缩放/旋转，头像正面朝前
+            fx.block.localRotation = Quaternion.identity;
+        }
+        fx.flipStart = float.NegativeInfinity;   // 取消翻牌动画，头像常显、不被 UpdateCardFlip 覆盖
+        fx.flipFrontShown = true;
+        fx.glowStart = float.NegativeInfinity;   // 没出牌不给胜方金色脉冲
+    }
+
     public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
     {
         // 普通事件走排队路径：面板被占用或未到间隔时先入队，避免连弹覆盖
@@ -697,7 +712,7 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
         bool showDelta = newRound && lastRound >= 0;
 
-        // 10 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。
+        // 9 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。「当前得分」已移到两侧大号得分。
         SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%",
             showDelta ? redFresh - lastRedFresh : 0f, showDelta ? blueFresh - lastBlueFresh : 0f, "%");
         SetStatRow(1, redFruit.ToString(), blueFruit.ToString(),
@@ -706,16 +721,14 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             showDelta ? redBadFruit - lastRedBadFruit : 0f, showDelta ? blueBadFruit - lastBlueBadFruit : 0f);
         SetStatRow(3, redTaskCount.ToString(), blueTaskCount.ToString(),
             showDelta ? redTaskCount - lastRedTaskCount : 0f, showDelta ? blueTaskCount - lastBlueTaskCount : 0f);
-        SetStatRow(4, redScore.ToString(), blueScore.ToString(),
-            showDelta ? redScore - lastRedScore : 0f, showDelta ? blueScore - lastBlueScore : 0f);
-        SetStatRow(5, redTaskScore.ToString(), blueTaskScore.ToString(),
+        SetStatRow(4, redTaskScore.ToString(), blueTaskScore.ToString(),
             showDelta ? redTaskScore - lastRedTaskScore : 0f, showDelta ? blueTaskScore - lastBlueTaskScore : 0f);
-        SetStatRow(6, redBounty.ToString(), blueBounty.ToString(),
+        SetStatRow(5, redBounty.ToString(), blueBounty.ToString(),
             showDelta ? redBounty - lastRedBounty : 0f, showDelta ? blueBounty - lastBlueBounty : 0f);
-        SetStatRow(7, redPenalty.ToString(), bluePenalty.ToString(),
+        SetStatRow(6, redPenalty.ToString(), bluePenalty.ToString(),
             showDelta ? redPenalty - lastRedPenalty : 0f, showDelta ? bluePenalty - lastBluePenalty : 0f);
-        SetStatRow(8, StatusTextOf(red), StatusTextOf(blue));
-        SetStatRow(9, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
+        SetStatRow(7, StatusTextOf(red), StatusTextOf(blue));
+        SetStatRow(8, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
             showDelta ? redProgress - lastRedProgress : 0f, showDelta ? blueProgress - lastBlueProgress : 0f, "%");
 
         if (newRound)
@@ -737,8 +750,6 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
             lastBluePenalty = bluePenalty;
             lastRedProgress = redProgress;
             lastBlueProgress = blueProgress;
-            lastRedScore = redScore;
-            lastBlueScore = blueScore;
         }
         }
 
@@ -1412,7 +1423,9 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         bottomPanelGroup = panel.gameObject.AddComponent<CanvasGroup>();   // 结算展示时整组隐藏
 
         // 中央维度背板(墨底 + 顶部暗金分隔线)：容纳回合标题 + 9 行维度对比。宽 500，落在左右队伍块之间。
-        RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(500f, 192f), new Vector2(0.5f, 0f));
+        // 高 192 -> 236：加高背板让 9 行行距拉开(step≈21)、各值不再挤在一起。
+        // 背板贴到面板底(offset y 10→0)、并把高 236→246 补回那 10px，使"背板顶(≈屏246)不变、底与画面下边齐平"(配合 WebSafeBottomInset=0)。
+        RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 0f), new Vector2(500f, 246f), new Vector2(0.5f, 0f));
         Image statBg = backdrop.gameObject.AddComponent<Image>();
         // 用户要求：9 维对比一开场就要看清字段名+值。背板改近乎不透明的深墨，让(哪怕全是0的)标签/数值从第1回合起就
         // 从繁杂地图里托出来；原来 InkColor(α0.86)太透，小字被草地冲淡，看着像"没值、变了才慢慢出"。
@@ -1421,18 +1434,18 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         Rect("StatTopLine", backdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(500f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = DarkGoldColor;
 
         roundText = Text("RoundText", panel, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
-        SetRect(roundText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 186f), new Vector2(380f, 24f), new Vector2(0.5f, 0.5f));
+        SetRect(roundText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 230f), new Vector2(380f, 24f), new Vector2(0.5f, 0.5f));
         phaseText = Text("PhaseText", panel, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
-        SetRect(phaseText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 167f), new Vector2(220f, 16f), new Vector2(0.5f, 0.5f));
+        SetRect(phaseText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 210f), new Vector2(220f, 16f), new Vector2(0.5f, 0.5f));
 
         redTeam = BuildTeam(panel, true);
         blueTeam = BuildTeam(panel, false);
 
         // 维度对比行(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
-        // D1: 行距按维数自适应——底行恒落在背板下缘、顶行 rowTop，加第10维(破关悬赏分)也不探出背板下缘。
-        // (原 9 维 step=16 即 (138-10)/8；10 维自动收到 ≈14.2；行框仍 18px 不触发中文竖向截断。)
+        // 行距按维数自适应((rowTop-rowBottom)/(N-1))：背板已加高、行 band 拉到 [14,184]，9 维 step≈21，各行不再挤在一起。
+        // 底行恒落在 rowBottom、顶行 rowTop(留出上方回合/阶段标题)，行框 18px 不触发中文竖向截断。
         statRows = new StatRow[StatLabels.Length];
-        const float rowTop = 138f, rowBottom = 10f;
+        const float rowTop = 184f, rowBottom = 14f;
         float rowStep = StatLabels.Length > 1 ? (rowTop - rowBottom) / (StatLabels.Length - 1) : 0f;
         for (int i = 0; i < StatLabels.Length; i++)
             statRows[i] = BuildStatRow(backdrop, StatLabels[i], rowTop - i * rowStep);
@@ -1659,7 +1672,8 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
         float avatarX = cardX - side * 62f;
         float textX = cardX + side * 42f;
 
-        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(cardX, 105f), new Vector2(272f, 112f), new Vector2(0.5f, 0.5f));
+        // 队卡加高(112→140)且向上长(中心 105→119、底边 49 不变)：给队名腾出头像上方的空间，队名不再压头像(用户反馈)。
+        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(cardX, 119f), new Vector2(272f, 140f), new Vector2(0.5f, 0.5f));
         Image textBgImage = textBg.gameObject.AddComponent<Image>();
         textBgImage.color = new Color(teamColor.r, teamColor.g, teamColor.b, red ? 0.42f : 0.46f);
         textBgImage.raycastTarget = false;
@@ -1692,13 +1706,20 @@ public sealed class LycheeReplayRuntimeHud : MonoBehaviour
 
         TextAnchor align = red ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight;
         widgets.name = Text(red ? "RedName" : "BlueName", parent, 19, FontStyle.Bold, Color.white, align);
-        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 141f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
+        // 队名上移到头像上方(141→170)：头像顶≈149，队名底≈158，清出 ~9px、不再压头像(即便名带【已交付】较长也在头像之上)。
+        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 170f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.name);
         widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 16, FontStyle.Bold, SilkColor, align);
-        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 111f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 117f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.roster);
+        // 大号得分上方标注「当前得分」：中央面板已去掉重复的"当前得分"行，改由这个大数字承担；
+        // 它随交付滚动累计、不是结算终值(与结算页固定终值口径区分)。
+        Text scoreCaption = Text(red ? "RedScoreCaption" : "BlueScoreCaption", parent, 13, FontStyle.Bold, GoldColor, align);
+        SetRect(scoreCaption.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 97f), new Vector2(166f, 18f), new Vector2(0.5f, 0.5f));
+        scoreCaption.text = "当前得分";
+        AddTextShadow(scoreCaption);
         widgets.score = Text(red ? "RedScore" : "BlueScore", parent, TeamScoreFontSize, FontStyle.Bold, Color.white, align);
-        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 75f), new Vector2(166f, 36f), new Vector2(0.5f, 0.5f));
+        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 72f), new Vector2(166f, 36f), new Vector2(0.5f, 0.5f));
         AddTextShadow(widgets.score);
         return widgets;
     }
