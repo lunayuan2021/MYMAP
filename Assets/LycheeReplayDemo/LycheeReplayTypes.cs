@@ -379,3 +379,69 @@ public class LycheeReplayPayload
     public int clearedByPlayerId;
     public int untilRound;
 }
+
+/// <summary>结算胜负判定的唯一权威（结算屏与 MATCH_END 横幅共用，永不打架）。
+/// 固定优先级链：online → retired → totalScore → freshness → goodFruit → penalty(少者胜)，全同判平；INVALID 先拦截。
+/// online 权威来源【只认】回放同目录 data.csv(teamOnline 按 team_id=playerId)。任一队 online 在 data.csv 里取不到，
+/// 即返回 CannotDetermine，交由调用方把「找不到 data.csv」的具体错误报出来——【绝不回退读结算帧 online】，
+/// 因为结算帧的 online 是最终快照、常把中途掉线者仍标 true，硬读会误导。
+/// 返回 0=红胜 / 1=蓝胜 / -1=平局或无效局 / -2(=CannotDetermine)=data.csv 缺该队 online、判不了。</summary>
+public static class LycheeWinnerRules
+{
+    public const int CannotDetermine = -2;
+
+    public static int ResolveWinnerCamp(LycheeReplayOverFrame over, System.Collections.Generic.IReadOnlyDictionary<int, bool> teamOnline)
+    {
+        if (over == null) return -1;
+        if (!string.IsNullOrEmpty(over.resultType) && over.resultType.Trim().ToUpperInvariant() == "INVALID") return -1;
+        // online 必须来自 data.csv；任一队取不到就判不了(报错，不猜结算帧 online)。
+        if (!TryOnline(teamOnline, Find(over, 0), out bool redOnline)) return CannotDetermine;
+        if (!TryOnline(teamOnline, Find(over, 1), out bool blueOnline)) return CannotDetermine;
+        Stats red = Build(Find(over, 0), redOnline);
+        Stats blue = Build(Find(over, 1), blueOnline);
+        int cmp = Compare(red, blue);
+        return cmp > 0 ? 0 : cmp < 0 ? 1 : -1;
+    }
+
+    // 该队 online 是否能从 data.csv 取到：无该队结算记录/无 data.csv/data.csv 里没这队 → false(判不了)。
+    static bool TryOnline(System.Collections.Generic.IReadOnlyDictionary<int, bool> teamOnline, LycheeReplayOverPlayer o, out bool online)
+    {
+        online = false;
+        if (o == null || teamOnline == null) return false;
+        return teamOnline.TryGetValue(o.playerId, out online);
+    }
+
+    struct Stats { public bool online; public bool retired; public int total; public float fresh; public int good; public int pen; }
+
+    static LycheeReplayOverPlayer Find(LycheeReplayOverFrame over, int camp)
+    {
+        if (over == null || over.players == null) return null;
+        foreach (LycheeReplayOverPlayer p in over.players)
+            if (p != null && p.camp == camp) return p;
+        return null;
+    }
+
+    static Stats Build(LycheeReplayOverPlayer o, bool online)
+    {
+        Stats s = new Stats();
+        s.online = online;                       // 只来自 data.csv(上游 TryOnline 已保证取到)
+        s.retired = o != null && o.retired;      // 退赛仍取结算帧(data.csv 无此列)
+        s.total = o != null ? o.totalScore : 0;
+        s.fresh = o != null ? o.freshness : 0f;
+        s.good = o != null ? o.goodFruit : 0;
+        int pen = o != null ? o.penaltyScore : 0;
+        s.pen = pen < 0 ? -pen : pen;            // 取绝对值：惩罚越少越优
+        return s;
+    }
+
+    static int Compare(Stats a, Stats b)
+    {
+        if (a.online != b.online) return a.online ? 1 : -1;            // ① 掉线直接判负
+        if (a.retired != b.retired) return a.retired ? -1 : 1;        // ①.5 退赛判负
+        if (a.total != b.total) return a.total > b.total ? 1 : -1;    // ② 总分高者胜
+        if (a.fresh != b.fresh) return a.fresh > b.fresh ? 1 : -1;    // ③ 鲜度高者胜
+        if (a.good != b.good) return a.good > b.good ? 1 : -1;        // ④ 好果多者胜
+        if (a.pen != b.pen) return a.pen < b.pen ? 1 : -1;            // ⑤ 惩罚少者胜
+        return 0;
+    }
+}

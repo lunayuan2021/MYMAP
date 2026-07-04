@@ -173,7 +173,13 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         ApplyAux(blueAuxText, blueOver, blueFrame);
 
         int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
-        if (winnerCamp < 0)
+        if (winnerCamp == LycheeWinnerRules.CannotDetermine)
+            // 掉线判负只认 data.csv；取不到就把具体错误报出来，不猜结算帧 online（会误导）。
+            PopulateMvpNeutral("无法判定胜负",
+                player != null && !string.IsNullOrEmpty(player.TeamOnlineError)
+                    ? player.TeamOnlineError
+                    : "缺少 data.csv（掉线判负需要它）；请把该场比赛的 data.csv 放到 replay 的同一目录。");
+        else if (winnerCamp < 0)
             PopulateMvpNeutral(IsInvalidResult(over) ? "本局无效" : "双方战平 · 并列",
                 IsInvalidResult(over) ? "本局判为无效" : "在线·总分·鲜度·好果·惩罚 全部持平");
         else
@@ -182,53 +188,14 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
                 winnerCamp == 0 ? redFrame : blueFrame);
     }
 
-    // 结算胜负判定(用户口径,2026-07)：不再采信服务端 winnerPlayerId/resultType==DRAW，改用固定优先级链——
-    //   ① online：为 false 直接判负(仅一方掉线则掉线方负；同为在线/同为掉线则继续比)；
-    //   ② totalScore 高者胜；③ 同分比 freshness 高者胜；④ 再同比 goodFruit 多者胜；
-    //   ⑤ 仍同比 penaltyScore(取绝对值)少者胜；全项相同才判平。
-    // INVALID(本局无效)仍先行拦截、不判任一方为胜。返回 0=红胜 / 1=蓝胜 / -1=平局或无效局。
+    // 结算胜负判定：委托唯一权威 LycheeWinnerRules（结算屏与 MATCH_END 横幅共用，永不打架）。
+    //   固定优先级链 online → retired → totalScore → freshness → goodFruit → penalty(少者胜)，全同判平；INVALID 先拦截。
+    //   online 权威【只认】回放同目录 data.csv(player.TeamOnline，team_id=playerId)；缺 data.csv/缺某队即返回
+    //   CannotDetermine(-2)，调用方展示 player.TeamOnlineError，绝不回退猜结算帧 online（会误导）。
+    // redTotal/blueTotal 仅供本页展示；判赢以 over 玩家 totalScore 为准（正常数据两者一致）。返回 0=红/1=蓝/-1=平或无效/-2=判不了。
     int ResolveWinnerCamp(LycheeReplayOverFrame over, int redTotal, int blueTotal)
     {
-        if (IsInvalidResult(over)) return -1;
-        WinnerStats red = BuildWinnerStats(FindOverPlayer(over, 0), FindFramePlayer(0), redTotal);
-        WinnerStats blue = BuildWinnerStats(FindOverPlayer(over, 1), FindFramePlayer(1), blueTotal);
-        int cmp = CompareWinner(red, blue);
-        return cmp > 0 ? 0 : cmp < 0 ? 1 : -1;
-    }
-
-    struct WinnerStats
-    {
-        public bool online;
-        public bool retired;  // 退赛(判负)：与 online 是独立字段，可能 retired && online
-        public int totalScore;
-        public float freshness;
-        public int goodFruit;
-        public int penalty;   // 已取绝对值：越小=惩罚越少=越优
-    }
-
-    // 优先用 over 结算玩家字段，缺失回退当前帧玩家；online 缺数据默认在线(不无端判负)。
-    static WinnerStats BuildWinnerStats(LycheeReplayOverPlayer o, LycheeReplayPlayerState f, int total)
-    {
-        WinnerStats s;
-        s.online = o != null ? o.online : (f != null ? f.online : true);
-        s.retired = o != null ? o.retired : (f != null && f.retired);
-        s.totalScore = total;   // 与横幅/明细展示的总分同源(ResolveTotal)
-        s.freshness = o != null ? o.freshness : (f != null ? f.freshness : 0f);
-        s.goodFruit = o != null ? o.goodFruit : (f != null ? f.goodFruit : 0);
-        s.penalty = Mathf.Abs(o != null ? o.penaltyScore : (f != null ? f.penaltyScore : 0));
-        return s;
-    }
-
-    // 返回 >0 = a 胜, <0 = b 胜, 0 = 全项相同(判平)。逐级短路。
-    static int CompareWinner(WinnerStats a, WinnerStats b)
-    {
-        if (a.online != b.online) return a.online ? 1 : -1;                       // ① 掉线直接判负
-        if (a.retired != b.retired) return a.retired ? -1 : 1;                    // ①.5 退赛(FORFEIT)判负：退赛方负于未退赛方，避免把退赛且分高者错误加冕(与"已退赛（判负）"明细一致)
-        if (a.totalScore != b.totalScore) return a.totalScore > b.totalScore ? 1 : -1; // ② 总分高者胜
-        if (a.freshness != b.freshness) return a.freshness > b.freshness ? 1 : -1;      // ③ 鲜度高者胜
-        if (a.goodFruit != b.goodFruit) return a.goodFruit > b.goodFruit ? 1 : -1;      // ④ 好果多者胜
-        if (a.penalty != b.penalty) return a.penalty < b.penalty ? 1 : -1;              // ⑤ 惩罚少者胜
-        return 0;
+        return LycheeWinnerRules.ResolveWinnerCamp(over, player != null ? player.TeamOnline : null);
     }
 
     static bool IsInvalidResult(LycheeReplayOverFrame over)
@@ -306,6 +273,7 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         // 无效局单列；胜负与横幅一律走 ResolveWinnerCamp 的优先级链，横幅与状元金光同源、不打架。
         if (IsInvalidResult(over)) return "本局无效";
         int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
+        if (winnerCamp == LycheeWinnerRules.CannotDetermine) return "无法判定胜负 · 缺 data.csv";
         if (winnerCamp < 0) return "双方战平";
 
         LycheeReplayOverPlayer winnerOver = FindOverPlayer(over, winnerCamp);

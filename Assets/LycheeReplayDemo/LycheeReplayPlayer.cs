@@ -13,6 +13,14 @@ public class LycheeReplayPlayer : MonoBehaviour
     /// 这样切场景即换回放、零运行时耦合。向后兼容：旧场景在此字段加入前已序列化，反序列化时为 null/空，
     /// ReplayRelative 会自动回退到 replay.txt。</summary>
     public string streamingReplayPath = "replay.txt";
+    /// <summary>回放同目录 data.csv 解析出的每队在线状态（team_id=playerId → online）。
+    /// 回放帧读不到掉线，结算胜负的“掉线判负”【只认】此来源；data.csv 取不到则字典为空 + TeamOnlineError 记具体错误，
+    /// 结算/横幅直接报错、不猜结算帧 online（那是最终快照、常把掉线者仍标 true，硬读会误导）。
+    /// 加载在 LoadReplayThenInitialize 内、播放前完成，消费方 LycheeWinnerRules（结算屏与 MATCH_END 横幅共用判赢）。</summary>
+    public readonly System.Collections.Generic.Dictionary<int, bool> TeamOnline =
+        new System.Collections.Generic.Dictionary<int, bool>();
+    /// <summary>data.csv 加载/解析失败的具体错误（含 URL、HTTP 码）；成功为 null。结算屏与横幅在无法判赢时展示它。</summary>
+    public string TeamOnlineError;
     // 1 秒/回合：600 回合约 10 分钟。不要再按“静止回合/处理回合”压缩，否则观赛节奏会失真。
     [Range(0.03f, 2f)] public float secondsPerRound = 1.00f;
     public bool playOnStart = true;
@@ -753,8 +761,83 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         if (string.IsNullOrEmpty(text))
             yield return FetchStreamingText(relative, value => text = value);
+        // 回放帧读不到掉线：从回放同目录取 data.csv，按 team_id 读两队 online，供结算“掉线判负”。
+        string baseReplayUrl = externalRequested
+            ? externalReplayUrl
+            : Application.streamingAssetsPath + "/" + relative;
+        yield return FetchTeamOnlineCsv(SiblingUrl(baseReplayUrl, "data.csv"));
         ParseReplay(text);
         InitializeAfterLoad();
+    }
+
+    // 回放同目录 data.csv → 每队 online。取不到/解析空 → 记具体错误(TeamOnlineError)并 LogError；
+    // 结算/横幅据此报错，绝不回退猜结算帧 online（那会误导）。
+    System.Collections.IEnumerator FetchTeamOnlineCsv(string url)
+    {
+        TeamOnline.Clear();
+        TeamOnlineError = null;
+        if (string.IsNullOrEmpty(url))
+        {
+            TeamOnlineError = "无法从回放地址推导 data.csv 目录（回放 URL 为空）。";
+            Debug.LogError("[Settlement] " + TeamOnlineError, this);
+            yield break;
+        }
+        using (var request = UnityEngine.Networking.UnityWebRequest.Get(AddCacheBust(url)))
+        {
+            request.timeout = 30;
+            yield return request.SendWebRequest();
+            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                ParseTeamOnlineCsv(request.downloadHandler.text);
+                if (TeamOnline.Count == 0)
+                    TeamOnlineError = "已取到 data.csv 但没有有效的 team_id/online 行（URL：" + url + "）。";
+            }
+            else
+            {
+                TeamOnlineError = "找不到/读不了 data.csv —— HTTP " + request.responseCode + "，" +
+                    (string.IsNullOrEmpty(request.error) ? "无错误详情" : request.error) +
+                    "（URL：" + url + "）。请把该场比赛的 data.csv 放到 replay 的同一目录。";
+            }
+            if (!string.IsNullOrEmpty(TeamOnlineError))
+                Debug.LogError("[Settlement] " + TeamOnlineError, this);
+        }
+    }
+
+    // 解析 data.csv：表头定位 team_id / online 两列（其余列忽略），逐行写 TeamOnline[team_id]=online。
+    // team_id/online 是前两列，其后即便有含逗号字段也不影响这两列取值。
+    void ParseTeamOnlineCsv(string csv)
+    {
+        if (string.IsNullOrEmpty(csv)) return;
+        string[] lines = csv.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        if (lines.Length < 2) return;
+        string[] header = lines[0].Split(',');
+        int idCol = -1, onlineCol = -1;
+        for (int i = 0; i < header.Length; i++)
+        {
+            string h = header[i].Trim().ToLowerInvariant();
+            if (h == "team_id") idCol = i;
+            else if (h == "online") onlineCol = i;
+        }
+        if (idCol < 0 || onlineCol < 0) return;
+        int need = Mathf.Max(idCol, onlineCol);
+        for (int r = 1; r < lines.Length; r++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[r])) continue;
+            string[] cols = lines[r].Split(',');
+            if (cols.Length <= need) continue;
+            if (!int.TryParse(cols[idCol].Trim(), out int teamId)) continue;
+            TeamOnline[teamId] = cols[onlineCol].Trim().Equals("TRUE", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    // 取同目录同级兄弟文件的 URL：去掉查询串后，把最后一段文件名替换为 siblingFileName。
+    static string SiblingUrl(string url, string siblingFileName)
+    {
+        if (string.IsNullOrEmpty(url)) return null;
+        int q = url.IndexOf('?');
+        string noQuery = q >= 0 ? url.Substring(0, q) : url;
+        int slash = noQuery.LastIndexOf('/');
+        return slash < 0 ? siblingFileName : noQuery.Substring(0, slash + 1) + siblingFileName;
     }
 
     System.Collections.IEnumerator FetchStreamingText(string relative, Action<string> onLoaded)
@@ -2809,7 +2892,14 @@ public class LycheeReplayPlayer : MonoBehaviour
         else if (type == "MATCH_END")
         {
             title = "比赛结束";
-            subtitle = TeamName(payload.winnerPlayerId) + " 胜出";
+            // 判赢改走与结算屏同一权威 LycheeWinnerRules（含 data.csv 掉线判负），不再直接采信服务端 winnerPlayerId，
+            // 避免横幅与结算屏各喊各的赢家。OverFrame 缺失时才退回服务端 winnerPlayerId 兜底。
+            int matchEndCamp = OverFrame != null ? LycheeWinnerRules.ResolveWinnerCamp(OverFrame, TeamOnline) : -1;
+            subtitle = matchEndCamp == 0 ? "红队 胜出"
+                     : matchEndCamp == 1 ? "蓝队 胜出"
+                     : matchEndCamp == LycheeWinnerRules.CannotDetermine
+                         ? "无法判定胜负：" + (string.IsNullOrEmpty(TeamOnlineError) ? "缺少 data.csv" : "找不到 data.csv")
+                     : OverFrame == null ? TeamName(payload.winnerPlayerId) + " 胜出" : "双方战平";
             left = "回放完成";
             right = "最终结算";
             imageIndex = 2;
