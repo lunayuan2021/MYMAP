@@ -1432,9 +1432,21 @@ static class LycheeWebGLBuild_20260612
         string streamingAssetsDir = Path.Combine(OutputDir, "StreamingAssets");
         if (Directory.Exists(streamingAssetsDir))
         {
+            // StreamingAssets 会被 Unity 整目录原样打包，工程里遗留的备份/测试回放会白白进包(单个可达 6.4MB)。
+            // 按文件名子串匹配删这几类垃圾：*.bak*(旧配置备份)、*_backup_*(真回放备份，如 replay_real_backup_20260704.txt)、
+            // *guardtest*(核验测试回放，如 map1_guardtest.txt)。
+            // 注意：故意不加 _config.json / _test 这类过宽规则——前者会误删 map1_config.json 等必需 sidecar，
+            // 后者会误删 replay_forcedpass_test.txt(仍可能以 ?path= 手动播放的瞬移演示回放)。
+            string[] junkNameSubstrings = { ".bak", "_backup_", "guardtest" };
             foreach (string file in Directory.GetFiles(streamingAssetsDir, "*", SearchOption.AllDirectories))
             {
-                if (Path.GetFileName(file).IndexOf(".bak", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                string fileName = Path.GetFileName(file);
+                bool isJunk = false;
+                foreach (string token in junkNameSubstrings)
+                {
+                    if (fileName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) { isJunk = true; break; }
+                }
+                if (!isJunk) continue;
                 try
                 {
                     File.Delete(file);
@@ -1442,7 +1454,7 @@ static class LycheeWebGLBuild_20260612
                 }
                 catch (Exception exception)
                 {
-                    Append("WARNING: failed to remove backup " + file + ": " + exception.Message);
+                    Append("WARNING: failed to remove junk StreamingAssets file " + file + ": " + exception.Message);
                 }
             }
         }
