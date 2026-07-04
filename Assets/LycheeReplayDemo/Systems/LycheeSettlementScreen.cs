@@ -175,35 +175,60 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
         if (winnerCamp < 0)
             PopulateMvpNeutral(IsInvalidResult(over) ? "本局无效" : "双方战平 · 并列",
-                IsInvalidResult(over) ? "本局判为无效" : "最终总分相同");
+                IsInvalidResult(over) ? "本局判为无效" : "在线·总分·鲜度·好果·惩罚 全部持平");
         else
             PopulateMvp(winnerCamp,
                 winnerCamp == 0 ? redOver : blueOver,
                 winnerCamp == 0 ? redFrame : blueFrame);
     }
 
-    // §10.5：平局(DRAW/SCORE_TIE，或 winnerPlayerId 无效且同分)返回 -1，不给任一方状元/金光。
+    // 结算胜负判定(用户口径,2026-07)：不再采信服务端 winnerPlayerId/resultType==DRAW，改用固定优先级链——
+    //   ① online：为 false 直接判负(仅一方掉线则掉线方负；同为在线/同为掉线则继续比)；
+    //   ② totalScore 高者胜；③ 同分比 freshness 高者胜；④ 再同比 goodFruit 多者胜；
+    //   ⑤ 仍同比 penaltyScore(取绝对值)少者胜；全项相同才判平。
+    // INVALID(本局无效)仍先行拦截、不判任一方为胜。返回 0=红胜 / 1=蓝胜 / -1=平局或无效局。
     int ResolveWinnerCamp(LycheeReplayOverFrame over, int redTotal, int blueTotal)
     {
-        if (IsDrawResult(over, redTotal, blueTotal) || IsInvalidResult(over)) return -1;
-        if (over != null && over.players != null)
-        {
-            LycheeReplayOverPlayer winner = over.players
-                .FirstOrDefault(candidate => candidate != null && candidate.playerId == over.winnerPlayerId);
-            if (winner != null) return winner.camp == 1 ? 1 : 0;
-        }
-        if (redTotal == blueTotal) return -1;
-        return blueTotal > redTotal ? 1 : 0;
+        if (IsInvalidResult(over)) return -1;
+        WinnerStats red = BuildWinnerStats(FindOverPlayer(over, 0), FindFramePlayer(0), redTotal);
+        WinnerStats blue = BuildWinnerStats(FindOverPlayer(over, 1), FindFramePlayer(1), blueTotal);
+        int cmp = CompareWinner(red, blue);
+        return cmp > 0 ? 0 : cmp < 0 ? 1 : -1;
     }
 
-    // 平局判定：resultType=="DRAW" 为权威；无 resultType 时兜底为「winnerPlayerId 无效(<=0)且双方总分相等」。
-    static bool IsDrawResult(LycheeReplayOverFrame over, int redTotal, int blueTotal)
+    struct WinnerStats
     {
-        if (over == null) return redTotal == blueTotal;
-        string rt = string.IsNullOrEmpty(over.resultType) ? null : over.resultType.Trim().ToUpperInvariant();
-        if (rt == "DRAW") return true;
-        if (rt == "FORFEIT" || rt == "INVALID") return false;   // 有明确胜方/无效另论
-        return over.winnerPlayerId <= 0 && redTotal == blueTotal;
+        public bool online;
+        public bool retired;  // 退赛(判负)：与 online 是独立字段，可能 retired && online
+        public int totalScore;
+        public float freshness;
+        public int goodFruit;
+        public int penalty;   // 已取绝对值：越小=惩罚越少=越优
+    }
+
+    // 优先用 over 结算玩家字段，缺失回退当前帧玩家；online 缺数据默认在线(不无端判负)。
+    static WinnerStats BuildWinnerStats(LycheeReplayOverPlayer o, LycheeReplayPlayerState f, int total)
+    {
+        WinnerStats s;
+        s.online = o != null ? o.online : (f != null ? f.online : true);
+        s.retired = o != null ? o.retired : (f != null && f.retired);
+        s.totalScore = total;   // 与横幅/明细展示的总分同源(ResolveTotal)
+        s.freshness = o != null ? o.freshness : (f != null ? f.freshness : 0f);
+        s.goodFruit = o != null ? o.goodFruit : (f != null ? f.goodFruit : 0);
+        s.penalty = Mathf.Abs(o != null ? o.penaltyScore : (f != null ? f.penaltyScore : 0));
+        return s;
+    }
+
+    // 返回 >0 = a 胜, <0 = b 胜, 0 = 全项相同(判平)。逐级短路。
+    static int CompareWinner(WinnerStats a, WinnerStats b)
+    {
+        if (a.online != b.online) return a.online ? 1 : -1;                       // ① 掉线直接判负
+        if (a.retired != b.retired) return a.retired ? -1 : 1;                    // ①.5 退赛(FORFEIT)判负：退赛方负于未退赛方，避免把退赛且分高者错误加冕(与"已退赛（判负）"明细一致)
+        if (a.totalScore != b.totalScore) return a.totalScore > b.totalScore ? 1 : -1; // ② 总分高者胜
+        if (a.freshness != b.freshness) return a.freshness > b.freshness ? 1 : -1;      // ③ 鲜度高者胜
+        if (a.goodFruit != b.goodFruit) return a.goodFruit > b.goodFruit ? 1 : -1;      // ④ 好果多者胜
+        if (a.penalty != b.penalty) return a.penalty < b.penalty ? 1 : -1;              // ⑤ 惩罚少者胜
+        return 0;
     }
 
     static bool IsInvalidResult(LycheeReplayOverFrame over)
@@ -278,33 +303,29 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
 
     string ResolveWinnerTitle(LycheeReplayOverFrame over, int redTotal, int blueTotal)
     {
-        if (over != null)
-        {
-            // §10.5：平局不宣布胜方；无效局单列；退赛局标明对方退赛。
-            if (IsInvalidResult(over)) return "本局无效";
-            if (IsDrawResult(over, redTotal, blueTotal)) return "双方战平";
-            string winnerName = null;
-            if (over.players != null)
-            {
-                LycheeReplayOverPlayer winner = over.players
-                    .FirstOrDefault(candidate => candidate != null && candidate.playerId == over.winnerPlayerId);
-                if (winner != null && !string.IsNullOrEmpty(winner.playerName)) winnerName = winner.playerName;
-            }
-            if (string.IsNullOrEmpty(winnerName) && player != null)
-                winnerName = player.TeamDisplayName(over.winnerPlayerId);
-            if (string.IsNullOrEmpty(winnerName)) winnerName = "胜方";
-            bool forfeit = !string.IsNullOrEmpty(over.resultType)
-                && over.resultType.Trim().ToUpperInvariant() == "FORFEIT";
-            return winnerName + (forfeit ? " 夺魁（对方退赛）" : " 夺魁");
-        }
+        // 无效局单列；胜负与横幅一律走 ResolveWinnerCamp 的优先级链，横幅与状元金光同源、不打架。
+        if (IsInvalidResult(over)) return "本局无效";
+        int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
+        if (winnerCamp < 0) return "双方战平";
 
-        if (redTotal == blueTotal) return "双方战平";
-        int winnerCamp = redTotal > blueTotal ? 0 : 1;
-        LycheeReplayPlayerState framePlayer = FindFramePlayer(winnerCamp);
-        string display = null;
-        if (framePlayer != null && player != null) display = player.TeamDisplayName(framePlayer.playerId);
+        LycheeReplayOverPlayer winnerOver = FindOverPlayer(over, winnerCamp);
+        LycheeReplayPlayerState winnerFrame = FindFramePlayer(winnerCamp);
+        string display = winnerOver != null && !string.IsNullOrEmpty(winnerOver.playerName)
+            ? winnerOver.playerName
+            : null;
+        if (string.IsNullOrEmpty(display) && winnerFrame != null && player != null)
+            display = player.TeamDisplayName(winnerFrame.playerId);
         if (string.IsNullOrEmpty(display)) display = winnerCamp == 0 ? "红队" : "蓝队";
-        return display + " 夺魁";
+
+        // 若因对方退赛/掉线判胜，横幅标注一下，避免观众误以为是分数碾压。退赛优先于掉线提示。
+        LycheeReplayOverPlayer loserOver = FindOverPlayer(over, 1 - winnerCamp);
+        LycheeReplayPlayerState loserFrame = FindFramePlayer(1 - winnerCamp);
+        bool loserRetired = loserOver != null ? loserOver.retired
+            : loserFrame != null && loserFrame.retired;
+        bool loserOffline = loserOver != null ? !loserOver.online
+            : loserFrame != null && !loserFrame.online;
+        string note = loserRetired ? "（对方退赛）" : loserOffline ? "（对方掉线判负）" : "";
+        return display + " 夺魁" + note;
     }
 
     static string HeaderText(int camp, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
