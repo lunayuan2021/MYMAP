@@ -76,6 +76,8 @@ public class LycheeReplayPlayer : MonoBehaviour
     readonly Dictionary<int, int> teamRosterSizes = new Dictionary<int, int>();
     readonly Dictionary<string, MapStationAnchor> stations = new Dictionary<string, MapStationAnchor>();
     readonly Dictionary<string, MapRouteEdge> edges = new Dictionary<string, MapRouteEdge>();
+    // 强制通行(FORCED_PASS)沿路补位轨道，按 playerId 存活；见 ForcedPassTrack 说明。
+    readonly Dictionary<int, ForcedPassTrack> forcedPassTracks = new Dictionary<int, ForcedPassTrack>();
     readonly Dictionary<string, GameObject> obstacles = new Dictionary<string, GameObject>();
     readonly Dictionary<string, GameObject> obstacleGenericModels = new Dictionary<string, GameObject>();
     readonly Dictionary<string, TextMesh> obstacleLabels = new Dictionary<string, TextMesh>();
@@ -107,6 +109,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     readonly List<LycheeReplayMessage> pendingOpeningDispatches = new List<LycheeReplayMessage>();
     LycheeReplayFrame lastAppliedFrame;
     bool matchOverRaised;
+    bool presentationPauseSeen;   // 上一帧仍有演出压着播放：演出结束若没人恢复播放，由 Update 兜底续播
     string latestEvent = "就绪";
     Vector3 eventFocusPosition;
     Transform eventFocusTarget;
@@ -178,6 +181,39 @@ public class LycheeReplayPlayer : MonoBehaviour
         /// <summary>与 LycheeCharacterMotion 共享的水面状态（船上站立 vs 陆上行军）。</summary>
         public LycheeSquadWaterState waterState;
     }
+
+    /// <summary>
+    /// 强制通行(FORCED_PASS)期间主车队的「沿路补位」轨道。服务端在强制通行整体倒计时里把车队报成
+    /// 停在发起节点(currentNodeId 不动、无 routeEdgeId、无 edgeProgress)，倒计时结束才把 currentNodeId
+    /// 直接翻到目标节点——中间没有任何路线边/进度坐标。原样渲染就是「瞬移」：从 S08 一步蹦到 S10，
+    /// 还会斜穿建筑/河面。设计§4.5 保证强制通行必为「相邻节点」，故发起↔目标之间必有一条路线边(pathPoints 折线)。
+    /// 这里用 FORCED_PASS_START 事件已知的(发起节点 → 目标节点 相邻边 + 总耗时 totalRound)在客户端合成一条
+    /// 匀速沿路线边前进的轨道，让车队在规定回合数内顺着道路折线走到目标节点，杜绝瞬移(与 SquadVisual 同款
+    /// startRound/endRound 回合窗口，位置用 edge.Evaluate 弧长参数化=匀速)。
+    /// </summary>
+    sealed class ForcedPassTrack
+    {
+        public int playerId;
+        public string fromNodeId;
+        public string targetNodeId;
+        public MapRouteEdge edge;   // 发起↔目标 之间的相邻路线边(强制通行必为相邻节点)
+        public bool reverse;        // true = 沿 edge 的 to→from 方向(发起节点是 edge 的 toStation)
+        public int startRound;      // 倒计时起始回合(FORCED_PASS_START 所在回合)
+        public int endRound;        // 预计到达目标节点回合 = startRound + total
+        public int timeTax;         // 时间税(前置缴税帧)——两段式表现的「停在起点」段长度
+        public int totalRound;      // 总倒计时帧(= endRound-startRound)，供两段式换算路程段进度
+        // 相邻边异常缺失(多跳/水陆换乘/数据不全)时的直线兜底端点，保证再差也是匀速直线过去、不瞬移。
+        public Vector3 fallbackFrom;
+        public Vector3 fallbackTo;
+        public bool hasFallback;
+    }
+
+    // 当帧(EvaluatePlayerPose)是否走在强制通行的水路段上：仅在真正跨水行进(路程进度<1)时为 true，
+    // 供水陆显示(船/马车)判断，且随到站(进度=1、定在陆上目标节点)自动落回陆路，避免到站后仍显示船在岸上。
+    bool poseForcedPassOnWater;
+
+    // 强制通行到站后再多留几回合(t 恒为 1、定在目标节点)才清轨道，避免与站点吸附接管之间出现空档抖动。
+    const int ForcedPassCleanupGraceRounds = 2;
 
     sealed class EventFocusAnchor
     {
@@ -806,7 +842,17 @@ public class LycheeReplayPlayer : MonoBehaviour
         if (frames.Count == 0) return;
         float playbackDelta = Mathf.Min(Time.deltaTime, MaxPlaybackDeltaSeconds);
         if (ShouldForcePresentationPause())
+        {
+            presentationPauseSeen = true;
             playing = false;
+        }
+        else if (presentationPauseSeen)
+        {
+            // 演出兜底续播：演出标志已清但没人把播放恢复回来（演出协程异常终止/被打断时会漏掉恢复），
+            // 否则回放永久停格（用户实测：回合数冻结、小队原地不动）。自然播完(matchOverRaised)不在此列。
+            presentationPauseSeen = false;
+            if (!playing && ShouldAutoResumeAfterPresentation) playing = true;
+        }
         if (playing)
         {
             frameTime += playbackDelta;
@@ -1028,33 +1074,54 @@ public class LycheeReplayPlayer : MonoBehaviour
             return;
         }
 
+        // 逐行容错解析：单行坏 JSON（截断/损坏/编码问题）只丢那一行并告警，绝不让一行坏数据把后面几百回合整段吞掉
+        // （静默截断的表现=播到中途"提前结束"，和真数据极难区分，必须显式告警）。
         string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        int badLines = 0;
         foreach (string line in lines)
         {
-            if (line.Contains("\"type\":\"start\""))
+            try
             {
-                startFrame = JsonUtility.FromJson<LycheeReplayFrame>(line);
-                StartLineRaw = line;
-                declaredTotalRounds = startFrame == null ? 0 : Mathf.Max(0, startFrame.tick > 0 ? startFrame.tick : startFrame.round);
-                if (declaredTotalRounds <= 0 && line.Contains("\"durationRound\""))
-                    declaredTotalRounds = ExtractIntField(line, "durationRound");
-                continue;
+                if (line.Contains("\"type\":\"start\""))
+                {
+                    startFrame = JsonUtility.FromJson<LycheeReplayFrame>(line);
+                    StartLineRaw = line;
+                    declaredTotalRounds = startFrame == null ? 0 : Mathf.Max(0, startFrame.tick > 0 ? startFrame.tick : startFrame.round);
+                    if (declaredTotalRounds <= 0 && line.Contains("\"durationRound\""))
+                        declaredTotalRounds = ExtractIntField(line, "durationRound");
+                    continue;
+                }
+                if (line.Contains("\"type\":\"over\"") && !line.Contains("\"type\":\"round\""))
+                {
+                    LycheeReplayOverFrame over = JsonUtility.FromJson<LycheeReplayOverFrame>(line);
+                    if (over != null && over.type == "over") OverFrame = over;
+                    continue;
+                }
+                if (!line.Contains("\"type\":\"round\"")) continue;
+                LycheeReplayFrame frame = JsonUtility.FromJson<LycheeReplayFrame>(line);
+                if (frame != null && frame.type == "round") frames.Add(frame);
             }
-            if (line.Contains("\"type\":\"over\"") && !line.Contains("\"type\":\"round\""))
+            catch (Exception exception)
             {
-                LycheeReplayOverFrame over = JsonUtility.FromJson<LycheeReplayOverFrame>(line);
-                if (over != null && over.type == "over") OverFrame = over;
-                continue;
+                badLines++;
+                if (badLines <= 3)
+                    Debug.LogWarning("回放第 " + badLines + " 处坏行已跳过（长度 " + line.Length + "）: " + exception.Message, this);
             }
-            if (!line.Contains("\"type\":\"round\"")) continue;
-            LycheeReplayFrame frame = JsonUtility.FromJson<LycheeReplayFrame>(line);
-            if (frame != null && frame.type == "round") frames.Add(frame);
         }
+        if (badLines > 0)
+            Debug.LogWarning("回放共 " + badLines + " 行解析失败被跳过；若回合明显缺失请检查文件是否被截断/损坏。", this);
         NormalizeCamps();
         PadReplayToDeclaredDuration();
         BackfillPlayerScoresFromFrameScores();
-        Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames" +
-            (OverFrame != null ? ", over frame parsed." : "."), this);
+        // 身份日志：把 matchId/overRound/末帧回合一并打出——排查"UI 播的是不是旧回放"时与服务器日志直接对号（用户实测踩过串台）。
+        int lastParsedRound = frames.Count == 0 ? 0 : frames[frames.Count - 1].round;
+        Debug.Log("Replay loaded from " + ReplaySource + ": " + frames.Count + " round frames, lastRound=" + lastParsedRound +
+            (OverFrame != null
+                ? (", over frame parsed (matchId=" + OverFrame.matchId + ", overRound=" + OverFrame.overRound + ").")
+                : ", no over frame."), this);
+        if (OverFrame != null && frames.Count > 0 && lastParsedRound < OverFrame.overRound)
+            Debug.LogWarning("回放帧疑似截断：最后解析到 round=" + lastParsedRound + " < overRound=" + OverFrame.overRound +
+                "，播放会提前停在截断处。请检查回放文件完整性/下载是否被掐断。", this);
         ValidateScoreConsistency();
     }
 
@@ -1685,6 +1752,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         LycheeReplayFrame current = frames[frameIndex];
         LycheeReplayFrame next = frames[Mathf.Min(frameIndex + 1, frames.Count - 1)];
+        PruneForcedPassTracks();
         if (current.players == null) return;
 
         foreach (LycheeReplayPlayerState player in current.players)
@@ -1734,7 +1802,10 @@ public class LycheeReplayPlayer : MonoBehaviour
                     Vector3.up * (0.10f + Mathf.Sin(visual.bobTime * 6f + player.camp) * 0.025f);
             }
 
-            bool water = IsWaterEdge(player.routeEdgeId);
+            // 水路判定：正常移动看 routeEdgeId；强制通行沿路补位时 routeEdgeId 为空，改看当帧解析出的强制通行
+            // 水路段标志(poseForcedPassOnWater，由 EvaluatePlayerPose 置位)，否则过水路障碍(DOCK_BLOCK/FLOOD)时
+            // 会显示马车在水面上开；该标志已按「路程进度<1」收口，到站定在陆上目标节点后自动落回陆路。
+            bool water = IsWaterEdge(player.routeEdgeId) || poseForcedPassOnWater;
             if (visual.carriage != null) visual.carriage.SetActive(!water);
             if (visual.boat != null)
             {
@@ -1763,6 +1834,7 @@ public class LycheeReplayPlayer : MonoBehaviour
     {
         tangent = Vector3.zero;
         resolved = true;
+        poseForcedPassOnWater = false;
         if (!string.IsNullOrEmpty(player.routeEdgeId) &&
             edges.TryGetValue(player.routeEdgeId, out MapRouteEdge edge))
         {
@@ -1786,6 +1858,17 @@ public class LycheeReplayPlayer : MonoBehaviour
             Vector3 after = edge.Evaluate(Mathf.Clamp01(evaluatedProgress + tangentSample * travelSign));
             tangent = after - before;
             position = edge.Evaluate(evaluatedProgress) + Vector3.up * 0.12f;
+            return;
+        }
+
+        // 强制通行沿路补位：服务端此时把车队报成停在发起节点(无 routeEdgeId)，倒计时结束才把 currentNodeId
+        // 瞬移到目标节点。识别两路信号——① 每帧状态(state=FORCED_PASSING / currentProcess.type=FORCED_PASS +
+        // targetNodeId)，跳转/倒带后也能重建；② FORCED_PASS_START 事件合成的轨道(带 timeTax/总耗时/相邻边)。
+        // 用服务端进度(currentProcess.progress/remainingRound)优先、事件回合窗口兜底，按 timeTax 两段式沿路匀速前进。
+        // 放在 tier-1(真实 routeEdgeId)之后：服务端一旦给出真实路线边即以服务端为准，本轨道只补服务端留空的那段。
+        if (TryEvaluateForcedPassPose(player, nextPlayer, interpolation, out position, out tangent))
+        {
+            resolved = true;
             return;
         }
 
@@ -1818,6 +1901,176 @@ public class LycheeReplayPlayer : MonoBehaviour
             Vector3 nextPosition = GridToWorld(nextGrid.x, nextGrid.y);
             tangent = nextPosition - position;
         }
+    }
+
+    /// <summary>若该玩家有活跃强制通行轨道且当前回放回合已进入 [startRound, endRound]，输出「匀速沿相邻路线边前进」
+    /// 的位置与切线并返回 true；否则返回 false 交回正常站点/网格兜底。edge.Evaluate 已是弧长参数化 → 天然匀速。</summary>
+    /// <summary>强制通行沿路补位求解：综合「每帧状态(currentProcess/state)」与「事件轨道(forcedPassTracks)」两路信号，
+    /// 并用服务端真值 player.currentNodeId 做对账(仍在发起节点=行进中、已到目标=定在终点、被挪到别处=放弃接管)，
+    /// 输出匀速沿相邻路线边(两段式含缴税停留)的位置/切线。返回 false 表示当前不是强制通行、交回站点/网格兜底。</summary>
+    bool TryEvaluateForcedPassPose(LycheeReplayPlayerState player, LycheeReplayPlayerState nextPlayer,
+        float interpolation, out Vector3 position, out Vector3 tangent)
+    {
+        position = Vector3.zero;
+        tangent = Vector3.zero;
+        if (player == null) return false;
+
+        forcedPassTracks.TryGetValue(player.playerId, out ForcedPassTrack track);   // 可能为 null(仅靠状态)
+        LycheeReplayProcess proc = player.currentProcess;
+        bool stateForced = string.Equals(player.state, "FORCED_PASSING", StringComparison.OrdinalIgnoreCase) ||
+            (proc != null && string.Equals(proc.type, "FORCED_PASS", StringComparison.OrdinalIgnoreCase) &&
+             !string.IsNullOrEmpty(proc.targetNodeId));
+        // 没有任何强制通行迹象(既无状态也无事件轨道)：不接管。
+        if (!stateForced && track == null) return false;
+
+        // 目标 / 发起节点：状态优先，事件轨道兜底。
+        string targetNode = proc != null && !string.IsNullOrEmpty(proc.targetNodeId) ? proc.targetNodeId
+            : track != null ? track.targetNodeId : null;
+        if (string.IsNullOrEmpty(targetNode) || !stations.ContainsKey(targetNode)) return false;
+        string fromNode = proc != null && !string.IsNullOrEmpty(proc.fromNodeId) ? proc.fromNodeId
+            : track != null && !string.IsNullOrEmpty(track.fromNodeId) ? track.fromNodeId
+            : player.currentNodeId;
+
+        // 对账服务端真值：仍停在发起节点=行进中；已翻到目标节点=已到站(定在终点);被挪到第三处=放弃接管。
+        string serverNode = player.currentNodeId;
+        bool arrived = serverNode == targetNode;
+        bool atOrigin = string.IsNullOrEmpty(serverNode) || serverNode == fromNode;
+        if (!arrived && !atOrigin) return false;
+        // 事件轨道时间窗之外(向前跳到起始回合之前)且无状态信号：不接管。
+        if (track != null && !stateForced)
+        {
+            float rr = CurrentRound + interpolation;
+            if (rr < track.startRound - 0.001f) return false;
+        }
+
+        // 路程进度(已扣除缴税段)：到站强制为 1；否则走 currentProcess/事件回合窗口的两段式换算。
+        float routeProgress = arrived ? 1f
+            : ComputeForcedPassRouteProgress(player, nextPlayer, interpolation, track, proc);
+
+        // 边/方向：事件轨道已解析用其结果；否则按 发起↔目标 现场找相邻边。
+        MapRouteEdge edge = track != null ? track.edge : null;
+        bool reverse = track != null && track.reverse;
+        if (edge == null && !(track != null && track.hasFallback))
+        {
+            if (TryFindEdgeBetween(fromNode, targetNode, out MapRouteEdge found))
+            {
+                edge = found;
+                reverse = fromNode == found.toStationId;
+            }
+        }
+
+        if (edge != null)
+        {
+            // 与 tier-1 完全同口径的反向/切线采样：发起节点是 edge 的 to 站时沿 to→from 走(评估 1-t)。
+            float evaluated = reverse ? 1f - routeProgress : routeProgress;
+            float sign = reverse ? -1f : 1f;
+            const float tangentSample = 0.0125f;
+            Vector3 before = edge.Evaluate(Mathf.Clamp01(evaluated - tangentSample * sign));
+            Vector3 after = edge.Evaluate(Mathf.Clamp01(evaluated + tangentSample * sign));
+            tangent = after - before;
+            position = edge.Evaluate(evaluated) + Vector3.up * 0.12f;
+            // 仅在真正跨水行进(未到站)时按水路显示船；到站定在陆上目标节点时落回陆路。
+            poseForcedPassOnWater = edge.routeType == MapRouteType.Water && routeProgress < 0.999f;
+            return true;
+        }
+
+        // 无相邻边：直线兜底。事件轨道预存了端点；纯状态路径现取站点中心。
+        Vector3 a, b;
+        if (track != null && track.hasFallback) { a = track.fallbackFrom; b = track.fallbackTo; }
+        else if (stations.TryGetValue(fromNode, out MapStationAnchor sa) &&
+                 stations.TryGetValue(targetNode, out MapStationAnchor sb) && sa != null && sb != null)
+        {
+            a = sa.transform.position + Vector3.up * 0.12f;
+            b = sb.transform.position + Vector3.up * 0.12f;
+        }
+        else return false;
+        position = Vector3.Lerp(a, b, routeProgress);
+        tangent = b - a;
+        return true;
+    }
+
+    /// <summary>算强制通行「路程段」进度[0,1](已扣除前置缴税段)。信号优先级：服务端 currentProcess.progress →
+    /// currentProcess.remainingRound/totalRound → 事件轨道回合窗口。timeTax 与 totalRound 均已知时按
+    /// 两段式换算(前 timeTax/总 比例停在起点、其后匀速走路线)；缺 timeTax/总时退化为整体进度直接当路程进度。</summary>
+    float ComputeForcedPassRouteProgress(LycheeReplayPlayerState player, LycheeReplayPlayerState nextPlayer,
+        float interpolation, ForcedPassTrack track, LycheeReplayProcess proc)
+    {
+        int timeTax = proc != null && proc.timeTax > 0 ? proc.timeTax : track != null ? track.timeTax : 0;
+        int total = proc != null && proc.totalRound > 0 ? proc.totalRound
+            : track != null ? track.totalRound : 0;
+
+        // 整体进度 overall∈[0,1]（含缴税段）。
+        float overall = -1f;
+        LycheeReplayProcess nextProc = nextPlayer != null ? nextPlayer.currentProcess : null;
+        bool nextArrived = nextPlayer != null && nextPlayer.currentNodeId != null &&
+            proc != null && nextPlayer.currentNodeId == proc.targetNodeId;
+        // 只有下一帧仍是「同一次强制通行」(同类型+同目标)时才拿它的进度做帧内插值目标；否则冻结在本帧进度，
+        // 避免下一帧换成别的读条(如站点 PROCESS 进度更低)时把 overall 往回插、车队瞬间倒退一格的抖动。
+        bool sameNextProc = proc != null && nextProc != null &&
+            string.Equals(nextProc.type, "FORCED_PASS", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrEmpty(proc.targetNodeId) && nextProc.targetNodeId == proc.targetNodeId;
+        if (proc != null && proc.progress > 0f)
+        {
+            float next = nextArrived ? 1f : sameNextProc && nextProc.progress > 0f ? nextProc.progress : proc.progress;
+            overall = Mathf.Clamp01(Mathf.Lerp(proc.progress, next, interpolation));
+        }
+        else if (proc != null && proc.totalRound > 0 && proc.remainingRound >= 0)
+        {
+            float nextRemain = nextArrived ? 0f
+                : sameNextProc && nextProc.totalRound > 0 ? nextProc.remainingRound : proc.remainingRound;
+            float remain = Mathf.Lerp(proc.remainingRound, nextRemain, interpolation);
+            overall = Mathf.Clamp01((proc.totalRound - remain) / proc.totalRound);
+        }
+        else if (track != null)
+        {
+            float replayRound = CurrentRound + interpolation;
+            float dur = Mathf.Max(1f, track.endRound - track.startRound);
+            overall = Mathf.Clamp01((replayRound - track.startRound) / dur);
+        }
+        if (overall < 0f) overall = 0f;
+
+        // 两段式：把整体进度映射到路程段。tax 段(前 timeTax/total 比例)停在起点(路程进度=0)。
+        if (total > 0 && timeTax > 0 && timeTax < total)
+        {
+            float taxFraction = (float)timeTax / total;
+            return Mathf.Clamp01((overall - taxFraction) / (1f - taxFraction));
+        }
+        return Mathf.Clamp01(overall);
+    }
+
+    /// <summary>估算强制通行「路程段」帧数(仅当事件既无 totalRound 也无 arriveRound 时兜底)：按相邻边逻辑距离 ×
+    /// 路线耗时系数(官道1.38/水路1.25/山路1.78/支路1.55)取整，等价于服务端到站所需帧数的基础值(无马/天气增益)。</summary>
+    static int EstimateForcedPassRouteFrames(MapRouteEdge edge)
+    {
+        if (edge == null) return 12;
+        float coeff = edge.routeType == MapRouteType.Water ? 1.25f
+            : edge.routeType == MapRouteType.Mountain ? 1.78f
+            : edge.routeType == MapRouteType.Branch ? 1.55f
+            : 1.38f;
+        float dist = edge.logicalDistance;
+        if (dist <= 0f) return 12;
+        return Mathf.Clamp(Mathf.CeilToInt(dist * coeff), 4, 200);
+    }
+
+    /// <summary>清理过期强制通行轨道：倒带到起始回合之前(尚未发生)、或到站已超出宽限回合(站点吸附可无缝接管)时移除。</summary>
+    void PruneForcedPassTracks()
+    {
+        if (forcedPassTracks.Count == 0) return;
+        int currentRound = CurrentRound;
+        List<int> expired = null;
+        foreach (KeyValuePair<int, ForcedPassTrack> kv in forcedPassTracks)
+        {
+            ForcedPassTrack track = kv.Value;
+            if (track == null ||
+                currentRound < track.startRound ||
+                currentRound > track.endRound + ForcedPassCleanupGraceRounds)
+            {
+                if (expired == null) expired = new List<int>();
+                expired.Add(kv.Key);
+            }
+        }
+        if (expired != null)
+            for (int i = 0; i < expired.Count; i++) forcedPassTracks.Remove(expired[i]);
     }
 
     /// <summary>取第 frameIdx 帧里 playerId 在 edgeId 上的进度；若该帧不存在/不是同一条边/玩家缺失，返回 fallback。
@@ -2164,6 +2417,12 @@ public class LycheeReplayPlayer : MonoBehaviour
             if (!ResolveObstacleClearSquads(payload, round))
                 ShowObstacleClearResult(payload);
         }
+
+        // 强制通行：开始时建「沿相邻路线边匀速补位」轨道(杜绝倒计时结束时从发起节点瞬移到目标节点)，结束时撤轨道。
+        if (message.type == "FORCED_PASS_START")
+            BeginForcedPassTrack(payload, round);
+        else if (message.type == "FORCED_PASS_END")
+            EndForcedPassTrack(payload);
 
         ShowKeyEventIllustration(message, payload, round);
 
@@ -2746,6 +3005,104 @@ public class LycheeReplayPlayer : MonoBehaviour
         };
         squads.Add(visual);
         return visual;
+    }
+
+    /// <summary>FORCED_PASS_START：为该玩家主车队建立「沿相邻路线边匀速补位」的强制通行轨道。
+    /// 发起节点取 payload.fromNodeId → 该玩家当帧 currentNodeId → payload.nodeId；目标节点取 payload.targetNodeId。
+    /// 总耗时优先 totalRound(契约字段§4.5) → arriveRound-round → timeTax+基础帧 → 兜底，落到 [startRound, endRound] 回合窗口。</summary>
+    void BeginForcedPassTrack(LycheeReplayPayload payload, int round)
+    {
+        if (payload == null || payload.playerId == 0) return;
+        string targetNode = payload.targetNodeId;
+        if (string.IsNullOrEmpty(targetNode) || !stations.ContainsKey(targetNode)) return;
+        string fromNode = ResolveForcedPassFromNode(payload);
+        if (string.IsNullOrEmpty(fromNode) || fromNode == targetNode) return;
+
+        ForcedPassTrack track = new ForcedPassTrack
+        {
+            playerId = payload.playerId,
+            fromNodeId = fromNode,
+            targetNodeId = targetNode,
+            startRound = round,
+            timeTax = Mathf.Max(0, payload.timeTax),
+        };
+        // 边/方向先解析，路程段帧数(无 totalRound/arriveRound 时)才能按相邻边距离估。
+        if (TryFindEdgeBetween(fromNode, targetNode, out MapRouteEdge edge))
+        {
+            track.edge = edge;
+            track.reverse = fromNode == edge.toStationId;   // 与 tier-1 同口径：发起节点是 to 站则反向走(评估 1-t)
+        }
+        else if (stations.TryGetValue(fromNode, out MapStationAnchor a) &&
+                 stations.TryGetValue(targetNode, out MapStationAnchor b) && a != null && b != null)
+        {
+            // 相邻边异常缺失(多跳/水陆换乘/数据不全)：退化为发起→目标站点之间匀速直线，仍胜过瞬移。
+            track.fallbackFrom = a.transform.position + Vector3.up * 0.12f;
+            track.fallbackTo = b.transform.position + Vector3.up * 0.12f;
+            track.hasFallback = true;
+        }
+        else
+        {
+            return;   // 连站点都解析不出：放弃，交回原三级兜底(不制造错误轨道)
+        }
+
+        // 总耗时：优先事件 totalRound → arriveRound-round → 缴税帧 + 相邻边路程段估帧(契约表默认只带 timeTax)。
+        int total = payload.totalRound;
+        if (total <= 0 && payload.arriveRound > round) total = payload.arriveRound - round;
+        if (total <= 0) total = track.timeTax + EstimateForcedPassRouteFrames(track.edge);
+        total = Mathf.Max(1, total);
+        track.totalRound = total;
+        track.endRound = round + total;
+
+        forcedPassTracks[payload.playerId] = track;
+    }
+
+    /// <summary>FORCED_PASS_END：撤销该玩家的强制通行轨道。此时服务端 currentNodeId 已是目标节点，
+    /// 正常站点吸附(tier-2)无缝接管；不主动 return 位置，交由 Prune 的宽限期与站点吸附平滑收尾。</summary>
+    void EndForcedPassTrack(LycheeReplayPayload payload)
+    {
+        if (payload == null || payload.playerId == 0) return;
+        forcedPassTracks.Remove(payload.playerId);
+    }
+
+    /// <summary>解析强制通行发起节点：契约表 FORCED_PASS_START 不含 fromNodeId，故 fromNodeId 缺省时
+    /// 用该玩家当帧(退回上一帧)所在节点；再兜底 payload.nodeId(排除等于 targetNode，因 nodeId 常被填成目标节点)。</summary>
+    string ResolveForcedPassFromNode(LycheeReplayPayload payload)
+    {
+        if (payload == null) return null;
+        if (!string.IsNullOrEmpty(payload.fromNodeId) && payload.fromNodeId != payload.targetNodeId &&
+            stations.ContainsKey(payload.fromNodeId))
+            return payload.fromNodeId;
+        for (int idx = frameIndex; idx >= Mathf.Max(0, frameIndex - 1); idx--)
+        {
+            if (idx < 0 || idx >= frames.Count) continue;
+            LycheeReplayPlayerState p = frames[idx].players?
+                .FirstOrDefault(c => c != null && c.playerId == payload.playerId);
+            if (p != null && !string.IsNullOrEmpty(p.currentNodeId) && p.currentNodeId != payload.targetNodeId &&
+                stations.ContainsKey(p.currentNodeId))
+                return p.currentNodeId;
+        }
+        if (!string.IsNullOrEmpty(payload.nodeId) && payload.nodeId != payload.targetNodeId &&
+            stations.ContainsKey(payload.nodeId))
+            return payload.nodeId;
+        return null;
+    }
+
+    /// <summary>在本局路线边里找连接 a、b 两站的边(无向匹配，双向/单向都认)。强制通行必为相邻节点(设计§4.5)，故通常直接命中。</summary>
+    bool TryFindEdgeBetween(string a, string b, out MapRouteEdge edge)
+    {
+        edge = null;
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+        foreach (MapRouteEdge candidate in edges.Values)
+        {
+            if (candidate == null) continue;
+            if ((candidate.fromStationId == a && candidate.toStationId == b) ||
+                (candidate.fromStationId == b && candidate.toStationId == a))
+            {
+                edge = candidate;
+                return true;
+            }
+        }
+        return false;
     }
 
     bool TryResolveSquadStartStation(LycheeReplayPayload payload, out MapStationAnchor station)
@@ -3751,6 +4108,9 @@ public class LycheeReplayPlayer : MonoBehaviour
         foreach (SquadVisual squad in squads)
             if (squad.root != null) Destroy(squad.root);
         squads.Clear();
+        // 跳转会只应用目标帧的事件，不重放中途的 FORCED_PASS_START，故无法在跳转后重建强制通行轨道——
+        // 与小队(squads)同样处理：清空。跳进强制通行中段时车队回落到站点吸附(与旧行为一致，非本次回归)。
+        forcedPassTracks.Clear();
         ClearEventEffects();
         foreach (ConvoyVisual convoy in convoys.Values)
         {

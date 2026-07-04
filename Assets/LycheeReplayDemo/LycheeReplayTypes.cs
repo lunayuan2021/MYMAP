@@ -53,6 +53,22 @@ public class LycheeReplayPlayerState
     public bool online;        // 在线
     public bool retired;       // 退赛
     public LycheeReplayScoreDetail scoreDetail; // 分项明细(delivery/goodFruit/freshness/time/tasks/bounty/penalty)
+    // 当前读条(强制通行/站点处理/宫门验核等)。服务端在强制通行倒计时里把 currentNodeId 定死在发起节点、
+    // 不下发 routeEdgeId/edgeProgress，全靠这里说明「正在强行通往哪个相邻节点、进度多少」。缺省时 JsonUtility
+    // 留 null，UI 退回按 FORCED_PASS_START 事件合成的轨道。见 LycheeReplayPlayer.TryEvaluateForcedPassPose。
+    public LycheeReplayProcess currentProcess;
+}
+
+[Serializable]
+public class LycheeReplayProcess
+{
+    public string type;          // 读条类型: FORCED_PASS / PROCESS / VERIFY_GATE ...
+    public string targetNodeId;  // 强制通行目标(相邻)节点
+    public string fromNodeId;    // 发起节点(可选；缺省时用 player.currentNodeId)
+    public float progress;       // 整体倒计时进度 0..1 (= 已用帧 / 总帧，含缴税段)
+    public int totalRound;       // 总倒计时帧(缴税 + 走路线)
+    public int remainingRound;   // 剩余帧
+    public int timeTax;          // 时间税(前置的缴税/破障占用帧，进度前 timeTax 帧停在发起节点)
 }
 
 [Serializable]
