@@ -19,6 +19,9 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     const string RootName = "Lychee_WorldMarkers";
     const float GuardCollapseSeconds = 0.4f;
+    const float GuardBadgeHeight = 6.0f;      // 头顶设卡徽章根高度：抬到资源行/光罩之上，两行(徽记+读数)都不被挤
+    const float GuardDomeRadius = 5.0f;       // 军帐光罩半径（罩住整座建筑；按站型可再调）
+    const float GuardDomeSink = 1.0f;         // 光罩球心下沉量：让罩底贴地、藏住赤道接缝
     const float PillarFadeSeconds = 1.1f;
     const float RingFlashSeconds = 0.5f;
     const float ResourceHoverHeight = 4.55f;
@@ -60,8 +63,11 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     sealed class GuardMarker
     {
         public GameObject root;
-        public TextMesh label;
+        public TextMesh badgeLabel;   // 头顶"设卡 N/M"读数（随防守值风化实时更新）
+        public Transform dome;        // 军帐光罩（队色半透球罩，呼吸脉冲）
         public string owner;
+        public int ageRound;          // 设卡后经过回合数：<=3 视作"待生效"，光盘脉冲更快更亮
+        public float bobSeed;         // 脉冲相位（按站点位置错开，避免全场同频）
         public float collapseStart = -1f;
     }
 
@@ -328,9 +334,10 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                     }
                     CreateGuardMarker(node.nodeId, guard);
                 }
-                else if (marker.label != null)
+                else
                 {
-                    marker.label.text = GuardLabelText(guard);
+                    if (marker.badgeLabel != null) marker.badgeLabel.text = GuardBadgeText(guard);
+                    marker.ageRound = guard.ageRound;
                 }
             }
         }
@@ -354,23 +361,99 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         root.transform.position = position;
 
         Color teamColor = TeamColorFromTeamId(guard.ownerTeamId);
-        Material wood = GetLitMaterial("guard_wood", WoodColor, WoodColor * 0.12f);
-        Material glow = GetLitMaterial("guard_glow_" + TeamKey(guard.ownerTeamId), teamColor, teamColor * 1.8f);
 
-        for (int row = 0; row < 2; row++)
+        // 军帐光罩（方案①）：队色半透球罩罩住整座建筑——罩在外层永不被建筑挡住，一眼可读"此地被某队设卡封锁"。
+        Transform dome = CreateGuardDome(root.transform, guard.ownerTeamId, teamColor);
+        // 头顶始终朝镜头的设卡徽章：上行干净徽记 + 下行"设卡 N/M"读数（两行分明、抬高、不撞资源行）。
+        TextMesh badgeLabel = CreateGuardBadge(root.transform, guard, teamColor);
+
+        guards[nodeId] = new GuardMarker
         {
-            float z = row == 0 ? -0.38f : 0.38f;
-            CreateBarCube(root.transform, "CrossA_" + row,
-                new Vector3(0f, 0.55f, z), new Vector3(0f, 0f, 52f), new Vector3(0.09f, 1.55f, 0.09f), wood);
-            CreateBarCube(root.transform, "CrossB_" + row,
-                new Vector3(0f, 0.55f, z), new Vector3(0f, 0f, -52f), new Vector3(0.09f, 1.55f, 0.09f), wood);
-            CreateBarCube(root.transform, "Rail_" + row,
-                new Vector3(0f, 0.72f, z), Vector3.zero, new Vector3(1.75f, 0.07f, 0.07f), glow);
+            root = root,
+            badgeLabel = badgeLabel,
+            dome = dome,
+            owner = guard.ownerTeamId,
+            ageRound = guard.ageRound,
+            bobSeed = position.x * 0.7f + position.z * 1.3f,
+        };
+    }
+
+    // 头顶设卡徽章（两行、无底方块）：上行=干净徽记贴图(用户重做、无字)，下行=队色窄药丸"设卡 N/M"读数。
+    // billboard 恒定朝镜头、关近距淡出，拉远/贴脸都满可读。
+    TextMesh CreateGuardBadge(Transform parent, LycheeReplayGuardState guard, Color teamColor)
+    {
+        GameObject badgeRoot = new GameObject("GuardBadge");
+        badgeRoot.transform.SetParent(parent, false);
+        badgeRoot.transform.localPosition = new Vector3(0f, GuardBadgeHeight, 0f);
+        LycheeReplayBillboard billboard = badgeRoot.AddComponent<LycheeReplayBillboard>();
+        billboard.distanceScale = true;
+        billboard.maxScale = 1.4f;
+        billboard.nearFadeStart = 0f;   // 关近距淡出：贴脸也保持满可读
+        billboard.nearFadeEnd = 0f;
+        badgeRoot.AddComponent<LycheeLabelUpgradeOptOut>();
+
+        // 上行：干净徽记（贴图优先，缺失走队色方块兜底），不再叠底板方块。
+        Sprite icon = LycheeLoadThemeSprite("EventIcons/icon_event_guard_set");
+        if (icon != null)
+        {
+            GameObject emblem = new GameObject("Emblem");
+            emblem.transform.SetParent(badgeRoot.transform, false);
+            emblem.transform.localPosition = new Vector3(0f, 0.76f, 0f);
+            emblem.transform.localScale = Vector3.one * 1.25f;
+            SpriteRenderer emblemRenderer = emblem.AddComponent<SpriteRenderer>();
+            emblemRenderer.sprite = icon;
+            emblemRenderer.sortingOrder = BadgeSpriteOrder + 2;
+        }
+        else
+        {
+            Material iconMat = GetLitMaterial("guard_badge_" + TeamKey(guard.ownerTeamId), teamColor, teamColor * 1.4f);
+            CreateBarCube(badgeRoot.transform, "EmblemCube",
+                new Vector3(0f, 0.76f, 0f), Vector3.zero, Vector3.one * 0.55f, iconMat);
         }
 
-        TextMesh label = CreateWorldLabel(root.transform, new Vector3(0f, 1.95f, 0f),
-            GuardLabelText(guard), teamColor, 40, 0.065f, true);
-        guards[nodeId] = new GuardMarker { root = root, label = label, owner = guard.ownerTeamId };
+        // 下行：去金框，只留深队色文字底 + 白字 "设卡防守值 N/M"（紧贴徽记）。
+        GameObject pill = new GameObject("Pill");
+        pill.transform.SetParent(badgeRoot.transform, false);
+        pill.transform.localPosition = new Vector3(0f, -0.06f, 0.01f);
+
+        GameObject pillFace = new GameObject("PillFace");
+        pillFace.transform.SetParent(pill.transform, false);
+        pillFace.transform.localScale = new Vector3(2.1f, 0.55f, 1f);
+        SpriteRenderer pillFaceRenderer = pillFace.AddComponent<SpriteRenderer>();
+        // 深队色文字底（红队暗红 / 蓝队暗蓝），白字压得清楚、又用队色区分设卡方。
+        pillFaceRenderer.sprite = EventPlaqueSprite();
+        pillFaceRenderer.color = new Color(teamColor.r * 0.45f, teamColor.g * 0.45f, teamColor.b * 0.6f, 0.96f);
+        pillFaceRenderer.sortingOrder = BadgeSpriteOrder;
+
+        Color textColor = new Color(1f, 0.97f, 0.90f, 1f);   // 近白字，深队色底上清晰
+        TextMesh label = CreateWorldLabel(badgeRoot.transform, new Vector3(0f, -0.06f, -0.02f),
+            GuardBadgeText(guard), textColor, 40, 0.058f, false);
+        MeshRenderer labelRenderer = label == null ? null : label.GetComponent<MeshRenderer>();
+        if (labelRenderer != null) labelRenderer.sortingOrder = BadgeTextOrder + 1;
+        return label;
+    }
+
+    // 军帐光罩：队色半透球罩，球心下沉让罩底贴地、藏住赤道缝；破卡随 root 一起倒塌收起。
+    // 脉冲靠缩放呼吸(不改材质) → 共享缓存透明材质，红/蓝各一份，无逐实例泄漏。
+    Transform CreateGuardDome(Transform parent, string ownerTeamId, Color teamColor)
+    {
+        GameObject dome = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        dome.name = "GuardDome";
+        dome.transform.SetParent(parent, false);
+        dome.transform.localPosition = new Vector3(0f, -GuardDomeSink, 0f);
+        dome.transform.localScale = Vector3.one * (GuardDomeRadius * 2f);
+        Collider domeCollider = dome.GetComponent<Collider>();
+        if (domeCollider != null) Destroy(domeCollider);
+        Renderer renderer = dome.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            Color domeColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.15f);
+            Material mat = GetUnlitMaterial("guard_dome_" + TeamKey(ownerTeamId), domeColor, true);
+            if (mat != null) renderer.sharedMaterial = mat;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+        return dome.transform;
     }
 
     void UpdateGuardCollapse(float time)
@@ -384,7 +467,19 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
                 removalBuffer.Add(pair.Key);
                 continue;
             }
-            if (marker.collapseStart < 0f) continue;
+            if (marker.collapseStart < 0f)
+            {
+                // 存活：光罩呼吸脉冲。刚设卡(ageRound<=3)更快更大 = "待生效"，生效后转缓慢呼吸。
+                if (marker.dome != null)
+                {
+                    bool pending = marker.ageRound <= 3;
+                    float amp = pending ? 0.06f : 0.03f;
+                    float speed = pending ? 4.6f : 2.2f;
+                    float s = (GuardDomeRadius * 2f) * (1f + amp * Mathf.Sin(time * speed + marker.bobSeed));
+                    marker.dome.localScale = new Vector3(s, s, s);
+                }
+                continue;
+            }
             float t = (time - marker.collapseStart) / GuardCollapseSeconds;
             if (t >= 1f)
             {
@@ -399,11 +494,11 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
         foreach (string key in removalBuffer) guards.Remove(key);
     }
 
-    static string GuardLabelText(LycheeReplayGuardState guard)
+    static string GuardBadgeText(LycheeReplayGuardState guard)
     {
-        if (guard == null) return "⛨ 防 0/0";
+        if (guard == null) return "设卡防守值 0/0";
         int max = Mathf.Max(guard.maxDefense, guard.defense);
-        return "⛨ 防 " + guard.defense + "/" + max;
+        return "设卡防守值 " + guard.defense + "/" + max;
     }
 
     // ------------------------------------------------------------------ 2. 资源标记
@@ -1008,41 +1103,11 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     void RefreshTaskPillars(LycheeReplayFrame frame)
     {
-        activeKeyBuffer.Clear();
-        if (frame.tasks != null)
-        {
-            foreach (LycheeReplayTaskState task in frame.tasks)
-            {
-                if (task == null) continue;
-                string key = !string.IsNullOrEmpty(task.taskId)
-                    ? task.taskId
-                    : task.templateId + "@" + task.targetNodeId;
-                if (task.status == "ACTIVE")
-                {
-                    activeKeyBuffer.Add(key);
-                    taskPillars.TryGetValue(key, out PillarMarker marker);
-                    if (marker == null || marker.root == null || marker.fadeStart >= 0f)
-                    {
-                        if (marker != null)
-                        {
-                            DestroyPillar(marker);
-                            taskPillars.Remove(key);
-                        }
-                        marker = CreatePillarMarker(task.targetNodeId, GoldColor, false);
-                        if (marker == null) continue;
-                        taskPillars[key] = marker;
-                    }
-                    if (marker.label != null) marker.label.text = TaskLabelText(task, frame.round, frame);
-                }
-                else if (taskPillars.TryGetValue(key, out PillarMarker existing))
-                {
-                    BeginPillarFade(existing, task.status == "COMPLETED");
-                }
-            }
-        }
-
+        // 用户确认：任务刷新只在 HUD 事件卡里表现，地图上不要额外挂皇榜/光柱世界标记，避免与站名、小队、进度条堆叠。
+        if (taskPillars.Count == 0) return;
         foreach (KeyValuePair<string, PillarMarker> pair in taskPillars)
-            if (!activeKeyBuffer.Contains(pair.Key)) BeginPillarFade(pair.Value, false);
+            DestroyPillar(pair.Value, true);
+        taskPillars.Clear();
     }
 
     void RefreshBountyPillars(LycheeReplayFrame frame)
@@ -1199,8 +1264,8 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
 
     static string TaskLabelText(LycheeReplayTaskState task, int round, LycheeReplayFrame frame)
     {
-        if (task == null) return "皇榜·任务";
-        string text = "皇榜·" + (string.IsNullOrEmpty(task.name) ? "限时任务" : task.name);
+        if (task == null) return "任务";
+        string text = string.IsNullOrEmpty(task.name) ? "限时任务" : task.name;
         if (task.score > 0) text += " +" + task.score + "分";
         // E4(确认口径,审查报告第五部分): routeBucket(官道/水路/山路/支线)与 protectionPlayerId 是任务**状态**字段，
         // 从 tasks[] 状态读(这里的 task 即状态对象)，别指望 TASK_* 事件 payload 带全量字段。未知桶/0 保护期不显示。
@@ -1547,7 +1612,7 @@ public sealed class LycheeWorldMarkerSystem : MonoBehaviour
     {
         "VERIFY_GATE" => "核验中",
         "TRANSFER" => "转运中",
-        "CLAIM_TASK" => "领任务中",
+        "CLAIM_TASK" => "处理任务中",
         "CLAIM_RESOURCE" => "领资源中",
         "BOARD" => "登船中",
         "RESTING" => "休整中",

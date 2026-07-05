@@ -1351,6 +1351,7 @@ public sealed class LycheeHudExtensions : MonoBehaviour
     {
         if (value == "CLEAR_OBSTACLE") return "清障";
         if (value == "CLAIM_RESOURCE") return "领取资源";
+        if (value == "CLAIM_TASK") return "处理任务";   // 措辞:任务是"处理"不是"领取"(PROCESS_START 播报拼成"开始处理任务")
         if (value == "BOARD") return "登船处理";
         if (value == "WATER_TRANSFER") return "水路换运";
         if (value == "TRANSFER") return "前段交接";

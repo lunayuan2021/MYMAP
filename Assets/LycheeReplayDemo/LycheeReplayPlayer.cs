@@ -761,13 +761,15 @@ public class LycheeReplayPlayer : MonoBehaviour
         }
         if (string.IsNullOrEmpty(text))
             yield return FetchStreamingText(relative, value => text = value);
-        // 回放帧读不到掉线：从回放同目录取 data.csv，按 team_id 读两队 online，供结算“掉线判负”。
+        ParseReplay(text);
+        InitializeAfterLoad();   // 场景/模型/HUD/头像先起来，绝不被 data.csv 抓取阻塞或连累
+        // data.csv 只在最终结算判负才用到（回放要播完才到结算，时间极充裕），故放到初始化之后再取；
+        // 这样即便 data.csv 慢/失败/超时/抛错，也只影响结算判负、绝不连累回放画面。
+        // （曾把这步放在 InitializeAfterLoad 之前 → data.csv 一慢就把整场景初始化堵在后面，是设计失误，已改。）
         string baseReplayUrl = externalRequested
             ? externalReplayUrl
             : Application.streamingAssetsPath + "/" + relative;
         yield return FetchTeamOnlineCsv(SiblingUrl(baseReplayUrl, "data.csv"));
-        ParseReplay(text);
-        InitializeAfterLoad();
     }
 
     // 回放同目录 data.csv → 每队 online。取不到/解析空 → 记具体错误(TeamOnlineError)并 LogError；
@@ -2557,10 +2559,11 @@ public class LycheeReplayPlayer : MonoBehaviour
             eventType == "OBSTACLE_CLEAR" ||
             eventType == "RUSH_START" ||
             eventType == "RUSH_PHASE_START" ||
-            eventType == "RUSH_TACTIC_USE" ||
-            eventType == "ACTION_REJECTED" ||
-            eventType == "INVALID_ACTION")
+            eventType == "RUSH_TACTIC_USE")
             return true;
+        // 徽章去杂: ACTION_REJECTED/INVALID_ACTION 不再冒世界脉冲——一局里"行动被拒/无效"可能连发很多次(试探/抢先/时机不对)，
+        // 每次都冒一个"拒绝"徽章会在画面上叠一大堆；左侧事件流仍保留记录，可追溯不受影响。显式返回 false 防以后被别的规则误纳入。
+        if (eventType == "ACTION_REJECTED" || eventType == "INVALID_ACTION") return false;
         // D4: 补几类原来只在左侧文字流、世界层无脉冲的事件(退赛/交付后扣分/清障残留税/破关令绑定)。
         // 标签走 WorldEventLabel→EventNameCn(全中文)，色用 EventColor 兜底、无专属图标(ResolveEventIcon 返回 null 由脉冲系统兜底)。
         if (eventType == "PLAYER_RETIRED" ||

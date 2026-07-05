@@ -147,8 +147,10 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         // E3(确认口径): 惩罚触底时服务端按 max(0, 正向分-惩罚) 结算，总分显示 0 是正常现象(行和≠总分)；
         // 结算页无 tooltip 基建，用横幅备注替代"tooltip: 总分已按惩罚和0分下限结算"。
         SetText(bannerScore, "最终比分 " + redTotal + " : " + blueTotal + PenaltyFloorNote(redOver, blueOver));
-        SetText(redHeader, HeaderText(0, redOver, redFrame));
-        SetText(blueHeader, HeaderText(1, blueOver, blueFrame));
+        bool redOffline = IsCampOffline(redOver, redFrame);
+        bool blueOffline = IsCampOffline(blueOver, blueFrame);
+        SetText(redHeader, HeaderText(0, redOver, redFrame, redOffline));
+        SetText(blueHeader, HeaderText(1, blueOver, blueFrame, blueOffline));
 
         FillTargets(redTargets, redOver);
         FillTargets(blueTargets, blueOver);
@@ -169,8 +171,11 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
 
         SetText(redTotalText, redTotal.ToString());
         SetText(blueTotalText, blueTotal.ToString());
-        ApplyAux(redAuxText, redOver, redFrame);
-        ApplyAux(blueAuxText, blueOver, blueFrame);
+        // 离线一方总分置灰（视觉上传达"分数无效"）；未离线保持金色。
+        if (redTotalText != null) redTotalText.color = redOffline ? GrayColor : GoldColor;
+        if (blueTotalText != null) blueTotalText.color = blueOffline ? GrayColor : GoldColor;
+        ApplyAux(redAuxText, redOver, redFrame, redOffline);
+        ApplyAux(blueAuxText, blueOver, blueFrame, blueOffline);
 
         int winnerCamp = ResolveWinnerCamp(over, redTotal, blueTotal);
         if (winnerCamp == LycheeWinnerRules.CannotDetermine)
@@ -290,19 +295,30 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         LycheeReplayPlayerState loserFrame = FindFramePlayer(1 - winnerCamp);
         bool loserRetired = loserOver != null ? loserOver.retired
             : loserFrame != null && loserFrame.retired;
-        bool loserOffline = loserOver != null ? !loserOver.online
-            : loserFrame != null && !loserFrame.online;
+        // 掉线判定只认 data.csv（结算帧 online 是最终快照、把掉线者仍标 true，读它这条永远不触发）。
+        bool loserOffline = IsCampOffline(loserOver, loserFrame);
         string note = loserRetired ? "（对方退赛）" : loserOffline ? "（对方掉线判负）" : "";
         return display + " 夺魁" + note;
     }
 
-    static string HeaderText(int camp, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
+    static string HeaderText(int camp, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer, bool offline)
     {
         string team = camp == 0 ? "红队" : "蓝队";
         string name = overPlayer != null && !string.IsNullOrEmpty(overPlayer.playerName)
             ? overPlayer.playerName
             : framePlayer != null && !string.IsNullOrEmpty(framePlayer.name) ? framePlayer.name : null;
-        return string.IsNullOrEmpty(name) ? team : team + " · " + name;
+        string head = string.IsNullOrEmpty(name) ? team : team + " · " + name;
+        return offline ? head + "（已离线）" : head;   // 离线（data.csv online=FALSE）在队伍头标注
+    }
+
+    // 该阵营是否在 data.csv 里明确标为离线（team_id=playerId 命中且 online=FALSE）。
+    // 未加载/未命中 data.csv → false，不标（此时整页胜负另有"无法判定 · 缺 data.csv"错误）。
+    bool IsCampOffline(LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
+    {
+        if (player == null || player.TeamOnline == null || player.TeamOnline.Count == 0) return false;
+        int id = overPlayer != null && overPlayer.playerId != 0 ? overPlayer.playerId
+            : (framePlayer != null ? framePlayer.playerId : 0);
+        return id != 0 && player.TeamOnline.TryGetValue(id, out bool online) && !online;
     }
 
     static void FillTargets(int?[] targets, LycheeReplayOverPlayer overPlayer)
@@ -358,13 +374,20 @@ public sealed class LycheeSettlementScreen : MonoBehaviour
         return positive - Mathf.Abs(d.penalty) < 0;
     }
 
-    static void ApplyAux(Text text, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer)
+    static void ApplyAux(Text text, LycheeReplayOverPlayer overPlayer, LycheeReplayPlayerState framePlayer, bool offline)
     {
         if (text == null) return;
         // §10.5 retired：退赛方优先标注（判负），不再显示交付/鲜度明细。
         if (overPlayer != null && overPlayer.retired)
         {
             text.text = "已退赛（判负）";
+            text.color = GrayColor;
+            return;
+        }
+        // 离线（data.csv online=FALSE）：标注离线、分数无效，优先于交付明细。
+        if (offline)
+        {
+            text.text = "已离线（分数无效）";
             text.color = GrayColor;
             return;
         }
