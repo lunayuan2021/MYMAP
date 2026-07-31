@@ -1,0 +1,3 @@
+LycheePaceRetune_20260613 2026-06-13 13:16:26
+secondsPerRound: 0.22 → 0.4
+场景保存: True

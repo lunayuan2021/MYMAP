@@ -1,0 +1,15 @@
+{
+    "asset": "3f381cc1117614805bf55dde22798cb2",
+    "fileName": "019ed602-a318-7a73-a533-8fd529d1741f.wav",
+    "prompt": "A loud ancient war horn and conch blast signaling the start of a charge, bold and brassy, about 1.5 seconds.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

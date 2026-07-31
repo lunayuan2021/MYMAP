@@ -1,0 +1,77 @@
+17:18:53 WARNING: bundled font not found, skipping scene font fix.
+17:18:53 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+17:18:58 Build result: Succeeded, size: 673.1 MB, time: 5s, errors: 0
+17:24:25 WARNING: bundled font not found, skipping scene font fix.
+17:24:25 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+17:24:27 Build result: Succeeded, size: 673.1 MB, time: 3s, errors: 0
+17:33:06 Scene font fix: 0 text components now use bundled NotoSansSC.
+17:33:06 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+17:36:40 Build result: Succeeded, size: 674.0 MB, time: 215s, errors: 0
+00:05:34 Scene font fix: 0 text components now use bundled NotoSansSC.
+00:05:34 Theme manifest generated: 29 entries.
+00:05:34 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+00:09:45 Build result: Succeeded, size: 459.1 MB, time: 250s, errors: 0
+00:09:45 index.html patched (devicePixelRatio=1, full-window canvas).
+01:46:28 Scene font fix: 0 text components now use bundled NotoSansSC.
+01:46:28 Theme manifest generated: 29 entries.
+01:46:28 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+01:50:07 Build result: Succeeded, size: 459.9 MB, time: 218s, errors: 0
+01:50:07 index.html patched (devicePixelRatio=1, full-window canvas).
+02:33:43 Scene font fix: 0 text components now use bundled NotoSansSC.
+02:33:43 Theme manifest generated: 29 entries.
+02:33:43 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+02:33:51 Build result: Failed, size: 0.0 MB, time: 8s, errors: 4680
+02:36:48 Scene font fix: 0 text components now use bundled NotoSansSC.
+02:36:48 Theme manifest generated: 29 entries.
+02:36:48 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+02:36:51 Build result: Failed, size: 0.0 MB, time: 3s, errors: 4680
+02:38:37 Scene font fix: 0 text components now use bundled NotoSansSC.
+02:38:37 Theme manifest generated: 29 entries.
+02:38:37 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+02:42:29 Build result: Succeeded, size: 480.6 MB, time: 232s, errors: 0
+02:42:29 index.html patched (devicePixelRatio=1, full-window canvas).
+09:17:22 Scene font fix: 0 text components now use bundled NotoSansSC.
+09:17:22 Theme manifest generated: 29 entries.
+09:17:22 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+09:20:08 Build result: Succeeded, size: 480.5 MB, time: 166s, errors: 0
+09:20:08 index.html patched (devicePixelRatio=1, full-window canvas).
+09:42:52 Scene font fix: 0 text components now use bundled NotoSansSC.
+09:42:52 Theme manifest generated: 29 entries.
+09:42:52 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+09:45:33 Build result: Succeeded, size: 479.1 MB, time: 161s, errors: 0
+09:45:33 index.html patched (devicePixelRatio=1, full-window canvas).
+10:23:47 Scene font fix: 0 text components now use bundled NotoSansSC.
+10:23:47 Theme manifest generated: 29 entries.
+10:23:47 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+10:26:32 Build result: Succeeded, size: 479.1 MB, time: 165s, errors: 0
+10:26:32 index.html patched (devicePixelRatio=1, full-window canvas).
+11:57:49 Scene font fix: 0 text components now use bundled NotoSansSC.
+11:57:49 Theme manifest generated: 29 entries.
+11:57:49 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+12:00:12 Build result: Succeeded, size: 484.4 MB, time: 143s, errors: 0
+12:00:12 index.html patched (devicePixelRatio=1, full-window canvas).
+12:48:59 Scene font fix: 0 text components now use bundled NotoSansSC.
+12:48:59 Theme manifest generated: 29 entries.
+12:48:59 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+12:51:26 Build result: Succeeded, size: 490.8 MB, time: 147s, errors: 0
+12:51:26 index.html patched (devicePixelRatio=1, full-window canvas).
+13:35:41 Scene font fix: 0 text components now use bundled NotoSansSC.
+13:35:41 Theme manifest generated: 29 entries.
+13:35:41 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+13:38:07 Build result: Succeeded, size: 490.8 MB, time: 147s, errors: 0
+13:38:07 index.html patched (devicePixelRatio=1, full-window canvas).
+14:08:54 Scene font fix: 0 text components now use bundled NotoSansSC.
+14:08:54 Theme manifest generated: 29 entries.
+14:08:54 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+14:10:22 Build result: Succeeded, size: 490.5 MB, time: 88s, errors: 0
+14:10:22 index.html patched (devicePixelRatio=1, full-window canvas).
+16:20:28 Scene font fix: 0 text components now use bundled NotoSansSC.
+16:20:28 Theme manifest generated: 29 entries.
+16:20:28 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+16:23:29 Build result: Succeeded, size: 490.6 MB, time: 181s, errors: 0
+16:23:29 index.html patched (devicePixelRatio=1, full-window canvas).
+18:00:26 Scene font fix: 0 text components now use bundled NotoSansSC.
+18:00:26 Theme manifest generated: 29 entries.
+18:00:26 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+18:02:44 Build result: Succeeded, size: 492.1 MB, time: 138s, errors: 0
+18:02:44 index.html patched (devicePixelRatio=1, full-window canvas).

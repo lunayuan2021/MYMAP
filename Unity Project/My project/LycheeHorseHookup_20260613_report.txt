@@ -1,0 +1,7 @@
+LycheeHorseHookup_20260613 2026-06-13 03:00:27
+GLB 内 clip 名单: Armature|Unreal Take|baselayer (1.00s)
+选用 walk clip: Armature|Unreal Take|baselayer
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+horseModel = Horse (guid 639b767b67c9d4aacb8cefdd6d5ece73, fileID 8771091787928289351)
+骨骼数: 27
+场景保存: True

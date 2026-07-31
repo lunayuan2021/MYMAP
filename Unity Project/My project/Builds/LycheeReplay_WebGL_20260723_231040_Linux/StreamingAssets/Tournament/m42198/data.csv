@@ -1,0 +1,3 @@
+team_id,online,round,good_fruit_number,freshness,total_score,score_delivery,score_good_fruit,score_freshness,score_time,score_tasks,score_bounty,score_penalty,main_route,road_rounds,water_rounds,mountain_rounds,branch_rounds,route_switch_count,route_task_score,route_resource_count,progress,player_name
+2749,TRUE,583,68,69.01,471,180,122,124,0,45,0,0,MOUNTAIN,3,0,315,87,2,MOUNTAIN:45,MOUNTAIN:1,100.00%,litchi-runner
+2735,TRUE,600,73,71.25,80,0,0,0,0,80,0,0,MOUNTAIN,71,0,320,0,1,MOUNTAIN:90,ROAD:1,0.00%,路人女主队

@@ -1,0 +1,11 @@
+LycheeAtmosphere_20260613 (v2 白天版) 2026-06-13 02:30:52
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+天空盒: SkyboxDusk_20260613 → SkyboxDusk_20260613（Skybox/Procedural 白天参数 v2）
+平行光: KeyLight_MOBA_Sun 色=FFD9A8 强度=1.20 角度=(38,56) → 色=FFF6E8 强度=1.15 角度=(55,56) 软阴影，RenderSettings.sun 已指向（v2 白天）
+环境光: mode=Trilight sky=C58E62 equator=8A7A6A ground=3B2E22 → Trilight 天光蓝灰/中性/暗土（v2 白天）
+雾: mode=Linear 色=C9A98B → Linear 60~170 色=C2CBD1
+后期: Bloom 已存在，保留原参数
+后期: Tonemapping=ACES, ColorAdjustments(saturation +6, 纯白滤镜), Vignette(0.16) 已写入 Assets/LycheeMap15/LycheePostFX_20260611K.asset（v2 白天）
+SSAO: PC_Renderer 已含 ScreenSpaceAmbientOcclusion，无需改动
+阴影距离: 70 → 70
+场景保存: True

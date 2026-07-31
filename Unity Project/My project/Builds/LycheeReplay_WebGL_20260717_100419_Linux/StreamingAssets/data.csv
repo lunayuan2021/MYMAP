@@ -1,0 +1,3 @@
+team_id,online,round,good_fruit_number,freshness,total_score,score_delivery,score_good_fruit,score_freshness,score_time,score_tasks,score_bounty,score_penalty,main_route,road_rounds,water_rounds,mountain_rounds,branch_rounds,route_switch_count,route_task_score,route_resource_count,progress,player_name
+2002,FALSE,600,91,71.24,742,0,0,0,0,742,0,0,MOUNTAIN,266,0,167,104,2,MOUNTAIN:30|ROAD:30,MOUNTAIN:2,0.00%,blue-l4
+1002,TRUE,600,90,59.23,671,0,0,0,0,671,0,0,MOUNTAIN,32,0,167,263,2,,MOUNTAIN:1,0.00%,green-l5

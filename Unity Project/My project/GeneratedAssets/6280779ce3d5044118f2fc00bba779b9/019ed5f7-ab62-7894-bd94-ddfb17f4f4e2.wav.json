@@ -1,0 +1,15 @@
+{
+    "asset": "6280779ce3d5044118f2fc00bba779b9",
+    "fileName": "019ed5f7-ab62-7894-bd94-ddfb17f4f4e2.wav",
+    "prompt": "Ceremonial ancient Chinese bronze bell (bianzhong) chime ringing out with a short bright crowd cheer, triumphant \"delivery success\" stinger, clean, about 1.5 seconds.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

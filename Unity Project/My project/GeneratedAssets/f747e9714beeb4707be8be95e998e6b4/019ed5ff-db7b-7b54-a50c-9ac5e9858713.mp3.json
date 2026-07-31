@@ -1,0 +1,15 @@
+{
+    "asset": "f747e9714beeb4707be8be95e998e6b4",
+    "fileName": "019ed5ff-db7b-7b54-a50c-9ac5e9858713.mp3",
+    "prompt": "Traditional Tang-dynasty Chinese instrumental background loop. Gentle pipa and guzheng plucked strings with a soft bamboo dizi flute melody, light hand percussion, medium relaxed tempo, elegant courtly and adventurous mood for a horse-courier journey. Warm, melodic, fully instrumental, no vocals.",
+    "negativePrompt": "",
+    "model": "google-lyria-3-clip",
+    "modelName": "Google Lyria 3 Clip",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

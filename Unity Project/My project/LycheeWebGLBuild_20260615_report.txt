@@ -1,0 +1,8 @@
+11:27:28 Scene font fix: 0 text components now use bundled NotoSansSC.
+11:27:28 Theme manifest generated: 29 entries.
+11:27:30 Cleaned previous output dir: Builds/LycheeReplay_WebGL_20260615
+11:27:30 Starting WebGL build to Builds/LycheeReplay_WebGL_20260615 ...
+11:27:30 Scenes: Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity, Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+11:32:19 Build result: Succeeded, size: 489.7 MB, time: 289s, errors: 0
+11:32:19 index.html patched (cache bust=20260615033219, devicePixelRatio=1, full-window canvas).
+11:32:19 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity

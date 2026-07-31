@@ -1,0 +1,75 @@
+LycheeTerrainSplat_20260613 2026-06-13 02:24:40
+shader 检查通过: Lychee/Terrain Splat
+平均色读取方式: RenderTexture Blit + ReadPixels（未改任何 TextureImporter.isReadable）
+  Ground001 平均色 RGB(0.024,0.023,0.021) 绿度=0.001 棕度=0.005 灰度=-0.002
+  Ground002 平均色 RGB(0.430,0.393,0.342) 绿度=0.014 棕度=0.150 灰度=-0.070
+  Ground003 平均色 RGB(0.355,0.323,0.291) 绿度=0.001 棕度=0.112 灰度=-0.053
+  Ground004 平均色 RGB(0.383,0.352,0.319) 绿度=0.002 棕度=0.112 灰度=-0.053
+  Ground005 平均色 RGB(0.337,0.397,0.244) 绿度=0.213 棕度=0.109 灰度=-0.120
+  GroundPatchCracked01 平均色 RGB(0.433,0.431,0.430)
+选层结果（依据上表平均色打分）:
+  层0 主草   = Ground005（5 张里绿度最高）
+  层1 路缘土 = Ground002（余下棕度最高：红强于蓝且压绿）
+  层2 岩/砂  = Ground001（余下低饱和偏灰/黄打分最高）
+  层3 变化草 = GroundPatchCracked01（次绿候选 Ground004 绿度不足 0.01）
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+路面采样源: 54 个 RoadGroundFit 网格，1620 个三角形
+河面采样源: WaterRoute_And_River 下 5 个网格，190 个三角形
+Continuous_Terrain: 30351 顶点烘焙完成 → Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset（原网格 Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset 未动可回滚）；主导层统计 土=5934 岩砂=2065 变化草=2748 其余主草
+主草 tiling 推断: 旧材质无 _TextureScale，回退默认 0.125（约 8 世界米一重复）
+复用已有材质重填属性: Assets/LycheeMap15/Materials/TerrainSplat_20260613.mat
+tiling: 层0=0.1250 层0副采样=0.0388 层1=0.0775 层2=0.0625 层3=0.1588
+Continuous_Terrain: 原材质 [TerrainSplat_20260613, TerrainSplat_20260613] → TerrainSplat_20260613（回滚时按此名找回）
+赋材质 1 个地形对象；场景保存: True
+
+======== 重跑 ========
+LycheeTerrainSplat_20260613 2026-06-13 02:27:33
+shader 检查通过: Lychee/Terrain Splat
+平均色读取方式: RenderTexture Blit + ReadPixels（未改任何 TextureImporter.isReadable）
+  Ground001 平均色 RGB(0.024,0.023,0.021) 绿度=0.001 棕度=0.005 灰度=-0.002
+  Ground002 平均色 RGB(0.430,0.393,0.342) 绿度=0.014 棕度=0.150 灰度=-0.070
+  Ground003 平均色 RGB(0.355,0.323,0.291) 绿度=0.001 棕度=0.112 灰度=-0.053
+  Ground004 平均色 RGB(0.383,0.352,0.319) 绿度=0.002 棕度=0.112 灰度=-0.053
+  Ground005 平均色 RGB(0.337,0.397,0.244) 绿度=0.213 棕度=0.109 灰度=-0.120
+  GroundPatchCracked01 平均色 RGB(0.433,0.431,0.430)
+  Ground001 平均亮度 0.023 < 0.12，判定为预乘 alpha 贴片类（引擎内近黑），剔除出选层候选
+选层结果（依据上表平均色打分）:
+  层0 主草   = Ground005（5 张里绿度最高）
+  层1 路缘土 = Ground002（余下棕度最高：红强于蓝且压绿）
+  层2 岩/砂  = Ground004（余下低饱和偏灰/黄打分最高）
+  层3 变化草 = GroundPatchCracked01（次绿候选 Ground003 绿度不足 0.01）
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+路面采样源: 54 个 RoadGroundFit 网格，1620 个三角形
+河面采样源: WaterRoute_And_River 下 5 个网格，190 个三角形
+Continuous_Terrain: 30351 顶点烘焙完成 → Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset（原网格 Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset（重跑：此为上次烘焙结果，真正原网格见首跑报告段） 未动可回滚）；主导层统计 土=5934 岩砂=2065 变化草=2748 其余主草
+主草 tiling 推断: 场上材质已替换，改取旧材质资产 Assets/LycheeMap15/Materials/M_Config_Terrain_Grassland.mat 的 _TextureScale=0.220（约 4.5 世界米一重复）
+复用已有材质重填属性: Assets/LycheeMap15/Materials/TerrainSplat_20260613.mat
+tiling: 层0=0.2200 层0副采样=0.0682 层1=0.1364 层2=0.1100 层3=0.2794
+Continuous_Terrain: 槽0: 已是 TerrainSplat_20260613，保持；槽1: 首跑误覆盖为 splat → 恢复 M_RiverBed_SandGravel
+赋材质 1 个地形对象；场景保存: True
+
+======== 重跑 ========
+LycheeTerrainSplat_20260613 2026-06-13 02:57:34
+shader 检查通过: Lychee/Terrain Splat
+平均色读取方式: RenderTexture Blit + ReadPixels（未改任何 TextureImporter.isReadable）
+  Ground001 平均色 RGB(0.024,0.023,0.021) 绿度=0.001 棕度=0.005 灰度=-0.002
+  Ground002 平均色 RGB(0.430,0.393,0.342) 绿度=0.014 棕度=0.150 灰度=-0.070
+  Ground003 平均色 RGB(0.355,0.323,0.291) 绿度=0.001 棕度=0.112 灰度=-0.053
+  Ground004 平均色 RGB(0.383,0.352,0.319) 绿度=0.002 棕度=0.112 灰度=-0.053
+  Ground005 平均色 RGB(0.337,0.397,0.244) 绿度=0.213 棕度=0.109 灰度=-0.120
+  GroundPatchCracked01 平均色 RGB(0.433,0.431,0.430)
+  Ground001 平均亮度 0.023 < 0.12，判定为预乘 alpha 贴片类（引擎内近黑），剔除出选层候选
+选层结果（依据上表平均色打分）:
+  层0 主草   = Ground005（5 张里绿度最高）
+  层1 路缘土 = Ground002（余下棕度最高：红强于蓝且压绿）
+  层2 岩/砂  = Ground004（余下低饱和偏灰/黄打分最高）
+  层3 变化草 = GroundPatchCracked01（次绿候选 Ground003 绿度不足 0.01）
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+路面采样源: 54 个 RoadGroundFit 网格，1620 个三角形
+河面采样源: WaterRoute_And_River 下 5 个网格，190 个三角形
+Continuous_Terrain: 30351 顶点烘焙完成 → Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset（原网格 Assets/LycheeMap15/GeneratedMeshes/TerrainSplat_20260613/Continuous_Terrain_SplatBake.asset（重跑：此为上次烘焙结果，真正原网格见首跑报告段） 未动可回滚）；主导层统计 土=5934 岩砂=1157 变化草=2924 其余主草
+主草 tiling 推断: 场上材质已替换，改取旧材质资产 Assets/LycheeMap15/Materials/M_Config_Terrain_Grassland.mat 的 _TextureScale=0.220（约 4.5 世界米一重复）
+复用已有材质重填属性: Assets/LycheeMap15/Materials/TerrainSplat_20260613.mat
+tiling: 层0=0.2200 层0副采样=0.0682 层1=0.1364 层2=0.1100 层3=0.2794
+Continuous_Terrain: 槽0: 已是 TerrainSplat_20260613，保持；槽1: M_RiverBed_SandGravel 非地形混合材质，保留不动
+赋材质 1 个地形对象；场景保存: True

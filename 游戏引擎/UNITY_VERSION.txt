@@ -1,0 +1,6 @@
+Unity Editor: 6000.4.10f1
+Revision: feeafc12a938
+Required module: WebGL Build Support
+
+请使用 Unity Hub 安装此版本，然后打开：
+Unity Project/My project

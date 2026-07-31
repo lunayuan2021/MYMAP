@@ -1,0 +1,919 @@
+16:52:50 Scene font fix: 0 text components now use bundled LXGWWenKai.
+16:52:55 Replay camera controller fix: 10 controllers enabled and retuned.
+16:52:55 Theme manifest generated: 91 entries.
+16:52:58 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+16:52:58 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+16:52:58 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+16:52:59 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+16:52:59 WebGL event model preloads: +0, total preloaded assets=5.
+16:52:59 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+16:52:59 WebGL memory settings: initial=512MB, maximum=2048MB.
+16:52:59 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_165235_Linux ...
+16:52:59 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+16:55:28 Build result: Succeeded, size: 499.5 MB, time: 149s, errors: 29521
+16:55:28 Loading panorama copied into package (lychee_loading_bg.jpg).
+16:55:28 index.html patched (cache bust=20260701075528, branded loading, adaptive DPR/4K option, full-window canvas).
+16:55:28 Package README and local server scripts written.
+16:55:28 Package junk cleanup removed 1 entries.
+16:55:29 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+16:55:29 WebGL render pipeline override restored: 2 properties.
+18:02:47 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:03:06 Replay camera controller fix: 10 controllers enabled and retuned.
+18:03:06 Theme manifest generated: 91 entries.
+18:03:16 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:03:18 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:03:20 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:03:22 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:03:22 WebGL event model preloads: +0, total preloaded assets=5.
+18:03:22 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:03:22 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:03:22 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_180228_Linux ...
+18:03:22 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:05:47 Build result: Succeeded, size: 499.5 MB, time: 145s, errors: 29521
+18:05:47 Loading panorama copied into package (lychee_loading_bg.jpg).
+18:05:47 index.html patched (cache bust=20260701090547, branded loading, adaptive DPR/4K option, full-window canvas).
+18:05:47 Package README and local server scripts written.
+18:05:47 Package junk cleanup removed 1 entries.
+18:05:48 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:05:48 WebGL render pipeline override restored: 2 properties.
+18:13:19 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:13:38 Replay camera controller fix: 10 controllers enabled and retuned.
+18:13:38 Theme manifest generated: 91 entries.
+18:13:48 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:13:51 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:13:53 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:13:55 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:13:55 WebGL event model preloads: +0, total preloaded assets=5.
+18:13:55 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:13:55 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:13:55 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_181301_Linux ...
+18:13:55 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:16:17 Build result: Succeeded, size: 499.5 MB, time: 142s, errors: 29521
+18:16:17 Loading panorama copied into package (lychee_loading_bg.jpg).
+18:16:17 index.html patched (cache bust=20260701091617, branded loading, adaptive DPR/4K option, full-window canvas).
+18:16:18 Package README and local server scripts written.
+18:16:18 Package junk cleanup removed 1 entries.
+18:16:19 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:16:19 WebGL render pipeline override restored: 2 properties.
+18:49:21 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:49:27 Replay camera controller fix: 10 controllers enabled and retuned.
+18:49:27 Theme manifest generated: 91 entries.
+18:49:30 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:49:30 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:49:31 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:49:31 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:49:31 WebGL event model preloads: +0, total preloaded assets=5.
+18:49:31 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:49:31 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:49:31 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_184917_Linux ...
+18:49:31 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:52:00 Build result: Succeeded, size: 499.5 MB, time: 148s, errors: 29521
+18:52:00 Loading panorama copied into package (lychee_loading_bg.jpg).
+18:52:00 index.html patched (cache bust=20260701095200, branded loading, adaptive DPR/4K option, full-window canvas).
+18:52:00 Package README and local server scripts written.
+18:52:00 Package junk cleanup removed 1 entries.
+18:52:01 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:52:01 WebGL render pipeline override restored: 2 properties.
+19:00:43 Scene font fix: 0 text components now use bundled LXGWWenKai.
+19:01:00 Replay camera controller fix: 10 controllers enabled and retuned.
+19:01:00 Theme manifest generated: 91 entries.
+19:01:10 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+19:01:13 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+19:01:15 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+19:01:17 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+19:01:17 WebGL event model preloads: +0, total preloaded assets=5.
+19:01:17 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+19:01:17 WebGL memory settings: initial=512MB, maximum=2048MB.
+19:01:17 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_190027_Linux ...
+19:01:17 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+19:03:41 Build result: Succeeded, size: 499.5 MB, time: 144s, errors: 29521
+19:03:41 Loading panorama copied into package (lychee_loading_bg.jpg).
+19:03:41 index.html patched (cache bust=20260701100341, branded loading, adaptive DPR/4K option, full-window canvas).
+19:03:41 Package README and local server scripts written.
+19:03:41 Package junk cleanup removed 1 entries.
+19:03:42 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+19:03:42 WebGL render pipeline override restored: 2 properties.
+19:07:25 Scene font fix: 0 text components now use bundled LXGWWenKai.
+19:07:30 Replay camera controller fix: 10 controllers enabled and retuned.
+19:07:30 Theme manifest generated: 91 entries.
+19:07:32 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+19:07:33 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+19:07:33 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+19:07:34 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+19:07:34 WebGL event model preloads: +0, total preloaded assets=5.
+19:07:34 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+19:07:34 WebGL memory settings: initial=512MB, maximum=2048MB.
+19:07:34 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_190711_Linux ...
+19:07:34 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+19:09:55 Build result: Succeeded, size: 499.5 MB, time: 141s, errors: 29521
+19:09:55 Loading panorama copied into package (lychee_loading_bg.jpg).
+19:09:55 index.html patched (cache bust=20260701100955, branded loading, adaptive DPR/4K option, full-window canvas).
+19:09:55 Package README and local server scripts written.
+19:09:55 Package junk cleanup removed 1 entries.
+19:09:57 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+19:09:57 WebGL render pipeline override restored: 2 properties.
+19:44:26 Scene font fix: 0 text components now use bundled LXGWWenKai.
+19:44:41 Replay camera controller fix: 10 controllers enabled and retuned.
+19:44:42 Theme manifest generated: 91 entries.
+19:44:49 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+19:44:51 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+19:44:53 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+19:44:54 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+19:44:54 WebGL event model preloads: +0, total preloaded assets=5.
+19:44:54 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+19:44:54 WebGL memory settings: initial=512MB, maximum=2048MB.
+19:44:54 Starting WebGL build to Builds/LycheeReplay_WebGL_20260701_194409_Linux ...
+19:44:54 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+19:47:27 Build result: Succeeded, size: 499.5 MB, time: 152s, errors: 29521
+19:47:27 Loading panorama copied into package (lychee_loading_bg.jpg).
+19:47:27 index.html patched (cache bust=20260701104727, branded loading, adaptive DPR/4K option, full-window canvas).
+19:47:27 Package README and local server scripts written.
+19:47:27 Package junk cleanup removed 1 entries.
+19:47:28 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+19:47:28 WebGL render pipeline override restored: 2 properties.
+02:34:49 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:35:06 Replay camera controller fix: 10 controllers enabled and retuned.
+02:35:06 Theme manifest generated: 91 entries.
+02:35:14 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:35:16 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:35:18 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:35:19 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:35:19 WebGL event model preloads: +0, total preloaded assets=5.
+02:35:19 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:35:19 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:35:19 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_023427_Linux ...
+02:35:19 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:37:41 Build result: Succeeded, size: 499.5 MB, time: 142s, errors: 29521
+02:37:41 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:37:41 index.html patched (cache bust=20260701173741, branded loading, adaptive DPR/4K option, full-window canvas).
+02:37:41 Package README and local server scripts written.
+02:37:41 Package junk cleanup removed 1 entries.
+02:37:43 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:37:43 WebGL render pipeline override restored: 2 properties.
+02:50:15 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:50:20 Replay camera controller fix: 10 controllers enabled and retuned.
+02:50:20 Theme manifest generated: 91 entries.
+02:50:22 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:50:23 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:50:24 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:50:24 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:50:24 WebGL event model preloads: +0, total preloaded assets=5.
+02:50:24 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:50:24 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:50:24 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_025006_Linux ...
+02:50:24 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:52:50 Build result: Succeeded, size: 499.5 MB, time: 146s, errors: 29521
+02:52:50 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:52:50 index.html patched (cache bust=20260701175250, branded loading, adaptive DPR/4K option, full-window canvas).
+02:52:51 Package README and local server scripts written.
+02:52:51 Package junk cleanup removed 1 entries.
+02:52:52 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:52:52 WebGL render pipeline override restored: 2 properties.
+02:55:42 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:55:47 Replay camera controller fix: 10 controllers enabled and retuned.
+02:55:47 Theme manifest generated: 91 entries.
+02:55:49 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:55:50 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:55:50 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:55:50 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:55:50 WebGL event model preloads: +0, total preloaded assets=5.
+02:55:51 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:55:51 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:55:51 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_025538_Linux ...
+02:55:51 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:58:10 Build result: Succeeded, size: 499.5 MB, time: 140s, errors: 29521
+02:58:10 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:58:10 index.html patched (cache bust=20260701175810, branded loading, adaptive DPR/4K option, full-window canvas).
+02:58:11 Package README and local server scripts written.
+02:58:11 Package junk cleanup removed 1 entries.
+02:58:12 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:58:12 WebGL render pipeline override restored: 2 properties.
+03:03:56 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:04:00 Replay camera controller fix: 10 controllers enabled and retuned.
+03:04:00 Theme manifest generated: 91 entries.
+03:04:02 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:04:03 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:04:03 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:04:04 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:04:04 WebGL event model preloads: +0, total preloaded assets=5.
+03:04:04 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:04:04 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:04:04 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_030349_Linux ...
+03:04:04 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:06:41 Build result: Succeeded, size: 499.5 MB, time: 157s, errors: 29521
+03:06:41 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:06:41 index.html patched (cache bust=20260701180641, branded loading, adaptive DPR/4K option, full-window canvas).
+03:06:41 Package README and local server scripts written.
+03:06:41 Package junk cleanup removed 1 entries.
+03:06:43 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:06:43 WebGL render pipeline override restored: 2 properties.
+03:12:13 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:12:25 Replay camera controller fix: 10 controllers enabled and retuned.
+03:12:25 Theme manifest generated: 91 entries.
+03:12:27 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:12:28 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:12:28 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:12:29 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:12:29 WebGL event model preloads: +0, total preloaded assets=5.
+03:12:29 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:12:29 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:12:29 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_031154_Linux ...
+03:12:29 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:15:03 Build result: Succeeded, size: 499.5 MB, time: 154s, errors: 29521
+03:15:03 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:15:03 index.html patched (cache bust=20260701181503, branded loading, adaptive DPR/4K option, full-window canvas).
+03:15:03 Package README and local server scripts written.
+03:15:03 Package junk cleanup removed 1 entries.
+03:15:04 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:15:04 WebGL render pipeline override restored: 2 properties.
+03:16:31 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:16:48 Replay camera controller fix: 10 controllers enabled and retuned.
+03:16:48 Theme manifest generated: 91 entries.
+03:16:58 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:17:00 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:17:02 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:17:04 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:17:04 WebGL event model preloads: +0, total preloaded assets=5.
+03:17:04 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:17:04 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:17:04 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_031613_Linux ...
+03:17:04 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:17:25 Build result: Succeeded, size: 499.5 MB, time: 21s, errors: 29521
+03:17:25 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:17:25 index.html patched (cache bust=20260701181725, branded loading, adaptive DPR/4K option, full-window canvas).
+03:17:25 Package README and local server scripts written.
+03:17:25 Package junk cleanup removed 1 entries.
+03:17:27 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:17:27 WebGL render pipeline override restored: 2 properties.
+03:28:39 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:28:56 Replay camera controller fix: 10 controllers enabled and retuned.
+03:28:56 Theme manifest generated: 91 entries.
+03:29:06 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:29:09 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:29:11 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:29:13 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:29:13 WebGL event model preloads: +0, total preloaded assets=5.
+03:29:13 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:29:13 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:29:13 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_032820_Linux ...
+03:29:13 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:31:59 Build result: Succeeded, size: 499.5 MB, time: 166s, errors: 29521
+03:31:59 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:31:59 index.html patched (cache bust=20260701183159, branded loading, adaptive DPR/4K option, full-window canvas).
+03:31:59 Package README and local server scripts written.
+03:31:59 Package junk cleanup removed 1 entries.
+03:32:00 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:32:00 WebGL render pipeline override restored: 2 properties.
+10:29:44 Scene font fix: 0 text components now use bundled LXGWWenKai.
+10:29:51 Replay camera controller fix: 10 controllers enabled and retuned.
+10:29:51 Theme manifest generated: 91 entries.
+10:29:54 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+10:29:55 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+10:29:56 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+10:29:56 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+10:29:56 WebGL event model preloads: +0, total preloaded assets=5.
+10:29:56 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+10:29:56 WebGL memory settings: initial=512MB, maximum=2048MB.
+10:29:56 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_102939_Linux ...
+10:29:56 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+10:34:03 Build result: Succeeded, size: 499.5 MB, time: 247s, errors: 29521
+10:34:03 Loading panorama copied into package (lychee_loading_bg.jpg).
+10:34:03 index.html patched (cache bust=20260702013403, branded loading, adaptive DPR/4K option, full-window canvas).
+10:34:04 Package README and local server scripts written.
+10:34:04 Package junk cleanup removed 3 entries.
+10:34:10 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+10:34:10 WebGL render pipeline override restored: 2 properties.
+10:35:14 Scene font fix: 0 text components now use bundled LXGWWenKai.
+10:35:30 Replay camera controller fix: 10 controllers enabled and retuned.
+10:35:30 Theme manifest generated: 91 entries.
+10:35:37 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+10:35:39 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+10:35:41 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+10:35:42 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+10:35:42 WebGL event model preloads: +0, total preloaded assets=5.
+10:35:42 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+10:35:42 WebGL memory settings: initial=512MB, maximum=2048MB.
+10:35:42 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_103455_Linux ...
+10:35:42 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+10:46:57 Build result: Succeeded, size: 499.5 MB, time: 675s, errors: 29521
+10:46:57 Loading panorama copied into package (lychee_loading_bg.jpg).
+10:46:57 index.html patched (cache bust=20260702014657, branded loading, adaptive DPR/4K option, full-window canvas).
+10:46:58 Package README and local server scripts written.
+10:46:58 Package junk cleanup removed 3 entries.
+10:47:03 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+10:47:03 WebGL render pipeline override restored: 2 properties.
+11:24:18 Scene font fix: 0 text components now use bundled LXGWWenKai.
+11:24:24 Replay camera controller fix: 10 controllers enabled and retuned.
+11:24:24 Theme manifest generated: 91 entries.
+11:24:26 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+11:24:27 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+11:24:28 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+11:24:28 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+11:24:28 WebGL event model preloads: +0, total preloaded assets=5.
+11:24:28 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+11:24:28 WebGL memory settings: initial=512MB, maximum=2048MB.
+11:24:28 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_112410_Linux ...
+11:24:28 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+11:27:13 Build result: Succeeded, size: 499.5 MB, time: 165s, errors: 29521
+11:27:13 Loading panorama copied into package (lychee_loading_bg.jpg).
+11:27:13 index.html patched (cache bust=20260702022713, branded loading, adaptive DPR/4K option, full-window canvas).
+11:27:13 Package README and local server scripts written.
+11:27:13 Package junk cleanup removed 3 entries.
+11:27:14 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+11:27:14 WebGL render pipeline override restored: 2 properties.
+11:50:03 Scene font fix: 0 text components now use bundled LXGWWenKai.
+11:50:09 Replay camera controller fix: 10 controllers enabled and retuned.
+11:50:09 Theme manifest generated: 91 entries.
+11:50:12 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+11:50:12 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+11:50:13 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+11:50:13 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+11:50:13 WebGL event model preloads: +0, total preloaded assets=5.
+11:50:14 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+11:50:14 WebGL memory settings: initial=512MB, maximum=2048MB.
+11:50:14 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_114954_Linux ...
+11:50:14 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+11:53:18 Build result: Succeeded, size: 499.5 MB, time: 184s, errors: 29521
+11:53:18 Loading panorama copied into package (lychee_loading_bg.jpg).
+11:53:18 index.html patched (cache bust=20260702025318, branded loading, adaptive DPR/4K option, full-window canvas).
+11:53:18 Package README and local server scripts written.
+11:53:18 Package junk cleanup removed 3 entries.
+11:53:20 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+11:53:20 WebGL render pipeline override restored: 2 properties.
+12:36:06 Scene font fix: 0 text components now use bundled LXGWWenKai.
+12:36:15 Replay camera controller fix: 10 controllers enabled and retuned.
+12:36:15 Theme manifest generated: 91 entries.
+12:36:18 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+12:36:19 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+12:36:20 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+12:36:20 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+12:36:20 WebGL event model preloads: +0, total preloaded assets=5.
+12:36:21 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+12:36:21 WebGL memory settings: initial=512MB, maximum=2048MB.
+12:36:21 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_123549_Linux ...
+12:36:21 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+12:41:32 Build result: Succeeded, size: 357.7 MB, time: 312s, errors: 29521
+12:41:32 Loading panorama copied into package (lychee_loading_bg.jpg).
+12:41:32 index.html patched (cache bust=20260702034132, branded loading, adaptive DPR/4K option, full-window canvas).
+12:41:33 Package README and local server scripts written.
+12:41:33 Package junk cleanup removed 3 entries.
+12:41:34 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+12:41:34 WebGL render pipeline override restored: 2 properties.
+12:45:01 Scene font fix: 0 text components now use bundled LXGWWenKai.
+12:45:21 Replay camera controller fix: 10 controllers enabled and retuned.
+12:45:21 Theme manifest generated: 91 entries.
+12:45:31 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+12:45:33 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+12:45:36 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+12:45:37 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+12:45:37 WebGL event model preloads: +0, total preloaded assets=5.
+12:45:38 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+12:45:38 WebGL memory settings: initial=512MB, maximum=2048MB.
+12:45:38 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_124439_Linux ...
+12:45:38 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+12:49:38 Build result: Succeeded, size: 347.3 MB, time: 240s, errors: 29521
+12:49:38 Loading panorama copied into package (lychee_loading_bg.jpg).
+12:49:38 index.html patched (cache bust=20260702034938, branded loading, adaptive DPR/4K option, full-window canvas).
+12:49:38 Package README and local server scripts written.
+12:49:38 Package junk cleanup removed 3 entries.
+12:49:39 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+12:49:39 WebGL render pipeline override restored: 4 properties.
+15:39:39 Scene font fix: 0 text components now use bundled LXGWWenKai.
+15:39:56 Replay camera controller fix: 10 controllers enabled and retuned.
+15:39:56 Theme manifest generated: 91 entries.
+15:40:05 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+15:40:06 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+15:40:08 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+15:40:10 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+15:40:10 WebGL event model preloads: +0, total preloaded assets=5.
+15:40:10 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+15:40:10 WebGL memory settings: initial=512MB, maximum=2048MB.
+15:40:10 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_153905_Linux ...
+15:40:10 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+15:41:30 Build result: Succeeded, size: 347.3 MB, time: 80s, errors: 29521
+15:41:30 Loading panorama copied into package (lychee_loading_bg.jpg).
+15:41:30 index.html patched (cache bust=20260702064130, branded loading, adaptive DPR/4K option, full-window canvas).
+15:41:30 Package README and local server scripts written.
+15:41:30 Package junk cleanup removed 3 entries.
+15:41:32 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+15:41:32 WebGL render pipeline override restored: 4 properties.
+16:27:10 Scene font fix: 0 text components now use bundled LXGWWenKai.
+16:27:15 Replay camera controller fix: 10 controllers enabled and retuned.
+16:27:15 Theme manifest generated: 91 entries.
+16:27:17 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+16:27:17 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+16:27:18 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+16:27:18 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+16:27:18 WebGL event model preloads: +0, total preloaded assets=5.
+16:27:19 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+16:27:19 WebGL memory settings: initial=512MB, maximum=2048MB.
+16:27:19 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_162700_Linux ...
+16:27:19 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+16:28:43 Build result: Succeeded, size: 347.3 MB, time: 85s, errors: 29521
+16:28:43 Loading panorama copied into package (lychee_loading_bg.jpg).
+16:28:43 index.html patched (cache bust=20260702072843, branded loading, adaptive DPR/4K option, full-window canvas).
+16:28:44 Package README and local server scripts written.
+16:28:44 Package junk cleanup removed 3 entries.
+16:28:45 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+16:28:45 WebGL render pipeline override restored: 4 properties.
+17:44:26 Scene font fix: 0 text components now use bundled LXGWWenKai.
+17:44:32 Replay camera controller fix: 10 controllers enabled and retuned.
+17:44:32 Theme manifest generated: 91 entries.
+17:44:34 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+17:44:35 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+17:44:35 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+17:44:36 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+17:44:36 WebGL event model preloads: +0, total preloaded assets=5.
+17:44:36 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+17:44:36 WebGL memory settings: initial=512MB, maximum=2048MB.
+17:44:36 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_174419_Linux ...
+17:44:36 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+17:45:56 Build result: Succeeded, size: 347.3 MB, time: 80s, errors: 29521
+17:45:56 Loading panorama copied into package (lychee_loading_bg.jpg).
+17:45:56 index.html patched (cache bust=20260702084556, branded loading, adaptive DPR/4K option, full-window canvas).
+17:45:56 Package README and local server scripts written.
+17:45:56 Package junk cleanup removed 3 entries.
+17:45:57 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+17:45:57 WebGL render pipeline override restored: 4 properties.
+18:00:42 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:01:01 Replay camera controller fix: 10 controllers enabled and retuned.
+18:01:01 Theme manifest generated: 91 entries.
+18:01:12 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:01:14 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:01:17 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:01:18 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:01:19 WebGL event model preloads: +0, total preloaded assets=5.
+18:01:19 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:01:19 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:01:19 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_180020_Linux ...
+18:01:19 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:02:39 Build result: Succeeded, size: 347.3 MB, time: 80s, errors: 29521
+18:02:39 Loading panorama copied into package (lychee_loading_bg.jpg).
+18:02:39 index.html patched (cache bust=20260702090239, branded loading, adaptive DPR/4K option, full-window canvas).
+18:02:39 Package README and local server scripts written.
+18:02:39 Package junk cleanup removed 3 entries.
+18:02:40 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:02:40 WebGL render pipeline override restored: 4 properties.
+18:40:29 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:40:49 Replay camera controller fix: 10 controllers enabled and retuned.
+18:40:52 Theme manifest generated: 93 entries.
+18:41:06 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:41:06 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:41:07 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:41:07 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:41:07 WebGL event model preloads: +0, total preloaded assets=5.
+18:41:07 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:41:07 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:41:07 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_184008_Linux ...
+18:41:07 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:41:18 Build result: Failed, size: 0.0 MB, time: 11s, errors: 29527
+18:41:20 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:41:20 WebGL render pipeline override restored: 4 properties.
+18:48:02 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:48:06 Replay camera controller fix: 10 controllers enabled and retuned.
+18:48:06 Theme manifest generated: 93 entries.
+18:48:09 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:48:09 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:48:10 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:48:10 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:48:10 WebGL event model preloads: +0, total preloaded assets=5.
+18:48:10 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:48:10 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:48:10 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_184755_Linux ...
+18:48:10 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:48:16 Build result: Failed, size: 0.0 MB, time: 6s, errors: 29527
+18:48:17 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:48:17 WebGL render pipeline override restored: 4 properties.
+18:52:19 Scene font fix: 0 text components now use bundled LXGWWenKai.
+18:52:38 Replay camera controller fix: 10 controllers enabled and retuned.
+18:52:38 Theme manifest generated: 93 entries.
+18:52:47 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+18:52:49 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+18:52:51 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+18:52:53 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+18:52:53 WebGL event model preloads: +0, total preloaded assets=5.
+18:52:53 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+18:52:53 WebGL memory settings: initial=512MB, maximum=2048MB.
+18:52:53 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_185200_Linux ...
+18:52:53 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+18:53:01 Build result: Failed, size: 0.0 MB, time: 8s, errors: 29527
+18:53:03 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+18:53:03 WebGL render pipeline override restored: 4 properties.
+19:02:16 Scene font fix: 0 text components now use bundled LXGWWenKai.
+19:02:19 Replay camera controller fix: 10 controllers enabled and retuned.
+19:02:19 Theme manifest generated: 93 entries.
+19:02:21 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+19:02:21 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+19:02:22 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+19:02:22 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+19:02:22 WebGL event model preloads: +0, total preloaded assets=5.
+19:02:22 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+19:02:22 WebGL memory settings: initial=512MB, maximum=2048MB.
+19:02:22 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_190212_Linux ...
+19:02:22 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+19:03:45 Build result: Succeeded, size: 350.1 MB, time: 83s, errors: 29521
+19:03:45 Loading panorama copied into package (lychee_loading_bg.jpg).
+19:03:45 index.html patched (cache bust=20260702100345, branded loading, adaptive DPR/4K option, full-window canvas).
+19:03:45 Package README and local server scripts written.
+19:03:45 Package junk cleanup removed 4 entries.
+19:03:46 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+19:03:46 WebGL render pipeline override restored: 4 properties.
+19:12:43 Scene font fix: 0 text components now use bundled LXGWWenKai.
+19:12:55 Replay camera controller fix: 10 controllers enabled and retuned.
+19:12:55 Theme manifest generated: 93 entries.
+19:13:02 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+19:13:03 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+19:13:04 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+19:13:05 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+19:13:05 WebGL event model preloads: +0, total preloaded assets=5.
+19:13:05 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+19:13:05 WebGL memory settings: initial=512MB, maximum=2048MB.
+19:13:05 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_191228_Linux ...
+19:13:05 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+19:14:22 Build result: Succeeded, size: 350.1 MB, time: 77s, errors: 29521
+19:14:22 Loading panorama copied into package (lychee_loading_bg.jpg).
+19:14:22 index.html patched (cache bust=20260702101422, branded loading, adaptive DPR/4K option, full-window canvas).
+19:14:22 Package README and local server scripts written.
+19:14:22 Package junk cleanup removed 4 entries.
+19:14:23 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+19:14:23 WebGL render pipeline override restored: 4 properties.
+21:14:45 Scene font fix: 0 text components now use bundled LXGWWenKai.
+21:14:50 Replay camera controller fix: 10 controllers enabled and retuned.
+21:14:50 Theme manifest generated: 93 entries.
+21:14:51 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+21:14:52 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+21:14:52 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+21:14:52 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+21:14:52 WebGL event model preloads: +0, total preloaded assets=5.
+21:14:52 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+21:14:52 WebGL memory settings: initial=512MB, maximum=2048MB.
+21:14:52 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_211441_Linux ...
+21:14:52 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+21:16:12 Build result: Succeeded, size: 350.1 MB, time: 79s, errors: 29521
+21:16:12 Loading panorama copied into package (lychee_loading_bg.jpg).
+21:16:12 index.html patched (cache bust=20260702121612, branded loading, adaptive DPR/4K option, full-window canvas).
+21:16:12 Package README and local server scripts written.
+21:16:12 Package junk cleanup removed 4 entries.
+21:16:13 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+21:16:13 WebGL render pipeline override restored: 4 properties.
+21:17:17 Scene font fix: 0 text components now use bundled LXGWWenKai.
+21:17:20 Replay camera controller fix: 10 controllers enabled and retuned.
+21:17:20 Theme manifest generated: 93 entries.
+21:17:23 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+21:17:23 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+21:17:23 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+21:17:24 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+21:17:24 WebGL event model preloads: +0, total preloaded assets=5.
+21:17:24 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+21:17:24 WebGL memory settings: initial=512MB, maximum=2048MB.
+21:17:24 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_211713_Linux ...
+21:17:24 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+21:18:41 Build result: Succeeded, size: 350.1 MB, time: 77s, errors: 29521
+21:18:41 Loading panorama copied into package (lychee_loading_bg.jpg).
+21:18:41 index.html patched (cache bust=20260702121841, branded loading, adaptive DPR/4K option, full-window canvas).
+21:18:41 Package README and local server scripts written.
+21:18:41 Package junk cleanup removed 4 entries.
+21:18:42 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+21:18:42 WebGL render pipeline override restored: 4 properties.
+21:19:12 Scene font fix: 0 text components now use bundled LXGWWenKai.
+21:19:16 Replay camera controller fix: 10 controllers enabled and retuned.
+21:19:16 Theme manifest generated: 93 entries.
+21:19:18 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+21:19:18 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+21:19:18 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+21:19:19 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+21:19:19 WebGL event model preloads: +0, total preloaded assets=5.
+21:19:19 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+21:19:19 WebGL memory settings: initial=512MB, maximum=2048MB.
+21:19:19 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_211909_Linux ...
+21:19:19 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+21:20:36 Build result: Succeeded, size: 350.1 MB, time: 77s, errors: 29521
+21:20:36 Loading panorama copied into package (lychee_loading_bg.jpg).
+21:20:36 index.html patched (cache bust=20260702122036, branded loading, adaptive DPR/4K option, full-window canvas).
+21:20:36 Package README and local server scripts written.
+21:20:36 Package junk cleanup removed 4 entries.
+21:20:37 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+21:20:37 WebGL render pipeline override restored: 4 properties.
+21:24:21 Scene font fix: 0 text components now use bundled LXGWWenKai.
+21:24:26 Replay camera controller fix: 10 controllers enabled and retuned.
+21:24:26 Theme manifest generated: 93 entries.
+21:24:28 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+21:24:28 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+21:24:29 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+21:24:29 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+21:24:29 WebGL event model preloads: +0, total preloaded assets=5.
+21:24:29 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+21:24:29 WebGL memory settings: initial=512MB, maximum=2048MB.
+21:24:29 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_212416_Linux ...
+21:24:29 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+21:26:01 Build result: Succeeded, size: 350.1 MB, time: 92s, errors: 29521
+21:26:01 Loading panorama copied into package (lychee_loading_bg.jpg).
+21:26:01 index.html patched (cache bust=20260702122601, branded loading, adaptive DPR/4K option, full-window canvas).
+21:26:01 Package README and local server scripts written.
+21:26:01 Package junk cleanup removed 4 entries.
+21:26:04 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+21:26:04 WebGL render pipeline override restored: 4 properties.
+21:32:28 Scene font fix: 0 text components now use bundled LXGWWenKai.
+21:32:41 Replay camera controller fix: 10 controllers enabled and retuned.
+21:32:41 Theme manifest generated: 93 entries.
+21:32:47 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+21:32:49 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+21:32:50 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+21:32:51 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+21:32:51 WebGL event model preloads: +0, total preloaded assets=5.
+21:32:51 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+21:32:51 WebGL memory settings: initial=512MB, maximum=2048MB.
+21:32:51 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_213211_Linux ...
+21:32:51 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+21:34:05 Build result: Succeeded, size: 350.1 MB, time: 74s, errors: 29521
+21:34:05 Loading panorama copied into package (lychee_loading_bg.jpg).
+21:34:05 index.html patched (cache bust=20260702123405, branded loading, adaptive DPR/4K option, full-window canvas).
+21:34:05 Package README and local server scripts written.
+21:34:05 Package junk cleanup removed 4 entries.
+21:34:06 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+21:34:07 WebGL render pipeline override restored: 4 properties.
+22:36:19 Scene font fix: 0 text components now use bundled LXGWWenKai.
+22:36:26 Replay camera controller fix: 10 controllers enabled and retuned.
+22:36:26 Theme manifest generated: 93 entries.
+22:36:29 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+22:36:30 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+22:36:31 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+22:36:31 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+22:36:31 WebGL event model preloads: +0, total preloaded assets=5.
+22:36:31 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+22:36:31 WebGL memory settings: initial=512MB, maximum=2048MB.
+22:36:31 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_223337_Linux ...
+22:36:31 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+22:40:23 Build result: Succeeded, size: 350.1 MB, time: 232s, errors: 29521
+22:40:23 Loading panorama copied into package (lychee_loading_bg.jpg).
+22:40:23 index.html patched (cache bust=20260702134023, branded loading, adaptive DPR/4K option, full-window canvas).
+22:40:24 Package README and local server scripts written.
+22:40:24 Package junk cleanup removed 4 entries.
+22:40:25 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+22:40:25 WebGL render pipeline override restored: 4 properties.
+22:58:53 Scene font fix: 0 text components now use bundled LXGWWenKai.
+22:58:59 Replay camera controller fix: 10 controllers enabled and retuned.
+22:58:59 Theme manifest generated: 93 entries.
+22:59:02 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+22:59:03 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+22:59:04 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+22:59:04 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+22:59:04 WebGL event model preloads: +0, total preloaded assets=5.
+22:59:04 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+22:59:04 WebGL memory settings: initial=512MB, maximum=2048MB.
+22:59:04 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_225513_Linux ...
+22:59:04 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+23:01:41 Build result: Succeeded, size: 350.2 MB, time: 157s, errors: 29521
+23:01:41 Loading panorama copied into package (lychee_loading_bg.jpg).
+23:01:41 index.html patched (cache bust=20260702140141, branded loading, adaptive DPR/4K option, full-window canvas).
+23:01:41 Package README and local server scripts written.
+23:01:41 Package junk cleanup removed 4 entries.
+23:01:43 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+23:01:43 WebGL render pipeline override restored: 4 properties.
+23:58:34 Scene font fix: 0 text components now use bundled LXGWWenKai.
+23:58:40 Replay camera controller fix: 10 controllers enabled and retuned.
+23:58:40 Theme manifest generated: 94 entries.
+23:58:44 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+23:58:45 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+23:58:45 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+23:58:46 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+23:58:46 WebGL event model preloads: +0, total preloaded assets=5.
+23:58:46 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+23:58:46 WebGL memory settings: initial=512MB, maximum=2048MB.
+23:58:46 Starting WebGL build to Builds/LycheeReplay_WebGL_20260702_234539_Linux ...
+23:58:46 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+00:01:53 Build result: Succeeded, size: 350.5 MB, time: 187s, errors: 29521
+00:01:53 Loading panorama copied into package (lychee_loading_bg.jpg).
+00:01:53 index.html patched (cache bust=20260702150153, branded loading, adaptive DPR/4K option, full-window canvas).
+00:01:53 Package README and local server scripts written.
+00:01:53 Package junk cleanup removed 4 entries.
+00:01:55 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+00:01:55 WebGL render pipeline override restored: 4 properties.
+00:43:56 Scene font fix: 0 text components now use bundled LXGWWenKai.
+00:44:04 Replay camera controller fix: 10 controllers enabled and retuned.
+00:44:05 Theme manifest generated: 94 entries.
+00:44:09 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+00:44:10 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+00:44:11 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+00:44:12 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+00:44:13 WebGL event model preloads: +0, total preloaded assets=5.
+00:44:13 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+00:44:13 WebGL memory settings: initial=512MB, maximum=2048MB.
+00:44:13 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_004317_Linux ...
+00:44:13 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+00:48:47 Build result: Succeeded, size: 350.5 MB, time: 274s, errors: 29521
+00:48:47 Loading panorama copied into package (lychee_loading_bg.jpg).
+00:48:47 index.html patched (cache bust=20260702154847, branded loading, adaptive DPR/4K option, full-window canvas).
+00:48:47 Package README and local server scripts written.
+00:48:47 Package junk cleanup removed 4 entries.
+00:48:51 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+00:48:51 WebGL render pipeline override restored: 4 properties.
+00:54:02 Scene font fix: 0 text components now use bundled LXGWWenKai.
+00:54:13 Replay camera controller fix: 10 controllers enabled and retuned.
+00:54:13 Theme manifest generated: 94 entries.
+00:54:19 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+00:54:21 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+00:54:22 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+00:54:24 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+00:54:24 WebGL event model preloads: +0, total preloaded assets=5.
+00:54:24 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+00:54:24 WebGL memory settings: initial=512MB, maximum=2048MB.
+00:54:24 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_005349_Linux ...
+00:54:24 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+00:57:56 Build result: Succeeded, size: 350.5 MB, time: 212s, errors: 29521
+00:57:56 Loading panorama copied into package (lychee_loading_bg.jpg).
+00:57:56 index.html patched (cache bust=20260702155756, branded loading, adaptive DPR/4K option, full-window canvas).
+00:57:56 Package README and local server scripts written.
+00:57:56 Package junk cleanup removed 4 entries.
+00:57:59 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+00:57:59 WebGL render pipeline override restored: 4 properties.
+01:03:25 Scene font fix: 0 text components now use bundled LXGWWenKai.
+01:03:34 Replay camera controller fix: 10 controllers enabled and retuned.
+01:03:34 Theme manifest generated: 94 entries.
+01:03:39 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+01:03:40 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+01:03:40 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+01:03:41 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+01:03:41 WebGL event model preloads: +0, total preloaded assets=5.
+01:03:41 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+01:03:41 WebGL memory settings: initial=512MB, maximum=2048MB.
+01:03:41 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_010316_Linux ...
+01:03:41 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+01:07:09 Build result: Succeeded, size: 350.5 MB, time: 208s, errors: 29521
+01:07:09 Loading panorama copied into package (lychee_loading_bg.jpg).
+01:07:09 index.html patched (cache bust=20260702160709, branded loading, adaptive DPR/4K option, full-window canvas).
+01:07:10 Package README and local server scripts written.
+01:07:10 Package junk cleanup removed 4 entries.
+01:07:12 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+01:07:12 WebGL render pipeline override restored: 4 properties.
+01:11:28 Scene font fix: 0 text components now use bundled LXGWWenKai.
+01:11:41 Replay camera controller fix: 10 controllers enabled and retuned.
+01:11:41 Theme manifest generated: 94 entries.
+01:11:49 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+01:11:50 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+01:11:51 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+01:11:52 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+01:11:52 WebGL event model preloads: +0, total preloaded assets=5.
+01:11:52 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+01:11:52 WebGL memory settings: initial=512MB, maximum=2048MB.
+01:11:52 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_011115_Linux ...
+01:11:52 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+01:13:35 Build result: Succeeded, size: 350.5 MB, time: 103s, errors: 29521
+01:13:35 Loading panorama copied into package (lychee_loading_bg.jpg).
+01:13:35 index.html patched (cache bust=20260702161335, branded loading, adaptive DPR/4K option, full-window canvas).
+01:13:35 Package README and local server scripts written.
+01:13:35 Package junk cleanup removed 4 entries.
+01:13:37 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+01:13:37 WebGL render pipeline override restored: 4 properties.
+02:16:56 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:17:10 Replay camera controller fix: 10 controllers enabled and retuned.
+02:17:10 Theme manifest generated: 94 entries.
+02:17:16 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:17:18 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:17:19 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:17:20 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:17:21 WebGL event model preloads: +0, total preloaded assets=5.
+02:17:21 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:17:21 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:17:21 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_021639_Linux ...
+02:17:21 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:18:49 Build result: Succeeded, size: 350.5 MB, time: 88s, errors: 29521
+02:18:49 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:18:49 index.html patched (cache bust=20260702171849, branded loading, adaptive DPR/4K option, full-window canvas).
+02:18:49 Package README and local server scripts written.
+02:18:49 Package junk cleanup removed 4 entries.
+02:18:51 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:18:51 WebGL render pipeline override restored: 4 properties.
+02:21:52 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:22:04 Replay camera controller fix: 10 controllers enabled and retuned.
+02:22:04 Theme manifest generated: 94 entries.
+02:22:10 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:22:10 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:22:11 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:22:12 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:22:12 WebGL event model preloads: +0, total preloaded assets=5.
+02:22:12 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:22:12 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:22:12 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_022138_Linux ...
+02:22:12 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:25:18 Build result: Succeeded, size: 350.5 MB, time: 186s, errors: 29521
+02:25:18 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:25:18 index.html patched (cache bust=20260702172518, branded loading, adaptive DPR/4K option, full-window canvas).
+02:25:18 Package README and local server scripts written.
+02:25:18 Package junk cleanup removed 4 entries.
+02:25:20 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:25:21 WebGL render pipeline override restored: 4 properties.
+02:31:29 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:31:45 Replay camera controller fix: 10 controllers enabled and retuned.
+02:31:45 Theme manifest generated: 94 entries.
+02:31:53 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:31:55 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:31:56 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:31:57 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:31:57 WebGL event model preloads: +0, total preloaded assets=5.
+02:31:58 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:31:58 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:31:58 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_023114_Linux ...
+02:31:58 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:33:15 Build result: Succeeded, size: 350.5 MB, time: 78s, errors: 29521
+02:33:15 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:33:15 index.html patched (cache bust=20260702173315, branded loading, adaptive DPR/4K option, full-window canvas).
+02:33:16 Package README and local server scripts written.
+02:33:16 Package junk cleanup removed 4 entries.
+02:33:17 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:33:17 WebGL render pipeline override restored: 4 properties.
+02:43:19 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:43:23 Replay camera controller fix: 10 controllers enabled and retuned.
+02:43:24 Theme manifest generated: 94 entries.
+02:43:26 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:43:26 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:43:27 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:43:27 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:43:27 WebGL event model preloads: +0, total preloaded assets=5.
+02:43:28 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:43:28 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:43:28 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_024305_Linux ...
+02:43:28 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:45:06 Build result: Succeeded, size: 350.5 MB, time: 99s, errors: 29521
+02:45:06 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:45:06 index.html patched (cache bust=20260702174506, branded loading, adaptive DPR/4K option, full-window canvas).
+02:45:07 Package README and local server scripts written.
+02:45:07 Package junk cleanup removed 4 entries.
+02:45:08 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:45:08 WebGL render pipeline override restored: 4 properties.
+02:50:09 Scene font fix: 0 text components now use bundled LXGWWenKai.
+02:50:24 Replay camera controller fix: 10 controllers enabled and retuned.
+02:50:24 Theme manifest generated: 94 entries.
+02:50:32 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+02:50:33 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+02:50:35 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+02:50:36 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+02:50:36 WebGL event model preloads: +0, total preloaded assets=5.
+02:50:36 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+02:50:36 WebGL memory settings: initial=512MB, maximum=2048MB.
+02:50:36 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_024954_Linux ...
+02:50:36 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+02:52:01 Build result: Succeeded, size: 350.5 MB, time: 85s, errors: 29521
+02:52:02 Loading panorama copied into package (lychee_loading_bg.jpg).
+02:52:02 index.html patched (cache bust=20260702175202, branded loading, adaptive DPR/4K option, full-window canvas).
+02:52:02 Package README and local server scripts written.
+02:52:02 Package junk cleanup removed 4 entries.
+02:52:03 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+02:52:03 WebGL render pipeline override restored: 4 properties.
+03:13:45 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:14:00 Replay camera controller fix: 10 controllers enabled and retuned.
+03:14:00 Theme manifest generated: 94 entries.
+03:14:07 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:14:09 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:14:11 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:14:12 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:14:12 WebGL event model preloads: +0, total preloaded assets=5.
+03:14:12 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:14:12 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:14:12 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_031327_Linux ...
+03:14:12 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:15:36 Build result: Succeeded, size: 350.5 MB, time: 84s, errors: 29521
+03:15:36 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:15:36 index.html patched (cache bust=20260702181536, branded loading, adaptive DPR/4K option, full-window canvas).
+03:15:36 Package README and local server scripts written.
+03:15:36 Package junk cleanup removed 4 entries.
+03:15:37 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:15:38 WebGL render pipeline override restored: 4 properties.
+03:27:53 Scene font fix: 0 text components now use bundled LXGWWenKai.
+03:28:10 Replay camera controller fix: 10 controllers enabled and retuned.
+03:28:10 Theme manifest generated: 94 entries.
+03:28:17 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+03:28:18 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+03:28:18 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+03:28:19 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+03:28:19 WebGL event model preloads: +0, total preloaded assets=5.
+03:28:19 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+03:28:19 WebGL memory settings: initial=512MB, maximum=2048MB.
+03:28:19 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_032735_Linux ...
+03:28:19 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+03:29:40 Build result: Succeeded, size: 350.5 MB, time: 81s, errors: 29521
+03:29:40 Loading panorama copied into package (lychee_loading_bg.jpg).
+03:29:40 index.html patched (cache bust=20260702182940, branded loading, adaptive DPR/4K option, full-window canvas).
+03:29:40 Package README and local server scripts written.
+03:29:40 Package junk cleanup removed 4 entries.
+03:29:41 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+03:29:41 WebGL render pipeline override restored: 4 properties.
+12:24:25 Scene font fix: 0 text components now use bundled LXGWWenKai.
+12:24:46 Replay camera controller fix: 10 controllers enabled and retuned.
+12:24:46 Theme manifest generated: 94 entries.
+12:24:54 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+12:24:56 WARNING: Map_map3 expects StreamingAssets/Tournament/map3.txt but it is missing (embedded fallback present).
+12:24:56 WARNING: Map_map4 expects StreamingAssets/Tournament/map4.txt but it is missing (embedded fallback present).
+12:24:56 WebGL texture downscale: 0 heavy textures -> 2048px + Crunch (WebGL override only).
+12:24:56 WebGL event model preloads: +0, total preloaded assets=5.
+12:24:56 WebGL render pipeline override: Forward/no HDR/no postprocess/no SSAO for build only.
+12:24:56 WebGL memory settings: initial=512MB, maximum=2048MB.
+12:24:56 Starting WebGL build to Builds/LycheeReplay_WebGL_20260703_122403_Linux ...
+12:24:56 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/Map_map3.unity, Assets/Scenes/GeneratedMaps/Map_map4.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+12:26:20 Build result: Succeeded, size: 350.5 MB, time: 84s, errors: 29521
+12:26:20 Loading panorama copied into package (lychee_loading_bg.jpg).
+12:26:20 index.html patched (cache bust=20260703032620, branded loading, adaptive DPR/4K option, full-window canvas).
+12:26:21 Package README and local server scripts written.
+12:26:21 Package junk cleanup removed 4 entries.
+12:26:22 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+12:26:22 WebGL render pipeline override restored: 4 properties.

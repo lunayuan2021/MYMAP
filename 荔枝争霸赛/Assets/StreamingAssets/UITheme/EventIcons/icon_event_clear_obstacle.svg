@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title-clear-obstacle">
+  <title id="title-clear-obstacle">清障</title>
+  <defs>
+    <radialGradient id="lacquer-clear-obstacle" cx="42%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#401820"/>
+      <stop offset="58%" stop-color="#141016"/>
+      <stop offset="100%" stop-color="#090609"/>
+    </radialGradient>
+    <linearGradient id="gold-clear-obstacle" x1="14" y1="9" x2="114" y2="119" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff3b0"/>
+      <stop offset="0.45" stop-color="#f2c15b"/>
+      <stop offset="1" stop-color="#70400f"/>
+    </linearGradient>
+    <linearGradient id="rim-clear-obstacle" x1="24" y1="18" x2="104" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#65151e"/>
+      <stop offset="0.55" stop-color="#2a1017"/>
+      <stop offset="1" stop-color="#12080d"/>
+    </linearGradient>
+    <filter id="shadow-clear-obstacle" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="2.4" flood-color="#000000" flood-opacity="0.52"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow-clear-obstacle)">
+    <path d="M64 8c10 0 16 8 24 10 10 3 19 12 22 22 2 8 10 14 10 24s-8 16-10 24c-3 10-12 19-22 22-8 2-14 10-24 10s-16-8-24-10c-10-3-19-12-22-22-2-8-10-14-10-24s8-16 10-24c3-10 12-19 22-22 8-2 14-10 24-10z" fill="url(#gold-clear-obstacle)"/>
+    <path d="M64 15c9 0 14 7 21 9 9 2 16 10 19 19 2 7 9 12 9 21s-7 14-9 21c-3 9-10 17-19 19-7 2-12 9-21 9s-14-7-21-9c-9-2-16-10-19-19-2-7-9-12-9-21s7-14 9-21c3-9 10-17 19-19 7-2 12-9 21-9z" fill="url(#rim-clear-obstacle)" stroke="#ffe4a0" stroke-width="1.6" opacity="0.98"/>
+    <circle cx="64" cy="64" r="43" fill="url(#lacquer-clear-obstacle)" stroke="url(#gold-clear-obstacle)" stroke-width="3.8"/>
+    <circle cx="64" cy="64" r="35.5" fill="none" stroke="#fff0b8" stroke-width="1.1" opacity="0.26"/>
+    <path d="M31 42c7-7 17-7 24 0M73 42c7-7 17-7 24 0M31 86c7 7 17 7 24 0M73 86c7 7 17 7 24 0" fill="none" stroke="#fff0b8" stroke-width="2.2" stroke-linecap="round" opacity="0.22"/>
+    <path d="M30 63c8-9 20-9 28 0 8 9 20 9 28 0 4-4 8-6 13-6M29 72c8-7 18-7 26 0 7 7 18 7 26 0 5-4 10-6 16-5" fill="none" stroke="#f4c768" stroke-width="1.2" stroke-linecap="round" opacity="0.2"/>
+  </g>
+  <g filter="url(#shadow-clear-obstacle)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M28 82c14-4 60-4 72 0" stroke="#f2c15b" stroke-width="5"/>
+      <path d="M37 72l16-16 12 12-16 16z" fill="#6b5748" stroke="#fff0b8" stroke-width="3"/>
+      <path d="M55 55l35-24" stroke="#f2c15b" stroke-width="7"/>
+      <path d="M84 27l12 12" stroke="#f2c15b" stroke-width="4"/>
+      <path d="M28 92h19M58 94h18M86 92h14" stroke="#d9b169" stroke-width="4" opacity="0.75"/>
+      <circle cx="35" cy="73" r="5" fill="#8f7b62" stroke="#f2c15b" stroke-width="2"/>
+      <circle cx="90" cy="76" r="6" fill="#8f7b62" stroke="#f2c15b" stroke-width="2"/>
+    </g>
+  </g>
+</svg>

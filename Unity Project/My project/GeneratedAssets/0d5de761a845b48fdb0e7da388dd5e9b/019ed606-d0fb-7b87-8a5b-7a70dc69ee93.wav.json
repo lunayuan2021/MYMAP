@@ -1,0 +1,15 @@
+{
+    "asset": "0d5de761a845b48fdb0e7da388dd5e9b",
+    "fileName": "019ed606-d0fb-7b87-8a5b-7a70dc69ee93.wav",
+    "prompt": "Continuous summer cicada drone and shimmering heat-haze ambience in still air, several seconds, seamless loop bed.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

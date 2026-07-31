@@ -1,0 +1,125 @@
+{
+  "coverageVersion": "2.0",
+  "goal": "覆盖游戏设计中 UI 需要渲染的全部固定场景与动态场景",
+  "staticCoverage": [
+    "80x60 map.data",
+    "terrain/object/weather layers",
+    "15 nodes",
+    "17 edges",
+    "routePaths for all edges",
+    "ROAD/WATER/MOUNTAIN/BRANCH routes",
+    "assetMapping for tiles/nodes/routes/effects"
+  ],
+  "dynamicCoverage": [
+    {
+      "scene": "路线移动",
+      "rounds": "1-600",
+      "events": [
+        "MOVE_PROGRESS implied by players.position",
+        "NODE_ENTER"
+      ]
+    },
+    {
+      "scene": "资源显隐与领取",
+      "rounds": "83,217-219",
+      "events": [
+        "RESOURCE_CLAIM",
+        "nodes.resourceVisible/resourceStock"
+      ]
+    },
+    {
+      "scene": "天气预告与生效",
+      "rounds": "70/100,195/225,312/342,430/460",
+      "events": [
+        "WEATHER_FORECAST",
+        "WEATHER_START",
+        "WEATHER_END"
+      ]
+    },
+    {
+      "scene": "皇榜任务刷新、完成",
+      "rounds": "1,180,360,451,86,156,219,355,502,517",
+      "events": [
+        "TASK_SPAWN",
+        "TASK_COMPLETE"
+      ]
+    },
+    {
+      "scene": "窗口争夺三拍",
+      "rounds": "216-219",
+      "events": [
+        "WINDOW_CONTEST_START",
+        "WINDOW_CARD_REVEAL",
+        "WINDOW_CONTEST_END"
+      ]
+    },
+    {
+      "scene": "小分队派遣与落地",
+      "rounds": "230/242,330/342,370/382",
+      "events": [
+        "SQUAD_DISPATCH",
+        "SQUAD_ARRIVE",
+        "SQUAD_WEAKEN_SUCCESS",
+        "SQUAD_REINFORCE_SUCCESS",
+        "SQUAD_CLEAR_SUCCESS"
+      ]
+    },
+    {
+      "scene": "设卡、风化、攻坚",
+      "rounds": "300,330,350-355",
+      "events": [
+        "GUARD_SET",
+        "GUARD_DECAY",
+        "GUARD_BREAK"
+      ]
+    },
+    {
+      "scene": "破关悬赏",
+      "rounds": "342,355",
+      "events": [
+        "BOUNTY_SPAWN",
+        "BOUNTY_COMPLETE"
+      ]
+    },
+    {
+      "scene": "强制通行",
+      "rounds": "355-405",
+      "events": [
+        "FORCED_PASS_START",
+        "FORCED_PASS_END"
+      ]
+    },
+    {
+      "scene": "隐藏信息试探拒绝",
+      "rounds": "260",
+      "events": [
+        "ACTION_REJECTED"
+      ]
+    },
+    {
+      "scene": "宫宴冲刺",
+      "rounds": "451",
+      "events": [
+        "RUSH_PHASE_START"
+      ]
+    },
+    {
+      "scene": "朱雀门验核",
+      "rounds": "496-502,548-554",
+      "events": [
+        "VERIFY_GATE_START",
+        "VERIFY_GATE_COMPLETE"
+      ]
+    },
+    {
+      "scene": "兴庆宫交付与结算",
+      "rounds": "517,569,600",
+      "events": [
+        "DELIVER_SUCCESS",
+        "MATCH_END",
+        "over"
+      ]
+    }
+  ],
+  "note": "Demo 为前端渲染覆盖样例，不作为正式比赛平衡样例。正式规则仍以设计文档和裁判服务为准。"
+}

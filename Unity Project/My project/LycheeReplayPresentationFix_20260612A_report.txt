@@ -1,0 +1,9 @@
+LycheeReplayPresentationFix_20260612A report
+combatSprites=3
+redAvatar=True
+blueAvatar=True
+disabledOldHud=2
+editModePreviewHud=true
+runtimeHud=true, defaultTeamSize=16, defaultDispatchMemberCount=4
+eventIllustrations=key replay events
+cameraZoomMultiplier=1.2, obliqueAngle=52,-29,0

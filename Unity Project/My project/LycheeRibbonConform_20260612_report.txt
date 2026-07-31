@@ -1,0 +1,49 @@
+LycheeRibbonConform_20260612 报告 2026-06-12 17:37:01
+色带抬升=0.045m，箭头抬升=0.07m，类型错层=0.005m（ROAD+0 / MOUNTAIN+0.005 / BRANCH+0.010），水路整体排除
+MapElevationData：grid=80x60 origin=(-40.00, -30.00) cell=1 样本数=4941
+跳过(未激活): Route_Line_Overlay_20260611G/E04_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E09_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E05_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E17_Line_BRANCH
+跳过(未激活): Route_Line_Overlay_20260611G/E11_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E02_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E13_Line_WATER
+跳过(未激活): Route_Line_Overlay_20260611G/Route_Arrows
+跳过(未激活): Route_Line_Overlay_20260611G/E16_Line_MOUNTAIN
+跳过(未激活): Route_Line_Overlay_20260611G/E14_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E12_Line_WATER
+跳过(未激活): Route_Line_Overlay_20260611G/E15_Line_MOUNTAIN
+跳过(未激活): Route_Line_Overlay_20260611G/E08_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E10_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E03_Line_ROAD
+跳过(水路保持现状): Route_Line_Overlay_20260611V/E12_Line_WATER
+跳过(未激活): Route_Line_Overlay_20260611G/E07_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E06_Line_ROAD
+跳过(未激活): Route_Line_Overlay_20260611G/E01_Line_ROAD
+跳过(水路保持现状): Route_Line_Overlay_20260611V/E13_Line_WATER
+水面参考顶点 86 个（E12_Route/E13_Route，箭头顶点 XZ 距其 <1m 时保持原高度）
+色带 E01_Line_ROAD: 顶点 40，抬升 0.045m，Δy [-0.67, 0.17]
+色带 E16_Line_MOUNTAIN: 顶点 86，抬升 0.050m，Δy [-0.24, -0.10]
+色带 E03_Line_ROAD: 顶点 56，抬升 0.045m，Δy [-0.25, 0.58]
+色带 E11_Line_ROAD: 顶点 36，抬升 0.045m，Δy [-0.64, 0.35]
+色带 E10_Line_ROAD: 顶点 14，抬升 0.045m，Δy [-0.13, -0.11]
+色带 E05_Line_ROAD: 顶点 32，抬升 0.045m，Δy [-0.21, -0.13]
+色带 E14_Line_ROAD: 顶点 48，抬升 0.045m，Δy [-0.21, -0.10]
+色带 E02_Line_ROAD: 顶点 32，抬升 0.045m，Δy [-0.37, -0.10]
+色带 E06_Line_ROAD: 顶点 22，抬升 0.045m，Δy [-0.21, -0.10]
+色带 E17_Line_BRANCH: 顶点 62，抬升 0.055m，Δy [-0.96, -0.11]
+色带 E15_Line_MOUNTAIN: 顶点 60，抬升 0.050m，Δy [-0.27, 0.10]
+色带 E08_Line_ROAD: 顶点 16，抬升 0.045m，Δy [-0.13, -0.11]
+色带 E09_Line_ROAD: 顶点 16，抬升 0.045m，Δy [-0.12, -0.07]
+色带 E04_Line_ROAD: 顶点 52，抬升 0.045m，Δy [-0.14, 0.58]
+色带 E07_Line_ROAD: 顶点 18，抬升 0.045m，Δy [-0.14, -0.12]
+箭头 Route_Arrows: 顶点 240（水上保持 9），抬升 0.070m，Δy [-0.79, 0.79]
+
+---- 汇总 ----
+处理对象: 16（色带 15 + 箭头 1）
+跳过对象: 水路 2，未激活 18，无网格 0
+箭头水上保持顶点: 9
+旗帜贴地: 13（水驿跳过 2）
+新网格资产目录: Assets/LycheeMap15/GeneratedMeshes/RibbonConform_20260612（原网格资产未覆盖，可回滚）
+偏移: 色带 ROAD +0.045 / MOUNTAIN +0.050 / BRANCH +0.055，箭头 +0.07
+场景已保存。

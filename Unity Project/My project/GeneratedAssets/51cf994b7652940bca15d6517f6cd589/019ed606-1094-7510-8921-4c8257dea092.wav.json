@@ -1,0 +1,15 @@
+{
+    "asset": "51cf994b7652940bca15d6517f6cd589",
+    "fileName": "019ed606-1094-7510-8921-4c8257dea092.wav",
+    "prompt": "Steady continuous heavy rain ambience, even rainfall texture on ground, no thunder, several seconds, seamless loop bed.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

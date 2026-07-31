@@ -1,0 +1,5 @@
+LycheeAlwaysIncludedShaders_20260612 report
+已加入: Skybox/Procedural
+已加入: Universal Render Pipeline/Particles/Unlit
+已加入: Universal Render Pipeline/Unlit
+完成。打包前无需再手动处理 Always Included Shaders。

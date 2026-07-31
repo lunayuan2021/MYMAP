@@ -1,0 +1,22 @@
+LycheeAnimationLibrary_20260612 扫描报告
+时间: 2026-06-12 11:53:51
+
+已创建目录: Assets/LycheeReplayDemo/Animations
+已写入放置说明: Assets/LycheeReplayDemo/Animations/README_动画放置说明.txt
+
+扫描目录: Assets/LycheeReplayDemo/Animations
+找到 AnimationClip 共 0 个:
+  （目录为空。把 Mixamo/AI 生成的动画 FBX/anim 丢进该目录后，
+    菜单 Tools/Lychee/Replay Upgrade 20260612/Scan Animation Clips 重跑即可。）
+
+已创建动画库资产: Assets/LycheeReplayDemo/Resources/LycheeAnimationLibrary.asset
+槽位状态:
+  walk   未找到（运行时程序化兜底）
+  idle   未找到（运行时程序化兜底）
+  row    未找到（运行时程序化兜底）
+  attack 未找到（运行时程序化兜底）
+  build  未找到（运行时程序化兜底）
+  cheer  未找到（运行时程序化兜底）
+
+说明: walk/idle/row 槽位有片段时 LycheeCharacterMotion 用 Playables 循环播放，
+缺的槽位继续走程序化骨骼动画；attack/build/cheer 槽位当前保留为后续升级。

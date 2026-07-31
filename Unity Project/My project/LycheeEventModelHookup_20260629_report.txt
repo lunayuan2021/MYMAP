@@ -1,0 +1,13 @@
+LycheeEventModelHookup_20260629 2026-06-29 21:31:31
+已把 Shader 加入 AlwaysIncluded: Lychee/Overhead Event Model
+无 LycheeReplayPlayer，跳过 Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+赋值 Assets/Scenes/GeneratedMaps/LycheeReplayDemo 2.unity  (保存=True)
+赋值 Assets/Scenes/GeneratedMaps/Map_map2.unity  (保存=True)
+赋值 Assets/Scenes/GeneratedMaps/Map_map3.unity  (保存=True)
+赋值 Assets/Scenes/GeneratedMaps/Map_map4.unity  (保存=True)
+赋值 Assets/Scenes/GeneratedMaps/Map_medium 2.unity  (保存=True)
+赋值 Assets/Scenes/GeneratedMaps/Map_medium.unity  (保存=True)
+无 LycheeReplayPlayer，跳过 Assets/Scenes/GeneratedMaps/litchi_map_unity_full_coverage_v2.unity
+赋值 Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity  (保存=True)
+事件模型: ice=event_icebox horse=event_horse spoil=event_spoil
+场景统计: 赋值 7 / 保存 7 / 跳过(无player) 2

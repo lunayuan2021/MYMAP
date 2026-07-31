@@ -1,0 +1,15 @@
+LycheePresentationRetune_20260612B 2026-06-12 23:35:27
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+LycheeReplayPlayer.secondsPerRound: 0.1 → 0.22
+LycheeReplayPlayer.squadMemberModel: Assets/LycheeReplayDemo/ModelsGLB/SquadMember.glb → Assets/LycheeReplayDemo/ModelsGLB/Member.glb
+camera.perspectiveFieldOfView: 38 → 42
+camera.perspectivePitch: 48 → 41
+camera.perspectiveMinDistance: 12 → 17
+camera.perspectiveMaxDistance: 46 → 62
+camera.perspectiveDistancePadding: 8 → 12
+camera.perspectiveDistanceSpanScale: 1.35 → 1.25
+camera.perspectiveZoomMultiplier: 1.2 → 1
+camera.perspectiveEventDistance: 18 → 15
+camera.focusedSpan: 15 → 24
+camera.focusSwapSeconds: 11 → 14
+场景已保存: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity

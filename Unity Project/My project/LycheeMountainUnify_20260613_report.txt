@@ -1,0 +1,262 @@
+LycheeMountainUnify_20260613 2026-06-13 09:14:19
+方案：侦察候选 C——清剿低模残余（moss 山垃圾删除 + 157 低模岩换写实 rock_set） + 激活 12 个写实细节岩 + 36 座现役写实山坡面补 URP 树
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+地表采样源：路面网格 54 个 + 地形网格 1 个，三角形 61620 个
+自然尺寸：mountain_terrain_02=(30.00,14.02,30.00)；树高=5.88/5.79/5.76
+盘点：moss山 禁用39/激活0（侦察预期 39/0）；低模岩 激活148/禁用0（预期 157/0）；禁用rock_set 12（预期 12）；现役写实山 36（预期 36）；细节组 已找到
+== 删除禁用 moss 山 ==
+  删除 PP_Forest_Mountain_Moss_02 pos=(-38.95,3.17,-16.63) scale=(0.10,0.09,0.10) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-13.00,-0.18,-27.00) scale=(0.14,0.20,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-8.00,-0.19,-26.00) scale=(0.12,0.13,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-33.70,2.92,-5.23) scale=(0.10,0.10,0.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-4.00,-0.34,-24.00) scale=(0.14,0.16,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-21.11,2.97,6.35) scale=(0.14,0.10,0.13) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-18.12,3.96,-3.74) scale=(0.11,0.11,0.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-20.15,2.65,7.05) scale=(0.14,0.11,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-15.93,3.41,-3.50) scale=(0.10,0.09,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-17.49,3.58,6.25) scale=(0.11,0.18,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-17.79,1.62,9.68) scale=(0.12,0.13,0.15) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-11.31,3.67,6.28) scale=(0.07,0.10,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-13.22,2.24,10.16) scale=(0.12,0.15,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-9.22,2.98,-2.01) scale=(0.13,0.13,0.14) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-5.96,2.54,-1.52) scale=(0.11,0.11,0.13) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-3.65,2.87,11.59) scale=(0.14,0.10,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-5.47,1.21,17.03) scale=(0.14,0.10,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-32.77,-0.38,-29.01) scale=(0.12,0.13,0.14) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-35.68,1.39,-26.08) scale=(0.11,0.15,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-34.81,0.60,-27.94) scale=(0.14,0.12,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-38.94,-0.11,-1.86) scale=(0.09,0.10,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-39.26,-0.12,-1.74) scale=(0.14,0.11,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-38.54,-0.12,-0.91) scale=(0.11,0.07,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-36.79,0.14,11.67) scale=(0.12,0.09,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-38.42,0.12,14.59) scale=(0.12,0.12,0.13) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(31.07,0.10,-1.34) scale=(0.10,0.12,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(32.59,0.29,-2.90) scale=(0.11,0.11,0.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(32.60,0.38,-4.56) scale=(0.11,0.15,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(31.39,0.10,-1.11) scale=(0.10,0.08,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(23.07,-0.11,-27.21) scale=(0.13,0.11,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(24.37,0.04,-25.25) scale=(0.13,0.15,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(23.72,-0.04,-27.00) scale=(0.15,0.15,0.13) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(32.29,0.40,-17.17) scale=(0.09,0.13,0.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(31.77,0.38,-16.98) scale=(0.10,0.11,0.10) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(30.51,0.35,-18.13) scale=(0.14,0.13,0.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-36.43,0.01,23.39) scale=(0.11,0.07,0.09) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-33.65,0.14,25.04) scale=(0.09,0.11,0.07) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_02 pos=(-31.99,0.15,26.71) scale=(0.09,0.12,0.07) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_02.prefab
+  删除 PP_Forest_Mountain_Moss_01 pos=(-35.17,0.10,25.61) scale=(0.10,0.15,0.10) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Forest_Mountain_Moss_01.prefab
+== 删除禁用组 Mountain_Detail_Upgrade_20260610 ==
+  含 Refined_Rock_Detail_0_0 pos=(-16.67,3.98,-3.86)
+  含 Refined_Rock_Detail_0_1 pos=(-17.05,4.01,-4.53)
+  含 Refined_Rock_Detail_1_0 pos=(-2.93,2.92,13.66)
+  含 Refined_Rock_Detail_1_1 pos=(-2.31,2.89,12.80)
+  含 Refined_Rock_Detail_2_0 pos=(-34.90,2.94,-3.98)
+  含 Refined_Rock_Detail_2_1 pos=(-34.06,2.97,-3.80)
+  含 Refined_Rock_Detail_3_0 pos=(-23.09,3.02,5.69)
+  含 Refined_Rock_Detail_3_1 pos=(-22.89,2.99,6.73)
+  含 Refined_Rock_Detail_4_0 pos=(-15.94,3.43,-5.25)
+  含 Refined_Rock_Detail_4_1 pos=(-16.56,3.47,-4.78)
+  含 Refined_Rock_Detail_5_0 pos=(-18.13,2.72,6.22)
+  含 Refined_Rock_Detail_5_1 pos=(-19.01,2.67,5.70)
+  含 Refined_Rock_Detail_6_0 pos=(-4.35,2.56,-0.27)
+  含 Refined_Rock_Detail_6_1 pos=(-4.16,2.60,-1.20)
+== 低模岩 PP_Rock_Moss_Grown -> rock_set 替换表 ==
+  PP_Rock_Moss_Grown_09 pos=(6.37,0.60,-19.52) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.63,0.40,0.63) 补树0
+  PP_Rock_Moss_Grown_09 pos=(5.97,0.52,-19.27) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.70,1.03,0.70) 补树0
+  PP_Rock_Moss_Grown_11 pos=(7.62,0.68,-21.63) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.77,0.46,0.77) 补树0
+  PP_Rock_Moss_Grown_11 pos=(7.76,0.69,-21.34) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.48,0.76,0.48) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-6.62,1.37,23.89) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.64,0.71,0.64) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-4.16,1.41,24.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.68,0.41,0.68) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-3.78,1.41,25.51) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.58,0.83,0.58) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-5.12,1.40,23.64) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.85,1.09,0.85) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-5.72,1.40,24.00) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.46,0.32,0.46) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-5.25,1.23,16.26) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.35,0.56,0.35) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-4.64,1.20,17.71) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.30,0.48,0.30) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-7.10,1.22,17.54) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(1.09,0.92,1.09) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-6.59,1.23,16.82) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.72,0.43,0.72) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-4.56,1.22,19.02) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.85,1.01,0.85) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-6.72,1.23,16.68) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.81,0.99,0.81) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-5.50,1.23,16.56) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.59,0.47,0.59) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-3.58,1.18,17.58) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.47,0.57,0.47) 补树0
+  PP_Rock_Moss_Grown_09 pos=(28.51,1.04,-3.16) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.81,0.49,0.81) 补树0
+  PP_Rock_Moss_Grown_11 pos=(32.50,1.21,-2.67) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.60,0.36,0.60) 补树0
+  PP_Rock_Moss_Grown_09 pos=(30.98,1.03,-0.97) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.35,0.56,0.35) 补树0
+  PP_Rock_Moss_Grown_11 pos=(33.17,1.14,-0.94) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.87,0.52,0.87) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-0.14,0.26,-26.40) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.37,0.60,0.37) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-1.80,-0.16,-24.03) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.63,0.38,0.63) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-1.81,-0.01,-24.85) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.64,0.40,0.64) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-1.40,0.04,-25.01) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.74,0.64,0.74) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-1.16,0.13,-25.63) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.85,0.78,0.85) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-3.15,0.06,-25.58) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.48,0.62,0.48) 补树0
+  PP_Rock_Moss_Grown_11 pos=(26.06,1.19,20.61) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.47,0.74,0.47) 补树0
+  PP_Rock_Moss_Grown_09 pos=(24.63,1.28,21.81) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.51,0.60,0.51) 补树0
+  PP_Rock_Moss_Grown_09 pos=(25.17,1.33,23.06) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.56,0.60,0.56) 补树0
+  PP_Rock_Moss_Grown_09 pos=(27.46,1.22,21.28) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.46,0.34,0.46) 补树0
+  PP_Rock_Moss_Grown_09 pos=(25.86,1.33,23.10) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.46,0.33,0.46) 补树0
+  PP_Rock_Moss_Grown_11 pos=(27.14,1.18,20.55) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.84,0.81,0.84) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-19.99,0.68,21.28) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.67,0.71,0.67) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-16.40,0.61,17.53) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.27,0.44,0.27) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-17.09,0.65,19.54) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.41,0.26,0.41) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-15.69,0.66,18.83) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.64,0.40,0.64) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-19.47,0.66,19.59) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.47,0.30,0.47) 补树0
+  PP_Rock_Moss_Grown_09 pos=(15.03,0.72,-21.35) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.26,0.41,0.26) 补树0
+  PP_Rock_Moss_Grown_09 pos=(15.33,0.73,-20.87) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.35,0.56,0.35) 补树0
+  PP_Rock_Moss_Grown_09 pos=(14.42,0.80,-19.05) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.70,0.90,0.70) 补树0
+  PP_Rock_Moss_Grown_11 pos=(15.53,0.72,-21.04) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.51,0.31,0.51) 补树0
+  PP_Rock_Moss_Grown_11 pos=(16.17,0.60,-23.26) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.87,0.52,0.87) 补树0
+  PP_Rock_Moss_Grown_09 pos=(14.22,0.79,-19.51) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.39,0.62,0.39) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-27.62,1.10,27.87) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.82,0.49,0.82) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-26.87,1.09,26.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(1.04,0.91,1.04) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-29.37,1.09,27.88) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.37,0.26,0.37) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-28.25,1.09,25.59) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.88,1.10,0.88) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-25.30,1.13,28.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.64,0.76,0.64) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-28.84,1.09,25.34) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.73,0.98,0.73) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-28.90,1.09,26.32) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.63,0.38,0.63) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-28.49,1.09,27.87) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.92,0.55,0.92) 补树0
+  PP_Rock_Moss_Grown_09 pos=(20.42,0.98,12.67) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.33,0.53,0.33) 补树0
+  PP_Rock_Moss_Grown_11 pos=(19.74,1.06,16.15) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.64,0.64,0.64) 补树0
+  PP_Rock_Moss_Grown_11 pos=(20.16,1.02,14.20) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.38,0.62,0.38) 补树0
+  PP_Rock_Moss_Grown_09 pos=(17.28,0.98,13.93) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.39,0.27,0.39) 补树0
+  PP_Rock_Moss_Grown_11 pos=(17.50,0.99,14.68) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.58,0.35,0.58) 补树0
+  PP_Rock_Moss_Grown_11 pos=(28.05,1.19,-10.55) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.56,0.33,0.56) 补树0
+  PP_Rock_Moss_Grown_09 pos=(28.34,1.22,-9.67) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.60,0.40,0.60) 补树0
+  PP_Rock_Moss_Grown_09 pos=(30.62,1.27,-10.64) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.61,0.71,0.61) 补树0
+  PP_Rock_Moss_Grown_11 pos=(29.40,1.25,-9.98) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.60,0.54,0.60) 补树0
+  PP_Rock_Moss_Grown_11 pos=(28.91,1.26,-9.08) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.44,0.70,0.44) 补树0
+  PP_Rock_Moss_Grown_09 pos=(27.20,1.16,-12.49) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.77,0.46,0.77) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-23.37,0.86,10.38) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.92,0.55,0.92) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-23.36,0.95,10.14) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.66,0.39,0.66) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-24.24,0.69,11.44) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-27.50,0.92,11.22) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.57,0.34,0.57) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-24.97,0.65,13.89) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.75,0.87,0.75) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-24.61,0.80,10.65) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.85,0.91,0.85) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-23.06,0.71,10.78) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.61,0.36,0.61) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-32.11,1.05,10.94) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.52,0.71,0.52) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-30.81,1.03,9.89) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.24,0.38,0.24) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-32.27,1.01,8.12) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.31,0.49,0.31) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-33.80,1.04,9.24) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.71,0.56,0.71) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-29.98,1.03,9.01) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.70,0.42,0.70) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-27.24,0.77,17.64) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.86,1.01,0.86) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-27.47,0.76,15.75) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.39,0.62,0.39) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-27.12,0.76,17.27) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.56,0.69,0.56) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-27.65,0.77,16.01) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.38,0.62,0.38) 补树0
+  PP_Rock_Moss_Grown_09 pos=(31.70,1.31,-26.31) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.91,1.08,0.91) 补树0
+  PP_Rock_Moss_Grown_11 pos=(34.46,1.34,-26.57) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(1.15,1.00,1.15) 补树0
+  PP_Rock_Moss_Grown_11 pos=(34.07,1.30,-27.78) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(1.00,0.60,1.00) 补树0
+  PP_Rock_Moss_Grown_09 pos=(32.06,1.34,-25.82) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.59,0.36,0.59) 补树0
+  PP_Rock_Moss_Grown_11 pos=(32.87,1.36,-25.20) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.96,0.87,0.96) 补树0
+  PP_Rock_Moss_Grown_11 pos=(32.69,1.38,-24.38) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.85,0.78,0.85) 补树0
+  PP_Rock_Moss_Grown_09 pos=(31.68,1.28,-27.14) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.70,0.97,0.70) 补树0
+  PP_Rock_Moss_Grown_09 pos=(37.91,1.64,-7.92) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.67,0.72,0.67) 补树0
+  PP_Rock_Moss_Grown_09 pos=(38.97,1.59,-6.03) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.73,0.45,0.73) 补树0
+  PP_Rock_Moss_Grown_11 pos=(37.95,1.64,-9.25) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.54,0.86,0.54) 补树0
+  PP_Rock_Moss_Grown_09 pos=(38.44,1.63,-8.74) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.81,1.01,0.81) 补树0
+  PP_Rock_Moss_Grown_09 pos=(38.86,1.61,-6.69) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.65,0.78,0.65) 补树0
+  PP_Rock_Moss_Grown_09 pos=(37.04,1.62,-8.93) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.63,0.73,0.63) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-14.40,1.02,26.04) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.83,0.73,0.83) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-13.26,1.05,26.15) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.36,0.58,0.36) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-14.59,1.05,27.99) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-15.20,1.02,27.43) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.26,0.42,0.26) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-34.84,1.69,-1.33) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.51,0.55,0.51) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-32.72,2.93,-2.83) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.47,0.75,0.47) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-35.45,1.32,0.45) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-33.16,2.81,-3.34) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.56,0.34,0.56) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-35.05,1.88,-3.04) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.45,0.72,0.45) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-33.25,2.88,-3.91) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.74,0.88,0.74) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-12.28,0.88,19.00) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.73,0.57,0.73) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-11.88,0.90,18.40) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.71,0.83,0.71) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-12.43,0.96,21.24) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.56,0.79,0.56) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-10.10,1.07,19.69) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.52,0.31,0.52) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-10.43,1.08,21.36) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.95,0.57,0.95) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-10.29,1.10,21.64) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.72,0.77,0.72) 补树0
+  PP_Rock_Moss_Grown_09 pos=(2.40,1.32,25.75) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.54,0.63,0.54) 补树0
+  PP_Rock_Moss_Grown_09 pos=(1.43,1.36,27.43) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.58,0.37,0.58) 补树0
+  PP_Rock_Moss_Grown_09 pos=(2.76,1.33,26.48) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.34,0.54,0.34) 补树0
+  PP_Rock_Moss_Grown_11 pos=(1.85,1.33,26.16) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.30,0.48,0.30) 补树0
+  PP_Rock_Moss_Grown_09 pos=(5.26,1.26,25.44) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.48,0.30,0.48) 补树0
+  PP_Rock_Moss_Grown_09 pos=(3.39,1.31,26.11) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.25,0.40,0.25) 补树0
+  PP_Rock_Moss_Grown_09 pos=(0.65,1.31,23.96) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-36.28,1.09,8.75) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.47,0.28,0.47) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-36.37,1.10,6.66) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.71,0.88,0.71) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-36.53,1.11,6.94) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.85,0.88,0.85) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-35.75,1.08,8.06) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.86,0.94,0.86) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-36.25,1.08,9.52) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(1.13,0.89,1.13) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-35.53,1.04,4.69) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-8.87,0.35,-28.30) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.69,0.42,0.69) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-8.94,0.44,-28.58) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_01 scale=(0.79,0.70,0.79) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-11.36,-0.11,-26.68) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.67,0.54,0.67) 补树0
+  PP_Rock_Moss_Grown_11 pos=(-14.23,-0.66,-25.65) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(1.01,0.80,1.01) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-12.56,-0.65,-25.02) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.70,0.89,0.70) 补树0
+  PP_Rock_Moss_Grown_09 pos=(21.91,1.24,21.95) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.55,0.74,0.55) 补树0
+  PP_Rock_Moss_Grown_11 pos=(22.38,1.31,23.86) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.68,0.72,0.68) 补树0
+  PP_Rock_Moss_Grown_11 pos=(20.08,1.21,22.24) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(1.09,0.87,1.09) 补树0
+  PP_Rock_Moss_Grown_09 pos=(20.71,1.25,23.26) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.71,0.76,0.71) 补树0
+  PP_Rock_Moss_Grown_09 pos=(17.11,1.11,20.60) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.79,0.49,0.79) 补树0
+  PP_Rock_Moss_Grown_11 pos=(19.44,1.16,20.32) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.28,0.45,0.28) 补树0
+  PP_Rock_Moss_Grown_11 pos=(19.47,1.17,21.10) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_03 scale=(0.40,0.64,0.40) 补树0
+  PP_Rock_Moss_Grown_11 pos=(4.60,1.16,-1.85) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.70,0.42,0.70) 补树0
+  PP_Rock_Moss_Grown_11 pos=(5.42,2.54,0.96) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_02 scale=(0.95,0.57,0.95) 补树0
+  PP_Rock_Moss_Grown_11 pos=(5.65,2.17,0.41) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_11.prefab -> rock_set_04 scale=(0.51,0.47,0.51) 补树0
+  PP_Rock_Moss_Grown_09 pos=(6.25,1.62,-0.56) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.42,0.68,0.42) 补树0
+  PP_Rock_Moss_Grown_09 pos=(4.21,2.42,0.33) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.61,0.37,0.61) 补树0
+  PP_Rock_Moss_Grown_09 pos=(4.37,1.69,-0.80) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.75,1.04,0.75) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-22.72,2.74,-8.06) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.25,0.30,0.25) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-20.52,4.81,-3.32) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_03 scale=(0.16,0.25,0.16) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-18.30,0.53,13.74) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.22,0.13,0.22) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-2.65,0.35,-3.72) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.24,0.31,0.24) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-32.86,2.41,-25.48) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_04 scale=(0.26,0.32,0.26) 补树0
+  PP_Rock_Moss_Grown_09 pos=(32.32,1.38,-5.54) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.26,0.35,0.26) 补树0
+  PP_Rock_Moss_Grown_09 pos=(22.51,0.81,-27.24) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.22,0.32,0.22) 补树0
+  PP_Rock_Moss_Grown_09 pos=(28.15,1.26,-16.39) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_01 scale=(0.23,0.27,0.23) 补树0
+  PP_Rock_Moss_Grown_09 pos=(-37.66,0.90,26.85) 源=Assets/Pure Poly/Free Low Poly Nature Pack/Prefabs/PP_Rock_Moss_Grown_09.prefab -> rock_set_02 scale=(0.27,0.16,0.27) 补树0
+== 激活 rock_set 细节岩 + 校 Y ==
+  激活 HillRock_Detail_00 pos=(34.06,1.31,-2.90) Y 校正 +1.10m
+  激活 HillRock_Detail_03 pos=(22.33,0.78,-29.23) Y 校正 +0.93m
+  激活 HillRock_Detail_06 pos=(-34.55,1.83,-27.51) Y 校正 +2.29m
+  激活 HillRock_Detail_09 pos=(-33.27,1.81,-27.24) Y 校正 +1.28m
+  激活 HillRock_Detail_12 pos=(-39.01,1.13,-4.44) Y 校正 +1.32m
+  激活 HillRock_Detail_15 pos=(-11.21,4.05,-1.58) Y 校正 +1.10m
+  激活 HillRock_Detail_18 pos=(-14.94,4.69,-1.99) Y 校正 +1.35m
+  激活 HillRock_Detail_21 pos=(-34.28,1.05,24.10) Y 校正 +1.03m
+  激活 HillRock_Detail_24 pos=(-22.35,2.86,6.62) Y 校正 +0.28m
+  激活 HillRock_Detail_27 pos=(31.38,0.99,0.55) Y 校正 +0.93m
+  激活 HillRock_Detail_30 pos=(-18.98,4.14,5.32) Y 校正 +1.23m
+  激活 HillRock_Detail_33 pos=(-12.01,4.94,5.54) Y 校正 +1.34m
+== 现役写实山坡面补树（每山 2~4 棵，哈希确定性）==
+  HillRock_Mountain_00 pos=(32.69,0.82,-0.87) 补树1
+  HillRock_Mountain_01 pos=(26.98,0.49,-25.71) 补树4
+  HillRock_Mountain_02 pos=(-39.01,0.59,22.07) 补树2
+  HillRock_Mountain_03 pos=(20.22,0.43,-24.80) 补树3
+  HillRock_Mountain_04 pos=(-36.27,2.55,-4.91) 补树1
+  HillRock_Mountain_05 pos=(-18.05,3.16,3.91) 补树2
+  HillRock_Mountain_06 pos=(-29.67,0.19,-29.94) 补树3
+  HillRock_Mountain_07 pos=(-36.09,2.76,-18.00) 补树3
+  HillRock_Mountain_08 pos=(-8.53,0.82,20.77) 补树3
+  HillRock_Mountain_09 pos=(-32.38,1.14,-26.44) 补树1
+  HillRock_Mountain_10 pos=(-21.55,1.24,11.90) 补树2
+  HillRock_Mountain_11 pos=(31.84,0.93,-14.39) 补树2
+  HillRock_Mountain_12 pos=(-38.24,0.43,1.90) 补树3
+  HillRock_Mountain_13 pos=(30.17,0.66,1.55) 补树3
+  HillRock_Mountain_14 pos=(-37.96,1.89,-24.82) 补树1
+  HillRock_Mountain_15 pos=(-9.94,2.49,0.83) 补树3
+  HillRock_Mountain_16 pos=(32.67,0.94,-15.26) 补树1
+  HillRock_Mountain_17 pos=(-40.90,0.45,0.38) 补树3
+  HillRock_Mountain_18 pos=(-15.51,3.01,-5.89) 补树1
+  HillRock_Mountain_19 pos=(34.74,0.92,-6.41) 补树1
+  HillRock_Mountain_20 pos=(-35.91,0.69,27.26) 补树2
+  HillRock_Mountain_21 pos=(-37.49,0.65,27.14) 补树1
+  HillRock_Mountain_22 pos=(30.22,0.90,-21.06) 补树3
+  HillRock_Mountain_23 pos=(-15.89,1.89,11.74) 补树2
+  HillRock_Mountain_24 pos=(-23.28,2.27,4.37) 补树3
+  HillRock_Mountain_25 pos=(-31.10,0.69,24.89) 补树1
+  HillRock_Mountain_26 pos=(24.49,0.60,-27.70) 补树1
+  HillRock_Mountain_27 pos=(31.90,0.64,-3.95) 补树2
+  HillRock_Mountain_28 pos=(-34.02,0.75,14.22) 补树4
+  HillRock_Mountain_29 pos=(-8.83,2.11,1.37) 补树3
+  HillRock_Mountain_30 pos=(-24.09,2.53,3.29) 补树3
+  HillRock_Mountain_31 pos=(-36.00,0.59,-2.73) 补树2
+  HillRock_Mountain_32 pos=(-0.57,2.42,11.52) 补树3
+  HillRock_Mountain_33 pos=(-12.81,4.23,6.45) 补树1
+  HillRock_Mountain_34 pos=(-20.15,3.47,-1.67) 补树2
+  HillRock_Mountain_35 pos=(-35.44,0.67,12.14) 补树3
+汇总：删禁用moss山39 删禁用石堆14 删禁用低模岩0；低模岩替换148 moss山替换0；激活细节岩12；补树79；新对象父节点 Mountains_Unified_20260613
+总改动 292 项；场景保存: True

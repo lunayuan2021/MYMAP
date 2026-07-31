@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lychee-webgl-replay",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["Builds/LycheeReplay_WebGL_20260702_114954_Linux/lychee_server.py", "--port", "8090", "--host", "127.0.0.1"],
+      "port": 8090
+    },
+    {
+      "name": "lychee-webgl-diag",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "9099", "--directory", "/private/tmp/claude-501/-Users-lunayuan------Unity-Project-My-project/b7b4276a-5f3d-4972-994b-5f970ff3e225/scratchpad/webserve"],
+      "port": 9099
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+16:43:09 Scene font fix: 0 text components now use bundled NotoSansSC.
+16:43:12 Replay camera controller fix: 6 controllers enabled and retuned.
+16:43:13 Theme manifest generated: 87 entries.
+16:43:14 WARNING: Map_map2 expects StreamingAssets/Tournament/map2.txt but it is missing (embedded fallback present).
+16:43:15 Starting WebGL build to Builds/LycheeReplay_WebGL_20260624_164307_Linux ...
+16:43:15 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity, Assets/Scenes/GeneratedMaps/Map_map2.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+16:45:41 Build result: Succeeded, size: 614.4 MB, time: 146s, errors: 29522
+16:45:41 index.html patched (cache bust=20260624084541, branded loading, adaptive DPR/4K option, full-window canvas).
+16:45:41 Package README and local server scripts written.
+16:45:41 Package junk cleanup removed 0 entries.
+16:45:42 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity

@@ -1,0 +1,41 @@
+﻿Windows 本地服务器脚本修复版 v2（不用重新构建包）
+==============================================
+
+适用情况：WebGL 包在 Windows 上用 start.bat 启动，替换 StreamingAssets\replay.txt 后
+页面报「找不到回放文件」；服务器日志里出现
+  ERR ...replay.txt... 使用"3"个参数调用"Write"时发生异常:"指定的网络名不再可用"
+
+这个报错是什么意思：
+文件找到了、服务器正在发送，是浏览器那头中途把连接断了。原因是旧包里
+Unity 客户端下载 replay.txt 限时 12 秒，机器慢（刚加载完 500MB 资源、
+远程桌面、杀毒软件扫描）时 6.4MB 在 12 秒内传不完，就被掐断。
+换磁盘（C盘/E盘）没有用——瓶颈不是磁盘。
+
+v2 的解决办法：
+服务器把 .txt/.json 压缩后再发（体积约变为原来的 1/10），浏览器自动解压，
+12 秒绰绰有余。另外每个请求都会记录字节数和耗时，方便排查。
+
+使用方法（三步）：
+1. 把本目录的 start_local_server.ps1 复制到包的根目录（index.html 所在目录），
+   覆盖原来的同名文件。
+2. 双击 stop.bat；再打开任务管理器，结束所有 powershell 进程（确保旧服务器彻底退出）。
+3. 双击 start.bat 重新启动，刷新页面。
+
+替换后怎么确认生效：
+包根目录的 .lychee_web_server_requests.log 里，replay.txt 那行应该长这样：
+  200 /litchi_delivery_replay/StreamingAssets/replay.txt?t=xxx (6492369 -> 650000 bytes gzip, 45 ms)
+「-> xxx bytes gzip」说明压缩生效；ms 是发送耗时。
+
+如果还是失败，按日志对症：
+- ERR ... (after 约12000 ms)  → 还是超时被掐（机器实在太慢）。试试：
+    a) 地址后加 ?quality=performance 再开（降低画质减轻机器负担）；
+    b) 别在远程桌面里测试，去机器本机开浏览器；
+    c) 暂时退出杀毒软件/安全卫士再试一次；
+    d) 页面多刷新一两次（第二次加载走缓存，机器负担小很多）。
+- ERR ... (after 很小的 ms 数) → 不是超时，是有东西立刻切断了 localhost 连接，
+    基本可断定是杀毒软件/安全卫士的网络防护，把它退出或加白名单。
+- 404 ... -> 磁盘路径          → 文件名/目录问题：路径目录不对=起错目录；
+    路径对仍 404=文件真名不是 replay.txt（Windows 隐藏扩展名，常见 replay.txt.txt），
+    CMD 里 dir StreamingAssets\replay* 看真名后用 ren 改名。
+
+替换完 replay.txt 后刷新页面即可生效，不需要重启服务器。

@@ -1,0 +1,2661 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+[ExecuteAlways]
+public sealed class LycheeReplayRuntimeHud : MonoBehaviour
+{
+    // 排队中的事件弹窗内容快照：普通事件在面板占用期间不再直接覆盖（原“最后写入者赢”
+    // 导致密集回合下弹窗每帧闪变、永驻屏幕），而是先存进队列等空档再弹。
+    sealed class PendingCombat
+    {
+        public int imageIndex;
+        public Sprite illustration;
+        public string title;
+        public string subtitle;
+        public string redCard;
+        public string blueCard;
+        public string score;
+        public float seconds;
+        public string category;
+    }
+
+    sealed class TeamWidgets
+    {
+        public Text name;
+        public Text roster;
+        public Text score;
+        public Image avatar;
+        public RawImage avatarRaw;
+    }
+
+    // 底部维度对比行：一行一个维度，中央金色标签，红值居左、蓝值居右。
+    sealed class StatRow
+    {
+        public string label;
+        public Text mainLine;
+        public Text redDelta;
+        public Text blueDelta;
+        public string redValueText;
+        public string blueValueText;
+        public float redDeltaUntil;
+        public float blueDeltaUntil;
+    }
+
+    sealed class DualBar
+    {
+        public Image redFill;
+        public Image blueFill;
+        public Text redValue;
+        public Text blueValue;
+        public Text redDelta;
+        public Text blueDelta;
+        public float maxValue;
+    }
+
+    // 对抗卡片块的演出状态（翻面 + 胜方金色脉冲）：全部由 Refresh 每帧驱动的
+    // unscaledTime 状态机推进，不用协程——与本面板既有的淡入淡出驱动方式保持一致。
+    sealed class CardFx
+    {
+        public RectTransform block;   // 翻面的整块（底色 + 牌面 + 文字一起绕中轴翻转）
+        public Image face;            // 牌面图：前半程显示 card_back，过中点换正面贴图
+        public Image backPlate;       // 背面态墨色底：盖住队色块模拟牌背
+        public Text backMark;         // card_back 缺失时的兜底：墨底 + 金“?”
+        public Text label;            // 牌名文字（翻到正面后才显示）
+        public Image glow;            // 胜方金色脉冲垫片（同层靠前 = 渲染在卡片块下面）
+        public Image blockImage;
+        public float flipStart = float.NegativeInfinity; // 翻面开始时刻，NegInf 表示空闲
+        public string flipCard;       // 原始牌名（映射正面贴图用，与显示文字分离）
+        public bool flipFrontShown;   // 是否已过中点换到正面
+        public float glowStart = float.NegativeInfinity; // 脉冲开始时刻（可设未来值=延迟启动）
+        // 正/背面牌图相对牌块的锚点偏移：右侧小卡牌名在牌面右侧(正面 -55 给牌名让位)；
+        // 中央大卡牌面居中、牌名另设在卡下方，故两态都用 0。由 Build*Card 按版式设定。
+        public Vector2 frontFaceOffset = new Vector2(-55f, 0f);
+        public Vector2 backFaceOffset = Vector2.zero;
+    }
+
+    const string CanvasName = "LycheeReplayRuntimeHUD_20260612";
+    // Owns bottom score HUD, right-side event cards, and dispatch toast.
+    // Keep it above minimap/video/weather/extension HUD overlays, below settlement/opening.
+    const int RuntimeCanvasSortingOrder = 260;
+    const float BottomWidth = 1180f;
+    // 面板加高（164 -> 210 -> 256）：256 版为容纳加高的墨底背板(236)+回合/阶段标题，让 9 维各行行距拉开、不再挤成一坨。
+    const float BottomHeight = 256f;
+    // LOL 取向：面板贴画面下边缘（原 0.25 悬浮在画面 1/4 处）
+    const float BottomHudAnchorY = 0f;
+    // WebGL 浏览器全屏/缩放下，最底和最右侧容易被系统栏或 canvas 边缘吃掉；
+    // 所有边缘 HUD 统一向内收一点，避免“全屏也看不到全部”。
+    const float WebSafeBottomInset = 6f;    // 底部 HUD 下边留 6px 安全边(用户定：接近齐平但防浏览器全屏吃掉最底一两像素；原30太多漏边、原0太贴)。
+    const float WebSafeRightInset = 44f;
+    // 红蓝双条 track 宽度；条内端距中央标签、外端距数值文字均保持 >= 6px 净空。
+    const float BarTrackWidth = 190f;
+    // 右侧事件卡单条时长硬上限。用户要"保留时长久一些"→放到 8.0f，让上游 7.5s 的事件卡完整展示。
+    // (窗口争夺出牌已移到中央 contestGroup 大窗口、自有节奏，不再受这里约束。)
+    const float CombatMaxSeconds = 8.0f;
+    // 弹窗淡入淡出时长：取代原 alpha 1↔0 硬切，观赏性显著提升。
+    const float CombatFadeSeconds = 0.25f;
+    // 两条普通弹窗之间的最小喘息间隔（上一条隐藏后再等这么久才弹队首）。
+    const float CombatGapSeconds = 0.9f;
+    // 排队上限：任务刷新在同一回合可能连发多条，队列多留几格，避免“皇榜任务刷新”被前置演出挤掉。
+    const int CombatQueueLimit = 10;
+    // 右上角纵向栈：小地图底边约 -286；小分队条贴其下，事件卡贴小分队条下，三者静态/滑入都不得互相盖住。
+    const float RightColumnToastY = -300f;
+    const float RightColumnCombatY = -363f;
+    const float ToastSlideOffset = 12f;
+    // 出牌翻面总时长：前半程 x 1→0 收拢露牌背，过中点换正面，后半程 0→1 张开。
+    const float CardFlipSeconds = 0.35f;
+    // 胜方金色脉冲：单次 0.7→0 的衰减时长，连放两次。
+    const float WinnerGlowPulseSeconds = 0.45f;
+    // 面板进场滑入：自 +24px 偏移 EaseOutCubic 滑到位，与 0.25s 淡入节拍接近。
+    const float PanelSlideSeconds = 0.3f;
+    const float PanelSlideOffset = 24f;
+    // 比分滚动速度（分/秒）与涨分瞬间字号回弹时长。
+    const float ScoreRollPerSecond = 55f;   // 滚动速度下限(B7: 从6提到55，小改动也快速滚完、不再瞬跳)
+    const float ScorePopSeconds = 0.2f;
+    const int TeamScoreFontSize = 34;
+    // 对抗暗角：开始 0.4s 淡入聚焦、结束 0.6s 淡出释放。
+    const float VignetteFadeInSeconds = 0.4f;
+    const float VignetteFadeOutSeconds = 0.6f;
+
+    // 唐风统一调色板（与全工程其他 HUD 一致）：把“工程 Demo 感”的深灰面板整体换成
+    // 墨底 + 鎏金标题 + 绢黄正文 + 暗金描边，红队队色统一用朱红。
+    static readonly Color InkColor = new Color(0.102f, 0.090f, 0.078f, 0.86f);    // 墨 #1A1714，半透明面板底
+    static readonly Color GoldColor = new Color(0.831f, 0.686f, 0.361f, 1f);      // 鎏金 #D4AF5C，标题/强调
+    static readonly Color SilkColor = new Color(0.929f, 0.878f, 0.765f, 1f);      // 绢黄 #EDE0C3，正文
+    static readonly Color DarkGoldColor = new Color(0.549f, 0.455f, 0.220f, 1f);  // 暗金 #8C7438，描边/分隔线
+    static readonly Color VermilionColor = new Color(0.620f, 0.161f, 0.125f, 1f); // 朱红 #9E2920，红队队色
+
+    [Header("Editor Preview")]
+    public bool previewInEditMode = true;
+    public Sprite previewRedAvatar;
+    public Sprite previewBlueAvatar;
+    public Sprite[] previewCombatIllustrations;
+
+    Font font;
+    Canvas canvas;
+    RectTransform root;
+    CanvasGroup bottomPanelGroup;   // 底部比分面板整组：结算展示时置 alpha 0，避免和结算页下方内容重叠
+    TeamWidgets redTeam;
+    TeamWidgets blueTeam;
+    Text roundText;
+    Text phaseText;
+    GameObject statBackdropGo;   // 中央 9 维详情背板：解说录制时可整块隐藏，避免挡住底部站点(洛阳驿/洞庭水驿等)的车队。
+    // 原中央“最新事件”文本（EventText）已删除：它与四条进度条的中央标签文字重叠，
+    // 且左侧事件流（LycheeHudExtensions）已承担最新事件展示职责。
+    // 底部 9 维度对比行(鲜度/好果/坏果/任务数/任务分/破关悬赏分/惩罚分/状态/整体进度)，取代原 4 条进度条。
+    StatRow[] statRows;
+    // D1: 含"破关悬赏分"维度(§1.4/§6.2 独立正向分项)——某队靠悬赏拿分时任务分不动而当前得分跳涨，原来看不到来源。
+    // 「当前得分」不再单列一行：已由红蓝两侧的大号得分数字承担(数字上方标注"当前得分")，面板里再放一行属重复，去掉。
+    static readonly string[] StatLabels = { "鲜度", "好果", "坏果", "任务数", "任务分", "破关悬赏分", "惩罚分", "状态", "整体进度" };
+    CanvasGroup combatGroup;
+    RectTransform combatRect;
+    Vector2 combatBasePos;
+    Image combatPanelBg;
+    RawImage combatImage;
+    RawImage combatCategoryFrame; // WebGL-safe texture path for the right event-card frame.
+    Image combatGenericFrame;    // BuildCombat 的通用 panel_frame；分类边框生效时隐藏它
+    RectTransform combatTitleRibbon;
+    Image combatTaskNoticeBoard;
+    RectTransform combatSubtitleRibbon;
+    Image combatSubtitleBg;
+    Image combatResultBanner;
+    Text combatTitle;
+    Text combatSubtitle;
+    Text combatRedCard;
+    Text combatBlueCard;
+    Text combatScore;
+    CardFx redCardFx;
+    CardFx blueCardFx;
+    // 窗口争夺「出牌」专用中央大窗口：与右侧 400x252 事件卡面板(combatGroup)彻底解耦，
+    // 让逐拍出牌/验牌在画面正中央放大展示、看得一清二楚。仅 WINDOW_CONTEST_* 走这里。
+    CanvasGroup contestGroup;
+    RectTransform contestRect;
+    Vector2 contestBasePos;
+    Image contestImage;          // 对抗类型插画（缺图自动隐藏）
+    Text contestTitle;
+    Text contestSubtitle;        // 「谁得势 · 谁克谁」/「本拍平手」
+    Text contestScore;
+    Text contestVs;              // 中央 VS
+    CardFx contestRedFx;
+    CardFx contestBlueFx;
+    float contestUntil;
+    float contestShowStart = float.NegativeInfinity;
+    // 同一回合内最后一拍和结算可能连续到达；结算必须等亮牌至少停留一段时间，
+    // 否则用户只能看到“窗口结束”，看不到第 3 拍。
+    float contestRevealHoldUntil;
+    int pendingContestResolution; // 0=none, 1=end, 2=draw
+    int pendingContestRound;
+    string pendingContestWinner;
+    int pendingContestRedPoint;
+    int pendingContestBluePoint;
+    int pendingContestRestRound;
+    CanvasGroup openingGroup;
+    Text openingTitle;
+    Text openingRed;
+    Text openingBlue;
+    CanvasGroup toastGroup;
+    RectTransform toastRect;
+    Vector2 toastBasePos;
+    Text toastText;
+    Image vignetteImage;
+    Sprite[] combatSprites;
+
+    float combatUntil;
+    // 下一条普通弹窗最早允许出现的时刻（= 上一条隐藏时刻 + CombatGapSeconds）。
+    float combatNextAllowed;
+    // 普通事件弹窗等待队列；对抗三连击（开始/亮牌/结算）走 priority 路径绕过它。
+    readonly List<PendingCombat> pendingCombats = new List<PendingCombat>();
+    string lastCombatDisplayKey;
+    float lastCombatDisplayAt = float.NegativeInfinity;
+    float openingUntil;
+    float toastUntil;
+    // 面板进场滑入的起始时刻：NegInf 表示无进行中的滑入（偏移恒为 0）。
+    float combatShowStart = float.NegativeInfinity;
+    float toastShowStart = float.NegativeInfinity;
+    // 对抗暗角的目标透明度与当前淡变时长（淡入 0.4s / 淡出 0.6s 不同速）。
+    float vignetteTarget;
+    float vignetteFade = VignetteFadeOutSeconds;
+    // 比分滚动跳字的内部状态：显示值朝真实值滚动，目标变化瞬间触发字号回弹。
+    float displayedRedScore;
+    float displayedBlueScore;
+    int rollTargetRedScore;
+    int rollTargetBlueScore;
+    float redScorePopStart = float.NegativeInfinity;
+    float blueScorePopStart = float.NegativeInfinity;
+    int lastRound = -1;
+    float lastRedFresh;
+    float lastBlueFresh;
+    int lastRedFruit;
+    int lastBlueFruit;
+    int lastRedBadFruit;
+    int lastBlueBadFruit;
+    int lastRedTaskCount;
+    int lastBlueTaskCount;
+    int lastRedTaskScore;
+    int lastBlueTaskScore;
+    int lastRedBounty;
+    int lastBlueBounty;
+    int lastRedPenalty;
+    int lastBluePenalty;
+    float lastRedProgress;
+    float lastBlueProgress;
+#if UNITY_EDITOR
+    bool editorPreviewQueued;
+#endif
+
+    // 主题贴图静态缓存（同 LycheeHudExtensions 的惯例）：跨画布重建复用，
+    // 退出播放后 Unity 对象被销毁时重载（== null 走 Unity 重载判空）。
+    static Sprite frameSprite;
+    static Sprite vignetteSprite;
+    static Sprite avatarCircleSprite;
+    static Sprite taskNoticeBoardSprite;
+    const string RedCaptainAvatarResource = "LycheeReplayDemo/Avatars/red_captain_circle_20260611Y";
+    const string BlueCaptainAvatarResource = "LycheeReplayDemo/Avatars/blue_captain_circle_20260611Y";
+    static readonly Dictionary<string, Sprite> themeSpriteCache = new Dictionary<string, Sprite>();
+    static readonly Dictionary<string, Sprite> categoryBorderCache = new Dictionary<string, Sprite>();
+
+    void OnEnable()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying && previewInEditMode)
+            QueueEditorPreview();
+#endif
+    }
+
+    void OnDisable()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+            ClearBuiltCanvas();
+#endif
+    }
+
+    void OnDestroy()
+    {
+        ClearBuiltCanvas();
+    }
+
+    void OnValidate()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying && isActiveAndEnabled && previewInEditMode)
+            QueueEditorPreview();
+#endif
+    }
+
+#if UNITY_EDITOR
+    void QueueEditorPreview()
+    {
+        if (editorPreviewQueued) return;
+        editorPreviewQueued = true;
+        UnityEditor.EditorApplication.delayCall += RunQueuedEditorPreview;
+    }
+
+    void RunQueuedEditorPreview()
+    {
+        editorPreviewQueued = false;
+        if (this == null || Application.isPlaying || !isActiveAndEnabled || !previewInEditMode)
+            return;
+
+        ClearBuiltCanvas();
+        ShowEditorPreview();
+    }
+#endif
+
+    public void Configure(Sprite[] illustrations, Sprite redAvatar, Sprite blueAvatar)
+    {
+        EnsureBuilt();
+        if (illustrations != null && illustrations.Length > 0) previewCombatIllustrations = illustrations;
+        previewRedAvatar = ResolveTeamAvatar(true, redAvatar != null ? redAvatar : previewRedAvatar);
+        previewBlueAvatar = ResolveTeamAvatar(false, blueAvatar != null ? blueAvatar : previewBlueAvatar);
+        combatSprites = previewCombatIllustrations;
+        SetTeamAvatar(redTeam, previewRedAvatar);
+        SetTeamAvatar(blueTeam, previewBlueAvatar);
+    }
+
+    public void ShowEditorPreview()
+    {
+        EnsureBuilt();
+        combatSprites = previewCombatIllustrations;
+        SetTeamAvatar(redTeam, ResolveTeamAvatar(true, previewRedAvatar));
+        SetTeamAvatar(blueTeam, ResolveTeamAvatar(false, previewBlueAvatar));
+
+        roundText.text = "第 1 / 600 回合";
+        phaseText.text = "回放预览";
+        redTeam.name.text = "红队 · blue-l4";
+        redTeam.roster.text = "队伍ID #2002";
+        redTeam.score.text = "0";
+        redTeam.score.fontSize = TeamScoreFontSize;
+        blueTeam.name.text = "蓝队 · green-l5";
+        blueTeam.roster.text = "队伍ID #1002";
+        blueTeam.score.text = "0";
+        blueTeam.score.fontSize = TeamScoreFontSize;
+        // 比分滚动状态归零：预览不滚动、不回弹
+        displayedRedScore = 0f;
+        displayedBlueScore = 0f;
+        rollTargetRedScore = 0;
+        rollTargetBlueScore = 0;
+        redScorePopStart = float.NegativeInfinity;
+        blueScorePopStart = float.NegativeInfinity;
+        // 维度对比预览样例(鲜度/好果/坏果/任务数/任务分/破关悬赏分/惩罚分/状态/整体进度)——「当前得分」已移到两侧大号得分
+        SetStatRow(0, "92%", "88%");
+        SetStatRow(1, "36", "32");
+        SetStatRow(2, "4", "6");
+        SetStatRow(3, "3", "2");
+        SetStatRow(4, "120", "100");
+        SetStatRow(5, "60", "45");
+        SetStatRow(6, "-15", "-8");
+        SetStatRow(7, "在线", "在线");
+        SetStatRow(8, "42.0%", "38.0%");
+        SetGroup(combatGroup, false, 0f);
+        SetGroup(contestGroup, false, 0f);
+        SetGroup(openingGroup, false, 0f);
+        SetGroup(toastGroup, false, 0f);
+        // 对抗演出状态全部归位：翻面/脉冲/暗角/滑入在预览态不应残留
+        ResetCardFx(redCardFx);
+        ResetCardFx(blueCardFx);
+        ResetPendingContestResolution();
+        vignetteTarget = 0f;
+        if (vignetteImage != null) vignetteImage.color = new Color(1f, 1f, 1f, 0f);
+        combatShowStart = float.NegativeInfinity;
+        toastShowStart = float.NegativeInfinity;
+    }
+
+    public void ShowOpening(string redName, int redCount, string blueName, int blueCount)
+    {
+        // 开幕阵容面板（OpeningRosterPanel）已被全屏对阵演出 LycheeOpeningShowcase 取代。
+        // 保留方法签名以兼容既有调用方，这里直接空操作，避免两层开场 UI 叠加。
+    }
+
+    // 对抗三连击（开始/亮牌/结算）是同一场叙事的连续镜头，priority=true 绕过队列实时覆盖；
+    // 时长从 4.6/4.9/5.2 压到 2.8/2.8/3.0，避免叙事链拖到下一场对抗还没放完。
+    // 本场对抗类型标签（START 时按 contestType 设定，REVEAL/END 续用，使三连击文案一致）。
+    string contestTypeLabel = "对抗";
+
+    /// <summary>窗口争夺类型(contestType)→中文标签（设计 §4.7）；未知/空回退"对抗"，保持旧文案兼容。</summary>
+    public static string ContestTypeLabel(string contestType)
+    {
+        switch (contestType)
+        {
+            case "GATE": return "宫门争夺";
+            case "PASS": return "通行争夺";
+            case "RESOURCE": return "资源争夺";
+            case "TASK": return "任务争夺";
+            case "DOCK": return "交接争夺";
+            case "OBSTACLE": return "清障争夺";
+            default: return "对抗";
+        }
+    }
+
+    // 窗口争夺三连击（开始/逐拍亮牌/结算）全部走画面正中央的「出牌」大窗口(contestGroup)，
+    // 不再挤进右侧 400x252 事件卡面板——出牌/验牌在中央放大、逐拍看清。每拍时长略大于回放
+    // 逐拍减速(2.6s)，使大窗口在整场对抗内连续可见、不闪断。
+    public void ShowCombatStart(int round, string nodeId, int totalRounds, string contestType)
+    {
+        contestTypeLabel = ContestTypeLabel(contestType);
+        DisplayContest(0, contestTypeLabel + "  第" + round + "回合",
+            "争夺节点 " + Clean(nodeId) + "  ·  " + Mathf.Max(1, totalRounds) + " 拍定胜负",
+            "红队", "蓝队", "0 : 0", 3.2f);
+        ApplyContestAvatar(contestRedFx, TeamAvatar(true));
+        ApplyContestAvatar(contestBlueFx, TeamAvatar(false));
+        // 对抗暗角聚焦：压暗四周把视线收到战场与中央出牌窗口上，CONTEST_END 时淡出
+        SetVignette(true);
+    }
+
+    public void ShowCombatReveal(int round, int roundIndex, string redCard, string blueCard, string winner, int redPoint, int bluePoint)
+    {
+        // 副标题显示「本拍谁得势 + 谁克谁」(用户：牌名+克制关系)；平手单独提示。
+        // B2: 克制方向按 §4.9 克制表查(redCard vs blueCard)，不从 winner 反推——数据的 winner 可能靠对方弃权取胜，
+        //     或与克制表不符；旧写法把 winner 的牌硬当成"克"败方牌，会打出与规则相反的克制断言(如"验牒 克 献贡")。
+        string sub;
+        if (winner == "RED" || winner == "BLUE")
+        {
+            int rb = RedBeatsBlue(redCard, blueCard);   // +1=红克蓝, -1=蓝克红, 0=平/无克制关系
+            bool tableMatchesWinner = (winner == "RED" && rb > 0) || (winner == "BLUE" && rb < 0);
+            string winnerName = WinnerText(winner);
+            string loserCard = winner == "RED" ? blueCard : redCard;
+            if (tableMatchesWinner)
+                sub = winnerName + " 本拍得势 · " + CardText(winner == "RED" ? redCard : blueCard) + " 克 " + CardText(loserCard);
+            else if (CardIndex(loserCard) < 0)
+                sub = winnerName + " 本拍得势 · 对方弃权";   // 靠对方弃权/未出牌取胜，非克制关系
+            else
+                sub = winnerName + " 本拍得势";   // winner 与克制表不符 → 中性，不臆断克制方向
+        }
+        else sub = "本拍平手";
+        DisplayContest(1, contestTypeLabel + "  第" + Mathf.Max(1, roundIndex) + "拍 / 第" + round + "回合",
+            sub, CardText(redCard), CardText(blueCard), redPoint + " : " + bluePoint, 3.0f);
+        // 亮牌瞬间：出真牌(验牒/强行/献贡/兵争，CardIndex>=0)的一方翻面亮牌；不出真牌的一方(空牌/弃权/未出，CardIndex<0)
+        // 改显队头像、不翻牌——让观众看清是哪队没出牌。修用户反馈"有的争夺不出牌的一方槽位空着没头像、有的又有"的不一致：
+        // 原来两边都无条件翻牌，没出牌的一方就被翻成空/弃权面把开局的头像盖掉了。
+        if (CardIndex(redCard) >= 0) StartCardFlip(contestRedFx, redCard);
+        else ShowContestAvatarSlot(contestRedFx, TeamAvatar(true));
+        if (CardIndex(blueCard) >= 0) StartCardFlip(contestBlueFx, blueCard);
+        else ShowContestAvatarSlot(contestBlueFx, TeamAvatar(false));
+        // 单局得势方的金色脉冲延迟到翻面落定后再亮，节拍上不与翻面抢戏
+        if (winner == "RED") StartWinnerGlow(contestRedFx, CardFlipSeconds);
+        else if (winner == "BLUE") StartWinnerGlow(contestBlueFx, CardFlipSeconds);
+        contestRevealHoldUntil = Mathf.Max(contestRevealHoldUntil, Time.unscaledTime + 3.1f);
+    }
+
+    public void ShowCombatEnd(int round, string winner, int redPoint, int bluePoint)
+    {
+        if (ShouldDelayContestResolution())
+        {
+            QueueCombatResolution(1, round, winner, redPoint, bluePoint, 0);
+            return;
+        }
+        DisplayCombatEndNow(round, winner, redPoint, bluePoint);
+    }
+
+    void DisplayCombatEndNow(int round, string winner, int redPoint, int bluePoint)
+    {
+        // replay 的结算事件常不填 winner(为空)，只给点数。为空/非红蓝时按红蓝累计点数判定，
+        // 否则 WinnerText("")="双方" 会拼出荒谬的「双方 胜出」(实测 0:2 也显示双方胜出)。点数相同才是真平局。
+        string w = ResolveEndWinner(winner, redPoint, bluePoint);
+        string verdict = w == "RED" ? "红队 胜出"
+            : w == "BLUE" ? "蓝队 胜出"
+            : "平局";
+        DisplayContest(2, contestTypeLabel + "结束  第" + round + "回合", verdict,
+            "红队 " + redPoint + " 分", "蓝队 " + bluePoint + " 分", redPoint + " : " + bluePoint, 4.5f);
+        // 结束页也必须重新放队伍头像：DisplayContest 会 ResetCardFx，若只在开始/亮牌阶段塞头像，结算页会退回红蓝纯色块。
+        ShowContestAvatarSlot(contestRedFx, TeamAvatar(true));
+        ShowContestAvatarSlot(contestBlueFx, TeamAvatar(false));
+        // 胜者演出：判出胜负方给胜方卡片金色脉冲 + 短促震屏；平局不给
+        if (w == "RED") StartWinnerGlow(contestRedFx, 0f);
+        else if (w == "BLUE") StartWinnerGlow(contestBlueFx, 0f);
+        if (w == "RED" || w == "BLUE") ShakeCamera(0.18f, 0.35f);
+        // 对抗收束：暗角 0.6s 缓缓放开
+        SetVignette(false);
+    }
+
+    // 结算胜负判定：优先读 replay 的 winner(红/蓝)；缺省或非红蓝时按累计点数判，点数相同=平局。
+    // 这不是"自己算克制"——只是读 replay 已给的最终点数(redPoint/bluePoint)。
+    static string ResolveEndWinner(string winner, int redPoint, int bluePoint)
+    {
+        if (!string.IsNullOrEmpty(winner))
+        {
+            string k = winner.ToUpperInvariant();
+            if (k.Contains("RED")) return "RED";
+            if (k.Contains("BLUE")) return "BLUE";
+        }
+        if (bluePoint > redPoint) return "BLUE";
+        if (redPoint > bluePoint) return "RED";
+        return "DRAW";
+    }
+
+    // 窗口平局（WINDOW_CONTEST_DRAW）：三拍胜点相同、无胜方。中性收束，不给任一方金光/震屏。
+    public void ShowCombatDraw(int round, int redPoint, int bluePoint, int restRound = 0)
+    {
+        if (ShouldDelayContestResolution())
+        {
+            QueueCombatResolution(2, round, null, redPoint, bluePoint, restRound);
+            return;
+        }
+        DisplayCombatDrawNow(round, redPoint, bluePoint, restRound);
+    }
+
+    void DisplayCombatDrawNow(int round, int redPoint, int bluePoint, int restRound = 0)
+    {
+        string restText = restRound > 0 ? "，休整 " + restRound + " 帧" : "，各自休整";
+        DisplayContest(2, contestTypeLabel + "平局  第" + round + "回合", "双方胜点相同 · 无人得手" + restText,
+            "红队 " + redPoint + " 分", "蓝队 " + bluePoint + " 分", redPoint + " : " + bluePoint, 4.5f);
+        // 平局页同样走 DisplayContest 重置流程，必须补回头像，避免又变成红蓝纯色块。
+        ShowContestAvatarSlot(contestRedFx, TeamAvatar(true));
+        ShowContestAvatarSlot(contestBlueFx, TeamAvatar(false));
+        SetVignette(false);
+    }
+
+    bool ShouldDelayContestResolution()
+    {
+        return Time.unscaledTime < contestRevealHoldUntil;
+    }
+
+    void QueueCombatResolution(int kind, int round, string winner, int redPoint, int bluePoint, int restRound)
+    {
+        pendingContestResolution = kind;
+        pendingContestRound = round;
+        pendingContestWinner = winner;
+        pendingContestRedPoint = redPoint;
+        pendingContestBluePoint = bluePoint;
+        pendingContestRestRound = restRound;
+    }
+
+    void FlushPendingContestResolution(float now)
+    {
+        if (pendingContestResolution == 0 || now < contestRevealHoldUntil)
+            return;
+
+        int kind = pendingContestResolution;
+        int round = pendingContestRound;
+        string winner = pendingContestWinner;
+        int redPoint = pendingContestRedPoint;
+        int bluePoint = pendingContestBluePoint;
+        int restRound = pendingContestRestRound;
+        ResetPendingContestResolution();
+
+        if (kind == 1) DisplayCombatEndNow(round, winner, redPoint, bluePoint);
+        else if (kind == 2) DisplayCombatDrawNow(round, redPoint, bluePoint, restRound);
+    }
+
+    void ResetPendingContestResolution()
+    {
+        contestRevealHoldUntil = 0f;
+        pendingContestResolution = 0;
+        pendingContestRound = 0;
+        pendingContestWinner = null;
+        pendingContestRedPoint = 0;
+        pendingContestBluePoint = 0;
+        pendingContestRestRound = 0;
+    }
+
+    // 中央出牌窗口的统一上屏：设标题/副标题/比分与双方牌块文字，重置翻面状态，并续期可见。
+    // priority 路径——对抗三连击是连续叙事，实时覆盖、不排队。
+    void DisplayContest(int imageIndex, string title, string subtitle, string redLabel, string blueLabel, string score, float seconds)
+    {
+        EnsureBuilt();
+        if (!ContestHudReady("DisplayContest")) return;
+        if (contestImage != null)
+        {
+            if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
+                contestImage.enabled = false;
+            else
+            {
+                contestImage.enabled = true;
+                contestImage.sprite = combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)];
+            }
+        }
+        contestTitle.text = title;
+        contestSubtitle.text = subtitle;
+        contestRedFx.label.text = redLabel;
+        contestBlueFx.label.text = blueLabel;
+        contestScore.text = score;
+        // 新内容上屏先清掉上一拍的翻面/脉冲残留；亮牌路径随后会重启翻面
+        ResetCardFx(contestRedFx);
+        ResetCardFx(contestBlueFx);
+        // 进场滑入只在从隐藏态弹出时触发：三连击连换内容不反复跳位
+        if (contestGroup.alpha <= 0.05f)
+            contestShowStart = Time.unscaledTime;
+        contestUntil = Time.unscaledTime + seconds;
+        contestGroup.interactable = false;
+        contestGroup.blocksRaycasts = false;
+    }
+
+    void ApplyContestAvatar(CardFx fx, Sprite avatar)
+    {
+        if (fx == null || fx.face == null || avatar == null) return;
+        fx.face.enabled = true;
+        fx.face.sprite = avatar;
+        fx.face.rectTransform.anchoredPosition = fx.frontFaceOffset;
+        if (fx.backPlate != null) fx.backPlate.enabled = false;
+        if (fx.backMark != null) fx.backMark.enabled = false;
+        if (fx.label != null) fx.label.enabled = true;
+    }
+
+    Sprite TeamAvatar(bool red)
+    {
+        Sprite current = red ? previewRedAvatar : previewBlueAvatar;
+        Sprite resolved = ResolveTeamAvatar(red, current);
+        if (red) previewRedAvatar = resolved;
+        else previewBlueAvatar = resolved;
+        return resolved;
+    }
+
+    // 不出真牌的一方在出牌窗口常显队头像(不翻牌、不给胜方脉冲)，与出牌的一方并排——
+    // 避免某队没出牌时槽位被翻空/盖掉头像(用户反馈:有的争夺有头像有的没有)。见 ShowCombatReveal 的 CardIndex<0 分支。
+    void ShowContestAvatarSlot(CardFx fx, Sprite avatar)
+    {
+        if (fx == null) return;
+        ApplyContestAvatar(fx, avatar);
+        if (fx.block != null)
+        {
+            fx.block.localScale = Vector3.one;          // 复位翻牌可能留下的缩放/旋转，头像正面朝前
+            fx.block.localRotation = Quaternion.identity;
+        }
+        fx.flipStart = float.NegativeInfinity;   // 取消翻牌动画，头像常显、不被 UpdateCardFlip 覆盖
+        fx.flipFrontShown = true;
+        fx.glowStart = float.NegativeInfinity;   // 没出牌不给胜方金色脉冲
+    }
+
+    public void ShowEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
+    {
+        // 普通事件走排队路径：面板被占用或未到间隔时先入队，避免连弹覆盖
+        ShowCombat(imageIndex, illustration, title, subtitle, leftDetail, rightDetail, centerText, seconds, false, category);
+    }
+
+    public void ShowPriorityEventIllustration(int imageIndex, string title, string subtitle, string leftDetail, string rightDetail, string centerText, float seconds, string category, Sprite illustration = null)
+    {
+        // 小分队出发/清障结果这类镜头事件必须立刻解释画面，不排队等旧弹窗播完。
+        ShowCombat(imageIndex, illustration, title, subtitle, leftDetail, rightDetail, centerText, seconds, true, category);
+    }
+
+    public void ShowDispatch(string text)
+    {
+        EnsureBuilt();
+        if (!ToastHudReady("ShowDispatch")) return;
+        toastText.text = text;
+        // 小分队状态条停留 6 秒：派出后玩家要看得清「正在/完成 XX节点 XX动作」(原 3 秒太短、感知不到)
+        toastUntil = Time.unscaledTime + 6.0f;
+        // 进场滑入只在从隐藏态弹出时触发：连续调度提示只换文字、不反复跳位
+        if (toastGroup.alpha <= 0.05f)
+            toastShowStart = Time.unscaledTime;
+    }
+
+    // 回放跳转（拖进度条、重播按钮、循环回开头）后调用：排队中的弹窗与在显内容都指向跳转前
+    // 的旧进度，继续补播只会报错位的回合号；全部作废并解除间隔锁，让跳转目标帧重放出的事件
+    // 能即时弹出，而不是被旧的 combatNextAllowed 压回队列。
+    public void CancelCombatPopups()
+    {
+        pendingCombats.Clear();
+        combatUntil = 0f;
+        combatNextAllowed = 0f;
+        lastCombatDisplayKey = null;
+        lastCombatDisplayAt = float.NegativeInfinity;
+        // 对抗演出同步作废：翻面/脉冲指向跳转前的旧对抗，暗角立即熄灭避免残留压暗画面
+        ResetCardFx(redCardFx);
+        ResetCardFx(blueCardFx);
+        // 中央出牌大窗口同样作废：否则跳转后 contestUntil 仍是旧未来值，面板会一直挂着不消
+        contestUntil = 0f;
+        contestShowStart = float.NegativeInfinity;
+        ResetPendingContestResolution();
+        ResetCardFx(contestRedFx);
+        ResetCardFx(contestBlueFx);
+        vignetteTarget = 0f;
+        if (vignetteImage != null) vignetteImage.color = new Color(1f, 1f, 1f, 0f);
+        // 比分滚动同步贴齐：跳转后不该花几秒"追"一个旧进度的中间值
+        displayedRedScore = rollTargetRedScore;
+        displayedBlueScore = rollTargetBlueScore;
+    }
+
+    public void Refresh(
+        int round,
+        int lastReplayRound,
+        string phase,
+        string latestEvent,
+        LycheeReplayPlayerState red,
+        LycheeReplayPlayerState blue,
+        int redCount,
+        int blueCount,
+        LycheeReplayScores scores,
+        float redRouteProgress,
+        float blueRouteProgress,
+        int redTaskCount = 0,
+        int blueTaskCount = 0)
+    {
+        EnsureBuilt();
+        bool bottomReady = BottomHudReady("Refresh");
+        float now = Time.unscaledTime;
+
+        if (bottomReady)
+        {
+        // 结算界面展示时隐藏底部比分面板：RuntimeHud(sort 260) 在结算 Canvas(sort 220) 之上，
+        // 不藏就会把红蓝队头像/维度行画在结算页下方的「交付回合/贡运状元/再看一遍·关闭」上，重叠。
+        if (bottomPanelGroup != null)
+        {
+            bool settlement = LycheeSettlementScreen.IsShowing;
+            bottomPanelGroup.alpha = settlement ? 0f : 1f;
+            bottomPanelGroup.blocksRaycasts = !settlement;
+            bottomPanelGroup.interactable = !settlement;
+        }
+        int redScore = TotalScoreOf(red, scores, true);
+        int blueScore = TotalScoreOf(blue, scores, false);
+        bool newRound = round != lastRound;
+
+        roundText.text = "第 " + round + " / " + lastReplayRound + " 回合";
+        phaseText.text = phase == "RUSH" ? "冲刺阶段" : "常规阶段";
+        // latestEvent 不再在底部面板展示（参数保留以兼容调用方）：
+        // 原 EventText 与进度条标签重叠，左侧事件流已承担该职责。
+
+        if (red != null)
+        {
+            redTeam.name.text = TeamNameLine("红队", red);
+            redTeam.roster.text = TeamIdLine(red);
+        }
+        if (blue != null)
+        {
+            blueTeam.name.text = TeamNameLine("蓝队", blue);
+            blueTeam.roster.text = TeamIdLine(blue);
+        }
+
+        // 比分滚动跳字：大数字不再瞬间改值，~6/s 滚动 + 涨分瞬间字号回弹（取代原 text 直写）
+        RollScore(ref displayedRedScore, ref rollTargetRedScore, ref redScorePopStart, redScore, redTeam.score, now);
+        RollScore(ref displayedBlueScore, ref rollTargetBlueScore, ref blueScorePopStart, blueScore, blueTeam.score, now);
+
+        float redFresh = red == null ? 0f : red.freshness;
+        float blueFresh = blue == null ? 0f : blue.freshness;
+        int redFruit = red == null ? 0 : red.goodFruit;
+        int blueFruit = blue == null ? 0 : blue.goodFruit;
+        int redBadFruit = red == null ? 0 : red.badFruit;
+        int blueBadFruit = blue == null ? 0 : blue.badFruit;
+        int redTaskScore = TaskScoreOf(red);
+        int blueTaskScore = TaskScoreOf(blue);
+        int redBounty = BountyScoreOf(red);
+        int blueBounty = BountyScoreOf(blue);
+        int redPenalty = PenaltyScoreOf(red);
+        int bluePenalty = PenaltyScoreOf(blue);
+        // 送达进度 = 整段总进度(0..1，由 LycheeReplayPlayer.RouteProgressOf 按站号 S01→S15 推出，单调不抖)。
+        // 不再直接用 state.progress：replay.txt 里它是「当前路段」比例、每到站清零，会让进度条 0↔100 抖动。
+        float redProgress = Mathf.Clamp01(redRouteProgress) * 100f;
+        float blueProgress = Mathf.Clamp01(blueRouteProgress) * 100f;
+        bool showDelta = newRound && lastRound >= 0;
+
+        // 9 维度对比行(红值居左 / 蓝值居右)。状态非数值;整体进度取整段路线进度(非当前路段)。「当前得分」已移到两侧大号得分。
+        SetStatRow(0, redFresh.ToString("0") + "%", blueFresh.ToString("0") + "%",
+            showDelta ? redFresh - lastRedFresh : 0f, showDelta ? blueFresh - lastBlueFresh : 0f, "%");
+        SetStatRow(1, redFruit.ToString(), blueFruit.ToString(),
+            showDelta ? redFruit - lastRedFruit : 0f, showDelta ? blueFruit - lastBlueFruit : 0f);
+        SetStatRow(2, redBadFruit.ToString(), blueBadFruit.ToString(),
+            showDelta ? redBadFruit - lastRedBadFruit : 0f, showDelta ? blueBadFruit - lastBlueBadFruit : 0f);
+        SetStatRow(3, redTaskCount.ToString(), blueTaskCount.ToString(),
+            showDelta ? redTaskCount - lastRedTaskCount : 0f, showDelta ? blueTaskCount - lastBlueTaskCount : 0f);
+        SetStatRow(4, redTaskScore.ToString(), blueTaskScore.ToString(),
+            showDelta ? redTaskScore - lastRedTaskScore : 0f, showDelta ? blueTaskScore - lastBlueTaskScore : 0f);
+        SetStatRow(5, redBounty.ToString(), blueBounty.ToString(),
+            showDelta ? redBounty - lastRedBounty : 0f, showDelta ? blueBounty - lastBlueBounty : 0f);
+        SetStatRow(6, redPenalty.ToString(), bluePenalty.ToString(),
+            showDelta ? redPenalty - lastRedPenalty : 0f, showDelta ? bluePenalty - lastBluePenalty : 0f);
+        SetStatRow(7, StatusTextOf(red), StatusTextOf(blue));
+        SetStatRow(8, redProgress.ToString("0.0") + "%", blueProgress.ToString("0.0") + "%",
+            showDelta ? redProgress - lastRedProgress : 0f, showDelta ? blueProgress - lastBlueProgress : 0f, "%");
+
+        if (newRound)
+        {
+            lastRound = round;
+            lastRedFresh = redFresh;
+            lastBlueFresh = blueFresh;
+            lastRedFruit = redFruit;
+            lastBlueFruit = blueFruit;
+            lastRedBadFruit = redBadFruit;
+            lastBlueBadFruit = blueBadFruit;
+            lastRedTaskCount = redTaskCount;
+            lastBlueTaskCount = blueTaskCount;
+            lastRedTaskScore = redTaskScore;
+            lastBlueTaskScore = blueTaskScore;
+            lastRedBounty = redBounty;
+            lastBlueBounty = blueBounty;
+            lastRedPenalty = redPenalty;
+            lastBluePenalty = bluePenalty;
+            lastRedProgress = redProgress;
+            lastBlueProgress = blueProgress;
+        }
+        }
+
+        bool presentationBlockingCombat = IsPresentationBlockingCombat();
+        if (presentationBlockingCombat && combatUntil > now)
+        {
+            float dt = Time.unscaledDeltaTime;
+            combatUntil += dt;
+            combatNextAllowed += dt;
+        }
+        // 中央出牌大窗口同款冻结：开场/短视频展示期间不让 contestUntil/逐拍保持时间烧穿，
+        // 否则视频结束后窗口已过期、最后一拍丢失（与右侧对抗卡一致：藏而不毁、过后接着演）。
+        if (presentationBlockingCombat && contestUntil > now)
+        {
+            float dt = Time.unscaledDeltaTime;
+            contestUntil += dt;
+            if (contestRevealHoldUntil > now) contestRevealHoldUntil += dt;
+        }
+
+        // 排队消费点：Refresh 每帧必经。开场/短视频展示期间先藏住，不抢画面，结束后再消费队列。
+        if (!presentationBlockingCombat && CombatHudReady("Refresh.PendingCombat") && now >= combatUntil && now >= combatNextAllowed && pendingCombats.Count > 0)
+        {
+            PendingCombat next = pendingCombats[0];
+            pendingCombats.RemoveAt(0);
+            DisplayCombat(next.imageIndex, next.illustration, next.title, next.subtitle, next.redCard, next.blueCard, next.score, next.seconds, next.category);
+        }
+
+        // 对抗弹窗用 0.25 秒淡入淡出取代原 alpha 硬切；面板纯展示无交互，
+        // 永远不拦截 raycast（否则右侧 400x252 区域会吃掉穿透点击）。
+        if (CombatHudReady("Refresh.Combat"))
+        {
+            float combatTargetAlpha = !presentationBlockingCombat && now < combatUntil ? 1f : 0f;
+            combatGroup.alpha = Mathf.MoveTowards(combatGroup.alpha, combatTargetAlpha, Time.unscaledDeltaTime / CombatFadeSeconds);
+            combatGroup.interactable = false;
+            combatGroup.blocksRaycasts = false;
+            // 进场滑入：右侧停靠面板自 +24px（更靠屏幕外）EaseOutCubic 滑回原位；
+            // combatShowStart 为 NegInf 时进度恒为 1、偏移恒为 0，无需分支。
+            float combatSlide = (1f - EaseOutCubic((now - combatShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
+            combatRect.anchoredPosition = combatBasePos + new Vector2(combatSlide, 0f);
+        }
+
+        // 展示期间不消费逐拍结算队列，结束后再亮最后一拍；与右侧对抗卡的队列保持一致。
+        if (!presentationBlockingCombat)
+            FlushPendingContestResolution(now);
+
+        // 中央出牌大窗口：同款 0.25s 淡入淡出 + 自下方 +24px 滑入；纯展示永不拦截点击。
+        if (ContestHudReady("Refresh.Contest"))
+        {
+            contestGroup.alpha = Mathf.MoveTowards(contestGroup.alpha, !presentationBlockingCombat && now < contestUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
+            contestGroup.interactable = false;
+            contestGroup.blocksRaycasts = false;
+            float contestSlide = (1f - EaseOutCubic((now - contestShowStart) / PanelSlideSeconds)) * PanelSlideOffset;
+            contestRect.anchoredPosition = contestBasePos + new Vector2(0f, -contestSlide);
+        }
+
+        SetGroup(openingGroup, now < openingUntil && round <= 24, now < openingUntil && round <= 24 ? 1f : 0f);
+
+        // 调度提示同样改为淡入淡出（原 alpha 硬切）+ 自上方 24px 滑入；
+        // 纯展示面板与对抗弹窗一致：永不拦截 raycast。
+        if (ToastHudReady("Refresh.Toast"))
+        {
+            toastGroup.alpha = Mathf.MoveTowards(toastGroup.alpha, now < toastUntil ? 1f : 0f, Time.unscaledDeltaTime / CombatFadeSeconds);
+            toastGroup.interactable = false;
+            toastGroup.blocksRaycasts = false;
+            float toastSlide = (1f - EaseOutCubic((now - toastShowStart) / PanelSlideSeconds)) * ToastSlideOffset;
+            toastRect.anchoredPosition = toastBasePos + new Vector2(0f, toastSlide);
+        }
+
+        // 对抗演出每帧驱动：出牌翻面状态机 + 胜方金色脉冲（右侧事件卡 + 中央出牌窗口两套牌块）
+        UpdateCardFlip(redCardFx, now);
+        UpdateCardFlip(blueCardFx, now);
+        UpdateWinnerGlow(redCardFx, now);
+        UpdateWinnerGlow(blueCardFx, now);
+        UpdateCardFlip(contestRedFx, now);
+        UpdateCardFlip(contestBlueFx, now);
+        UpdateWinnerGlow(contestRedFx, now);
+        UpdateWinnerGlow(contestBlueFx, now);
+
+        // 对抗暗角：朝目标透明度淡变（淡入 0.4s / 淡出 0.6s 不同速）
+        if (vignetteImage != null)
+            vignetteImage.color = new Color(1f, 1f, 1f, Mathf.MoveTowards(vignetteImage.color.a, vignetteTarget, Time.unscaledDeltaTime / Mathf.Max(0.01f, vignetteFade)));
+    }
+
+    void ShowCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, bool priority, string category)
+    {
+        EnsureBuilt();
+        if (!CombatHudReady("ShowCombat")) return;
+        // 时长一刀切上限：上游各处传入 3.8~5.5 秒，密集事件下会让面板长期霸屏
+        seconds = Mathf.Min(seconds, CombatMaxSeconds);
+        float now = Time.unscaledTime;
+
+        string key = CombatDedupKey(title, subtitle, redCard, blueCard, score);
+        if (!priority)
+        {
+            if (key == lastCombatDisplayKey && now - lastCombatDisplayAt < 1.0f)
+                return;
+            // 右侧事件卡要解释当前画面；旧排队会让卡片比地图动作慢几秒，直接作废旧队列。
+            pendingCombats.Clear();
+        }
+        lastCombatDisplayKey = key;
+        lastCombatDisplayAt = now;
+        DisplayCombat(imageIndex, illustration, title, subtitle, redCard, blueCard, score, seconds, category);
+    }
+
+    void EnqueueCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
+    {
+        // 连续同内容去重：只按标题会把不同地点/不同任务的“皇榜任务刷新”吞掉。
+        string key = CombatDedupKey(title, subtitle, redCard, blueCard, score);
+        string lastKey = pendingCombats.Count > 0
+            ? CombatDedupKey(
+                pendingCombats[pendingCombats.Count - 1].title,
+                pendingCombats[pendingCombats.Count - 1].subtitle,
+                pendingCombats[pendingCombats.Count - 1].redCard,
+                pendingCombats[pendingCombats.Count - 1].blueCard,
+                pendingCombats[pendingCombats.Count - 1].score)
+            : CombatDedupKey(combatTitle.text, combatSubtitle.text, combatRedCard.text, combatBlueCard.text, combatScore.text);
+        if (lastKey == key)
+            return;
+        // 超过上限丢最旧的：宁可漏掉旧事件，也不让弹窗内容落后画面太久
+        if (pendingCombats.Count >= CombatQueueLimit)
+            pendingCombats.RemoveAt(0);
+        pendingCombats.Add(new PendingCombat
+        {
+            imageIndex = imageIndex,
+            illustration = illustration,
+            title = title,
+            subtitle = subtitle,
+            redCard = redCard,
+            blueCard = blueCard,
+            score = score,
+            seconds = seconds,
+            category = category,
+        });
+    }
+
+    static string CombatDedupKey(string title, string subtitle, string redCard, string blueCard, string score)
+    {
+        return (title ?? string.Empty) + "|" +
+            (subtitle ?? string.Empty) + "|" +
+            (redCard ?? string.Empty) + "|" +
+            (blueCard ?? string.Empty) + "|" +
+            (score ?? string.Empty);
+    }
+
+    void DisplayCombat(int imageIndex, Sprite illustration, string title, string subtitle, string redCard, string blueCard, string score, float seconds, string category)
+    {
+        if (!CombatHudReady("DisplayCombat")) return;
+        ApplyCombatCategoryBorder(category);
+        // 取图优先级：事件专属插画 illustration > 对抗插画 combatSprites[imageIndex] > 隐藏（imageIndex<0 的非对抗事件且无专属图）。
+        if (combatImage != null)
+        {
+            if (illustration != null)
+            {
+                combatImage.enabled = true;
+                SetRawImageSprite(combatImage, illustration);
+            }
+            else if (imageIndex < 0 || combatSprites == null || combatSprites.Length == 0)
+            {
+                combatImage.enabled = false;
+            }
+            else
+            {
+                combatImage.enabled = true;
+                SetRawImageSprite(combatImage, combatSprites[Mathf.Clamp(imageIndex, 0, combatSprites.Length - 1)]);
+            }
+        }
+        combatTitle.text = title;
+        combatSubtitle.text = subtitle;
+        combatRedCard.text = redCard;
+        combatBlueCard.text = blueCard;
+        bool teamRelated = IsTeamResultEvent(title, subtitle, score);
+        bool taskNotice = IsTaskNoticeEvent(title, subtitle, score);
+        combatScore.text = taskNotice ? TaskNoticeMainText(redCard, blueCard, score)
+            : teamRelated ? TeamBannerText(title, subtitle, score)
+            : GlobalBannerText(redCard, blueCard, score, title, subtitle);
+        // 新内容上屏先清掉上一拍的翻面/脉冲残留：亮牌路径会在 ShowCombatReveal 里随后重启翻面
+        ResetCardFx(redCardFx);
+        ResetCardFx(blueCardFx);
+        ApplyCombatResultStyle(title, subtitle, redCard, blueCard, score, teamRelated, taskNotice);
+        // 进场滑入只在从隐藏态弹出时触发：对抗三连击连换内容不反复跳位
+        if (combatGroup.alpha <= 0.05f)
+            combatShowStart = Time.unscaledTime;
+        combatUntil = Time.unscaledTime + seconds;
+        // 旧排队策略会让右侧卡片落后实际地图事件；保留字段兼容 Refresh，但不再主动排队延后。
+        combatNextAllowed = combatUntil;
+        // 不再直接把 alpha 打到 1：交给 Refresh 里的渐变做淡入；纯展示面板永不拦截点击
+        combatGroup.interactable = false;
+        combatGroup.blocksRaycasts = false;
+    }
+
+    static string CombatBannerText(string title, string subtitle, string score)
+    {
+        if (!string.IsNullOrEmpty(score)) return score;
+        if (!string.IsNullOrEmpty(subtitle)) return subtitle;
+        return string.IsNullOrEmpty(title) ? "事件触发" : title;
+    }
+
+    static string TeamBannerText(string title, string subtitle, string score)
+    {
+        string text = CombatBannerText(title, subtitle, score);
+        int winner = CombatWinnerHint(title, subtitle, score);
+        string team = winner == 0 ? "红队" : winner == 1 ? "蓝队" : string.Empty;
+        if (string.IsNullOrEmpty(team) || text.Contains(team)) return text;
+        return team + "  " + text;
+    }
+
+    static string GlobalBannerText(string left, string right, string score, string title, string subtitle)
+    {
+        string l = string.IsNullOrEmpty(left) ? string.Empty : left.Trim();
+        string r = string.IsNullOrEmpty(right) ? string.Empty : right.Trim();
+        if (!string.IsNullOrEmpty(l) && !string.IsNullOrEmpty(r) && r != "-" && r != "状态更新")
+            return l + "  " + r;
+        if (!string.IsNullOrEmpty(l)) return l;
+        if (!string.IsNullOrEmpty(score) && !score.StartsWith("R")) return score;
+        if (!string.IsNullOrEmpty(subtitle)) return subtitle;
+        return string.IsNullOrEmpty(title) ? "事件公开" : title;
+    }
+
+    static bool IsTeamResultEvent(string title, string subtitle, string score)
+    {
+        string text = ((title ?? string.Empty) + " " + (subtitle ?? string.Empty) + " " + (score ?? string.Empty)).ToUpperInvariant();
+        return ContainsAny(text, "红队", "蓝队", "红方", "蓝方", "RED", "BLUE");
+    }
+
+    static bool IsPresentationBlockingCombat()
+    {
+        return LycheeVideoInterlude.IsPresentationActive ||
+            LycheeVideoInterlude.IsPresentationVisible ||
+            LycheeOpeningShowcase.AnyShowing;
+    }
+
+    void ApplyCombatResultStyle(string title, string subtitle, string redCard, string blueCard, string score, bool teamRelated, bool taskNotice)
+    {
+        int winner = CombatWinnerHint(title, subtitle, score);
+        Color red = new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.96f);
+        Color blue = new Color(0.16f, 0.42f, 1f, 0.96f);
+        Color neutral = new Color(DarkGoldColor.r, DarkGoldColor.g, DarkGoldColor.b, 0.90f);
+
+        if (!teamRelated)
+        {
+            if (taskNotice) ApplyTaskNoticeLayout(subtitle, redCard);
+            else
+            {
+                ApplyDefaultCombatLayout();
+                ApplyCombatResultBannerVisual(neutral);
+            }
+            ApplyCombatChip(redCardFx, redCard, red, false, false);
+            ApplyCombatChip(blueCardFx, blueCard, blue, false, false);
+            if (combatScore != null)
+            {
+                combatScore.color = taskNotice ? new Color(0.36f, 0.12f, 0.04f, 1f) : Color.white;
+                if (taskNotice)
+                {
+                    SetRect(combatScore.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(28f, -62f), new Vector2(306f, 26f), new Vector2(0.5f, 0.5f));
+                    combatScore.fontSize = 21;
+                }
+                else
+                {
+                    SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(412f, 54f), new Vector2(0.5f, 0f));
+                    combatScore.fontSize = 34;
+                }
+                combatScore.resizeTextMinSize = taskNotice ? 14 : 18;
+                combatScore.resizeTextMaxSize = taskNotice ? 21 : 30;
+            }
+            return;
+        }
+
+        ApplyDefaultCombatLayout();
+        ApplyCombatResultBannerVisual(winner == 0 ? red : winner == 1 ? blue : neutral);
+
+        ApplyCombatChip(redCardFx, redCard, red, false, false);
+        ApplyCombatChip(blueCardFx, blueCard, blue, false, false);
+        if (combatScore != null)
+        {
+            combatScore.color = Color.white;
+            SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(412f, 54f), new Vector2(0.5f, 0f));
+            combatScore.fontSize = 34;
+            combatScore.resizeTextMinSize = 18;
+            combatScore.resizeTextMaxSize = 30;
+        }
+    }
+
+    void ApplyDefaultCombatLayout()
+    {
+        if (combatPanelBg != null) combatPanelBg.enabled = true;
+        if (combatTitleRibbon != null) combatTitleRibbon.gameObject.SetActive(true);
+        if (combatTaskNoticeBoard != null) combatTaskNoticeBoard.enabled = false;
+        SetTextShadowEnabled(combatSubtitle, true);
+        SetTextShadowEnabled(combatScore, true);
+        if (combatImage != null)
+            SetRect(combatImage.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -64f), new Vector2(508f, 212f), new Vector2(0.5f, 1f));
+        if (combatSubtitleRibbon != null)
+        {
+            SetRect(combatSubtitleRibbon, new Vector2(0.5f, 0f), new Vector2(0f, 104f), new Vector2(480f, 38f), new Vector2(0.5f, 0f));
+            combatSubtitleRibbon.gameObject.SetActive(true);
+        }
+        if (combatSubtitleBg != null) combatSubtitleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.72f);
+        if (combatSubtitle != null)
+        {
+            SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(452f, 30f), new Vector2(0.5f, 0.5f));
+            combatSubtitle.color = new Color(SilkColor.r, SilkColor.g, SilkColor.b, 1f);
+            combatSubtitle.fontSize = 20;
+            combatSubtitle.resizeTextMinSize = 14;
+            combatSubtitle.resizeTextMaxSize = 20;
+        }
+        if (combatResultBanner != null)
+        {
+            combatResultBanner.enabled = true;
+            SetRect(combatResultBanner.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(480f, 70f), new Vector2(0.5f, 0f));
+        }
+    }
+
+    void ApplyTaskNoticeLayout(string subtitle, string taskName)
+    {
+        // 皇榜任务刷新卡专用布局：事件本体就是公告牌，不再是普通事件卡 + 黄色底条。
+        // 防回归：只在 HUD 事件卡里表现任务刷新；地图世界层不要再挂任务皇榜牌/光柱，也不要把底部黄条带回来。
+        // 这组偏移必须整体维护：公告牌、事件图、地点行、任务加分行同向右移并按榜文纸面分层，避免字又压到上方插图或底座。
+        const float noticeX = 28f;
+        const float noticeY = -18f;
+        if (combatPanelBg != null) combatPanelBg.enabled = false;
+        if (combatTitleRibbon != null) combatTitleRibbon.gameObject.SetActive(false);
+        if (combatGenericFrame != null) combatGenericFrame.enabled = false;
+        if (combatCategoryFrame != null) combatCategoryFrame.enabled = false;
+        SetTextShadowEnabled(combatSubtitle, false);
+        SetTextShadowEnabled(combatScore, false);
+        if (combatTaskNoticeBoard != null)
+        {
+            combatTaskNoticeBoard.sprite = GetTaskNoticeBoardSprite();
+            combatTaskNoticeBoard.enabled = combatTaskNoticeBoard.sprite != null;
+            combatTaskNoticeBoard.type = Image.Type.Simple;
+            combatTaskNoticeBoard.preserveAspect = false;
+            combatTaskNoticeBoard.color = Color.white;
+            SetRect(combatTaskNoticeBoard.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(noticeX, noticeY), new Vector2(552f, 392f), new Vector2(0.5f, 0.5f));
+        }
+        if (combatImage != null)
+            SetRect(combatImage.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(noticeX, noticeY + 43f), new Vector2(292f, 70f), new Vector2(0.5f, 0.5f));
+        if (combatResultBanner != null)
+            combatResultBanner.enabled = false;
+        if (combatSubtitleRibbon != null)
+        {
+            SetRect(combatSubtitleRibbon, new Vector2(0.5f, 0.5f), new Vector2(noticeX, noticeY - 14f), new Vector2(316f, 20f), new Vector2(0.5f, 0.5f));
+            combatSubtitleRibbon.gameObject.SetActive(true);
+        }
+        if (combatSubtitleBg != null) combatSubtitleBg.color = new Color(0.05f, 0.035f, 0.02f, 0.0f);
+        if (combatSubtitle != null)
+        {
+            combatSubtitle.text = TaskNoticeDetailText(subtitle, taskName);
+            SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(304f, 20f), new Vector2(0.5f, 0.5f));
+            combatSubtitle.color = new Color(0.42f, 0.17f, 0.06f, 1f);
+            combatSubtitle.fontSize = 17;
+            combatSubtitle.resizeTextMinSize = 12;
+            combatSubtitle.resizeTextMaxSize = 17;
+        }
+    }
+
+    static bool IsTaskNoticeEvent(string title, string subtitle, string score)
+    {
+        string text = (title ?? string.Empty) + " " + (subtitle ?? string.Empty) + " " + (score ?? string.Empty);
+        return text.Contains("皇榜任务刷新") || text.Contains("任务刷新");
+    }
+
+    static string TaskNoticeMainText(string taskName, string scoreText, string fallback)
+    {
+        string task = string.IsNullOrEmpty(taskName) ? "皇榜任务" : taskName.Trim();
+        string score = string.IsNullOrEmpty(scoreText) ? fallback : scoreText.Trim();
+        if (string.IsNullOrEmpty(score) || score == "-" || score == "状态更新") return task;
+        return task + "  " + score;
+    }
+
+    static string TaskNoticeDetailText(string subtitle, string taskName)
+    {
+        string text = string.IsNullOrEmpty(subtitle) ? "位置已公开" : subtitle.Trim();
+        if (!string.IsNullOrEmpty(taskName) && text.EndsWith(taskName))
+            text = text.Substring(0, text.Length - taskName.Length).Trim();
+        text = text.Replace("位置已公开", " · 位置已公开");
+        return string.IsNullOrEmpty(text) ? "位置已公开" : text;
+    }
+
+    void ApplyCombatResultBannerVisual(Color fallbackColor)
+    {
+        if (combatResultBanner == null) return;
+        combatResultBanner.sprite = null;
+        combatResultBanner.type = Image.Type.Simple;
+        combatResultBanner.pixelsPerUnitMultiplier = 1f;
+        combatResultBanner.color = fallbackColor;
+    }
+
+    void ApplyCombatChip(CardFx fx, string label, Color color, bool visible, bool emphasized)
+    {
+        if (fx == null || fx.block == null) return;
+        bool hasText = !string.IsNullOrEmpty(label);
+        fx.block.gameObject.SetActive(visible && hasText);
+        if (!visible || !hasText) return;
+        if (fx.blockImage != null)
+            fx.blockImage.color = new Color(color.r, color.g, color.b, emphasized ? 0.96f : 0.36f);
+        if (fx.label != null)
+        {
+            fx.label.color = emphasized ? Color.white : new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.72f);
+            fx.label.fontSize = emphasized ? 18 : 16;
+            fx.label.fontStyle = FontStyle.Bold;
+        }
+    }
+
+    static int CombatWinnerHint(string title, string subtitle, string score)
+    {
+        string text = ((score ?? string.Empty) + " " + (subtitle ?? string.Empty) + " " + (title ?? string.Empty)).ToUpperInvariant();
+        if (text.Contains("平局") || text.Contains("战平") || text.Contains("无人胜出") || text.Contains("双方"))
+            return -1;
+        if (ContainsAny(text,
+            "红队 胜", "红队胜", "红队 得势", "红队得势", "红队成功", "红队 完成", "红队完成",
+            "红队 获得", "红队获得", "红队 刷新", "红队刷新", "红队 清障", "红队清障",
+            "红方 胜", "红方胜", "红方成功", "红方 完成", "红方完成", "红方 获得", "红方获得", "红方 清障", "红方清障",
+            "RED WIN", "RED_WINS", "WINNER RED", "RED COMPLETE", "RED_COMPLETED", "RED SUCCESS"))
+            return 0;
+        if (ContainsAny(text,
+            "蓝队 胜", "蓝队胜", "蓝队 得势", "蓝队得势", "蓝队成功", "蓝队 完成", "蓝队完成",
+            "蓝队 获得", "蓝队获得", "蓝队 刷新", "蓝队刷新", "蓝队 清障", "蓝队清障",
+            "蓝方 胜", "蓝方胜", "蓝方成功", "蓝方 完成", "蓝方完成", "蓝方 获得", "蓝方获得", "蓝方 清障", "蓝方清障",
+            "BLUE WIN", "BLUE_WINS", "WINNER BLUE", "BLUE COMPLETE", "BLUE_COMPLETED", "BLUE SUCCESS"))
+            return 1;
+        // 队标兜底：只认中文队名（红队/红方 vs 蓝队/蓝方）。中文队名来自 campName，可靠；
+        // 而玩家名/teamId 是 ASCII（本回放红队选手名恰是 "blue-l4"），用裸 "RED"/"BLUE" 会被污染，
+        // 导致红队完成卡落到中性金/黄。所以中文兜底优先，ASCII 仅在完全没有中文队名时才用。
+        bool redOnly = ContainsAny(text, "红队", "红方") && !ContainsAny(text, "蓝队", "蓝方");
+        bool blueOnly = ContainsAny(text, "蓝队", "蓝方") && !ContainsAny(text, "红队", "红方");
+        if (redOnly) return 0;
+        if (blueOnly) return 1;
+        if (!ContainsAny(text, "红队", "红方", "蓝队", "蓝方"))
+        {
+            bool redAscii = text.Contains("RED") && !text.Contains("BLUE");
+            bool blueAscii = text.Contains("BLUE") && !text.Contains("RED");
+            if (redAscii) return 0;
+            if (blueAscii) return 1;
+        }
+        return -1;
+    }
+
+    static bool ContainsAny(string text, params string[] needles)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        for (int i = 0; i < needles.Length; i++)
+            if (!string.IsNullOrEmpty(needles[i]) && text.Contains(needles[i])) return true;
+        return false;
+    }
+
+    // ---------- 对抗演出（翻面 / 胜方脉冲 / 震屏 / 暗角） ----------
+
+    void StartCardFlip(CardFx fx, string rawCard)
+    {
+        if (fx == null || fx.block == null) return;
+        fx.flipStart = Time.unscaledTime;
+        fx.flipCard = rawCard;
+        fx.flipFrontShown = false;
+        fx.block.localScale = Vector3.one;
+        // 立刻切到背面态：DisplayCombat 已把正面文字写好，等下一帧 Refresh 再隐藏会穿帮一帧
+        ApplyFlipBack(fx);
+    }
+
+    void StartWinnerGlow(CardFx fx, float delay)
+    {
+        if (fx == null || fx.glow == null) return;
+        fx.glowStart = Time.unscaledTime + delay;
+    }
+
+    void UpdateCardFlip(CardFx fx, float now)
+    {
+        if (fx == null || fx.block == null || float.IsNegativeInfinity(fx.flipStart)) return;
+        float t = (now - fx.flipStart) / CardFlipSeconds;
+        if (t >= 1f)
+        {
+            // 翻面收尾：保证正面已换上、缩放归一，状态机回到空闲
+            if (!fx.flipFrontShown) ApplyFlipFront(fx);
+            fx.block.localScale = Vector3.one;
+            fx.flipStart = float.NegativeInfinity;
+            return;
+        }
+        if (t < 0.5f)
+        {
+            // 前半程：x 1→0 收拢，露出牌背
+            fx.block.localScale = new Vector3(1f - t * 2f, 1f, 1f);
+            return;
+        }
+        // 后半程：过中点换正面，x 0→1 张开
+        if (!fx.flipFrontShown) ApplyFlipFront(fx);
+        fx.block.localScale = new Vector3((t - 0.5f) * 2f, 1f, 1f);
+    }
+
+    void ApplyFlipBack(CardFx fx)
+    {
+        if (fx == null) return;
+        if (fx.label != null) fx.label.enabled = false;
+        if (fx.backPlate != null) fx.backPlate.enabled = true;
+        Sprite back = GetThemeSprite("card_back.png");
+        if (back != null && fx.face != null)
+        {
+            fx.face.enabled = true;
+            fx.face.sprite = back;
+            fx.face.rectTransform.anchoredPosition = fx.backFaceOffset; // 背面牌图（默认居中）
+            if (fx.backMark != null) fx.backMark.enabled = false;
+        }
+        else
+        {
+            // 兜底：card_back 缺失时用墨色底 + 金“?”模拟扣着的牌
+            if (fx.face != null) fx.face.enabled = false;
+            if (fx.backMark != null) fx.backMark.enabled = true;
+        }
+    }
+
+    void ApplyFlipFront(CardFx fx)
+    {
+        if (fx == null) return;
+        fx.flipFrontShown = true;
+        if (fx.backPlate != null) fx.backPlate.enabled = false;
+        if (fx.backMark != null) fx.backMark.enabled = false;
+        if (fx.label != null) fx.label.enabled = true;
+        Sprite front = GetCardFrontSprite(fx.flipCard);
+        if (front != null && fx.face != null)
+        {
+            fx.face.enabled = true;
+            fx.face.sprite = front;
+            fx.face.rectTransform.anchoredPosition = fx.frontFaceOffset; // 牌面偏移（右侧小卡靠左给牌名让位；中央大卡居中）
+        }
+        else
+        {
+            if (fx.face != null) fx.face.enabled = false; // 贴图缺失：维持原本的纯文字呈现
+        }
+    }
+
+    void UpdateWinnerGlow(CardFx fx, float now)
+    {
+        if (fx == null || fx.glow == null) return;
+        float t = (now - fx.glowStart) / WinnerGlowPulseSeconds;
+        float alpha = 0f;
+        // 两次脉冲：每个整数段内 alpha 0.7→0 线性衰减；glowStart 在未来（延迟启动）时 t<0 保持熄灭
+        if (t >= 0f && t < 2f)
+            alpha = 0.7f * (1f - (t - Mathf.Floor(t)));
+        fx.glow.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, alpha);
+    }
+
+    void ResetCardFx(CardFx fx)
+    {
+        if (fx == null || fx.block == null) return;
+        fx.flipStart = float.NegativeInfinity;
+        fx.glowStart = float.NegativeInfinity;
+        fx.flipFrontShown = false;
+        fx.block.localScale = Vector3.one;
+        if (fx.face != null) fx.face.enabled = false;
+        if (fx.backPlate != null) fx.backPlate.enabled = false;
+        if (fx.backMark != null) fx.backMark.enabled = false;
+        if (fx.label != null) fx.label.enabled = true;
+        if (fx.glow != null) fx.glow.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0f);
+    }
+
+    // 对抗暗角开关：开 0.4s 淡入、关 0.6s 淡出，实际淡变在 Refresh 里逐帧推进
+    void SetVignette(bool visible)
+    {
+        vignetteTarget = visible ? 1f : 0f;
+        vignetteFade = visible ? VignetteFadeInSeconds : VignetteFadeOutSeconds;
+    }
+
+    // 相机震屏（null 安全）：编辑器预览或主相机未挂控制器时静默跳过
+    static void ShakeCamera(float strength, float duration)
+    {
+        if (!Application.isPlaying) return;
+        Camera main = Camera.main;
+        if (main == null) return;
+        LycheeReplayCameraController controller = main.GetComponent<LycheeReplayCameraController>();
+        if (controller != null) controller.Shake(strength, duration);
+    }
+
+    // 比分滚动跳字：显示值以 ~6/s 朝真实值滚动、四舍五入显示；涨分瞬间字号 1.25x 回弹 0.2s。
+    // 回放跳转（比分回退或大跨度前进）直接贴齐且不回弹——6/s 的滚动追不上跳变，硬滚只会
+    // 让比分长时间显示错误值。
+    void RollScore(ref float displayed, ref int lastTarget, ref float popStart, int target, Text text, float now)
+    {
+        if (target != lastTarget)
+        {
+            // B7: 只对"减少"(seek/倒带/重置)瞬切；增长(含交付帧一次性结算的大跳，如 180→742)一律滚动，不再瞬跳。
+            if (target < lastTarget)
+                displayed = target;
+            else
+                popStart = now;
+            lastTarget = target;
+        }
+        // 跳幅越大滚得越快(约 1.2s 内滚到位)，跳幅小则按下限速度快速收尾——大跳看得出是"逐渐涨上去"而非凭空跳变。
+        float speed = Mathf.Max(ScoreRollPerSecond, Mathf.Abs(target - displayed) / 1.2f);
+        displayed = Mathf.MoveTowards(displayed, target, speed * Time.unscaledDeltaTime);
+        text.text = Mathf.RoundToInt(displayed).ToString();
+        float pop = 1f + 0.25f * Mathf.Clamp01(1f - (now - popStart) / ScorePopSeconds);
+        text.fontSize = Mathf.RoundToInt(TeamScoreFontSize * pop);
+    }
+
+    void Build()
+    {
+        ClearBuiltCanvas();
+        // 优先用随包中文字体：内置 LegacyRuntime 缺中文字形，WebGL 上无法回退到系统字体
+        font = Resources.Load<Font>("Fonts/LXGWWenKai-Regular");
+        if (font == null)
+            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+            font = Font.CreateDynamicFontFromOSFont(new[] { "PingFang SC", "Heiti SC", "Arial" }, 16);
+
+        GameObject canvasObject = new GameObject(CanvasName, typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        if (!Application.isPlaying)
+            canvasObject.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild;
+        canvasObject.transform.SetParent(transform, false);
+        root = canvasObject.GetComponent<RectTransform>();
+        root.anchorMin = Vector2.zero;
+        root.anchorMax = Vector2.one;
+        root.offsetMin = Vector2.zero;
+        root.offsetMax = Vector2.zero;
+        root.localScale = Vector3.one;
+        root.localPosition = Vector3.zero;
+        canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = RuntimeCanvasSortingOrder;
+
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        // 每个子构建独立 try/catch：任一失败也不连累其余（否则一处抛异常会让后续字段为 null →
+        // EnsureBuilt 每帧重建 → 整块 HUD 闪没）。built 标志再兜底防重建循环。
+        SafeBuild("Vignette", () => BuildVignette(root));
+        SafeBuild("BottomHud", () => BuildBottomHud(root));
+        SafeBuild("Combat", () => BuildCombat(root));
+        SafeBuild("Contest", () => BuildContest(root));
+        SafeBuild("Opening", () => BuildOpening(root));
+        SafeBuild("Toast", () => BuildToast(root));
+        built = true;
+    }
+
+    static readonly HashSet<string> s_loggedMissingHudContexts = new HashSet<string>();
+    bool built;
+
+    void SafeBuild(string label, System.Action act)
+    {
+        try { act(); }
+        catch (System.Exception e)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            Debug.LogWarning("[RuntimeHud] Build " + label + " 失败(已隔离): " + e);
+#else
+            Debug.LogWarning("[RuntimeHud] Build " + label + " failed: " + e);
+#endif
+        }
+    }
+
+    void EnsureBuilt()
+    {
+        // built 标志兜底：即便某个子构建失败导致个别字段为 null，也不再每帧 Clear+Build（否则整块 HUD 闪没）。
+        if (built && canvas != null && root != null)
+            return;
+        Build();
+    }
+
+    bool BottomHudReady(string context)
+    {
+        bool ready = roundText != null && phaseText != null &&
+            redTeam != null && redTeam.name != null && redTeam.roster != null && redTeam.score != null &&
+            blueTeam != null && blueTeam.name != null && blueTeam.roster != null && blueTeam.score != null &&
+            statRows != null && statRows.Length >= StatLabels.Length;   // D1: 随 StatLabels 维数(现10)自适应，别写死
+        if (!ready) LogMissingHudOnce(context);
+        return ready;
+    }
+
+    bool CombatHudReady(string context)
+    {
+        bool ready = combatGroup != null && combatRect != null && combatTitle != null &&
+            combatSubtitle != null && combatRedCard != null && combatBlueCard != null && combatScore != null;
+        if (!ready) LogMissingHudOnce(context);
+        return ready;
+    }
+
+    bool ContestHudReady(string context)
+    {
+        bool ready = contestGroup != null && contestRect != null && contestTitle != null &&
+            contestSubtitle != null && contestRedFx != null && contestRedFx.label != null &&
+            contestBlueFx != null && contestBlueFx.label != null && contestScore != null;
+        if (!ready) LogMissingHudOnce(context);
+        return ready;
+    }
+
+    bool ToastHudReady(string context)
+    {
+        bool ready = toastGroup != null && toastRect != null && toastText != null;
+        if (!ready) LogMissingHudOnce(context);
+        return ready;
+    }
+
+    void LogMissingHudOnce(string context)
+    {
+        if (string.IsNullOrEmpty(context)) context = "unknown";
+        if (!s_loggedMissingHudContexts.Add(context)) return;
+        Debug.LogWarning("[RuntimeHud] missing widgets at " + context
+            + " canvas=" + (canvas != null)
+            + " root=" + (root != null)
+            + " bottom=" + (roundText != null && redTeam != null && blueTeam != null)
+            + " combat=" + (combatGroup != null && combatRect != null)
+            + " contest=" + (contestGroup != null && contestRect != null)
+            + " toast=" + (toastGroup != null && toastRect != null));
+    }
+
+    void ClearBuiltCanvas()
+    {
+        built = false;
+        GameObject target = root == null ? null : root.gameObject;
+        if (target == null)
+        {
+            Transform child = transform.Find(CanvasName);
+            if (child != null) target = child.gameObject;
+        }
+
+        canvas = null;
+        root = null;
+        redTeam = null;
+        blueTeam = null;
+        roundText = null;
+        phaseText = null;
+        statRows = null;
+        combatGroup = null;
+        combatRect = null;
+        combatPanelBg = null;
+        combatImage = null;
+        combatCategoryFrame = null;
+        combatGenericFrame = null;
+        combatTitleRibbon = null;
+        combatTaskNoticeBoard = null;
+        combatSubtitleRibbon = null;
+        combatSubtitleBg = null;
+        combatResultBanner = null;
+        combatTitle = null;
+        combatSubtitle = null;
+        combatRedCard = null;
+        combatBlueCard = null;
+        combatScore = null;
+        redCardFx = null;
+        blueCardFx = null;
+        contestGroup = null;
+        contestRect = null;
+        contestImage = null;
+        contestTitle = null;
+        contestSubtitle = null;
+        contestScore = null;
+        contestVs = null;
+        contestRedFx = null;
+        contestBlueFx = null;
+        openingGroup = null;
+        openingTitle = null;
+        openingRed = null;
+        openingBlue = null;
+        toastGroup = null;
+        toastRect = null;
+        toastText = null;
+        vignetteImage = null;
+        // 画布重建时清掉排队中的旧弹窗，避免重建后把过期事件补播出来
+        pendingCombats.Clear();
+        combatNextAllowed = 0f;
+        lastCombatDisplayKey = null;
+        lastCombatDisplayAt = float.NegativeInfinity;
+        // 演出状态同步归零（displayed 比分保留：重建画布不应让比分重新从 0 滚起）
+        combatShowStart = float.NegativeInfinity;
+        contestShowStart = float.NegativeInfinity;
+        contestUntil = 0f;
+        ResetPendingContestResolution();
+        toastShowStart = float.NegativeInfinity;
+        vignetteTarget = 0f;
+
+        if (target == null) return;
+        if (Application.isPlaying) Destroy(target);
+        else DestroyImmediate(target);
+    }
+
+    // 对抗暗角聚焦：全屏程序化径向渐变（中心透明、四角压黑），用子 Canvas 的 overrideSorting
+    // 压在 CombatOverlay 所在主画布（130）之下一层，弹窗与底部 HUD 始终浮在暗角之上。
+    void BuildVignette(Transform parent)
+    {
+        RectTransform rt = StretchRect("ContestVignette", parent);
+        Canvas sub = rt.gameObject.AddComponent<Canvas>();
+        sub.overrideSorting = true;
+        sub.sortingOrder = canvas.sortingOrder - 1;
+        vignetteImage = rt.gameObject.AddComponent<Image>();
+        vignetteImage.sprite = GetVignetteSprite();
+        vignetteImage.color = new Color(1f, 1f, 1f, 0f);
+        vignetteImage.raycastTarget = false;
+    }
+
+    // 解说录制专用：隐藏底部中央 9 维详情簇(背板+数值+回合/阶段浮字)，让底部站点的车队不被挡；
+    // 顶部播放条仍有回合号、两侧队伍得分卡保留。传 false 隐藏，true 恢复。
+    [System.NonSerialized] bool hideCenterDetail; // 运行时标志，不参与序列化(避免改动场景组件布局导致构建失败)
+    public void SetDetailPanelVisible(bool v)
+    {
+        hideCenterDetail = !v;
+        if (statBackdropGo != null) statBackdropGo.SetActive(v);
+        if (roundText != null) roundText.enabled = v;
+        if (phaseText != null) phaseText.enabled = v;
+    }
+
+    void BuildBottomHud(Transform parent)
+    {
+        // 垂直布局（自面板底边起，面板高 210）：
+        //   回合标题 166..194 / 阶段文字 140..160 / 四条进度条行中心 120, 90, 60, 30（行高 30，行间净空 8）。
+        // 最底行文字下缘 19px、最顶行标题上缘 16px，均满足内容距背景边缘 >= 16px。
+        // LOL 风格：面板自身全透明贴底，只给「进度条块」和「回合标题」各留一小块底色，
+        // 其余（头像/队名/比分）直接浮在画面上。
+        RectTransform panel = Rect("BottomStatus_Runtime", parent, new Vector2(0.5f, BottomHudAnchorY), new Vector2(0f, WebSafeBottomInset), new Vector2(BottomWidth, BottomHeight), new Vector2(0.5f, 0f));
+        AttachOverlayCanvas(panel, 2);
+        bottomPanelGroup = panel.gameObject.AddComponent<CanvasGroup>();   // 结算展示时整组隐藏
+
+        // 中央维度背板(墨底 + 顶部暗金分隔线)：容纳回合标题 + 9 行维度对比。宽 500，落在左右队伍块之间。
+        // 高 192 -> 236：加高背板让 9 行行距拉开(step≈21)、各值不再挤在一起。
+        // 背板贴到面板底(offset y 10→0)、并把高 236→246 补回那 10px，使"背板顶(≈屏246)不变、底与画面下边齐平"(配合 WebSafeBottomInset=0)。
+        RectTransform backdrop = Rect("StatBackdrop", panel, new Vector2(0.5f, 0f), new Vector2(0f, 0f), new Vector2(500f, 246f), new Vector2(0.5f, 0f));
+        statBackdropGo = backdrop.gameObject;
+        Image statBg = backdrop.gameObject.AddComponent<Image>();
+        // 用户要求：9 维对比一开场就要看清字段名+值。背板改近乎不透明的深墨，让(哪怕全是0的)标签/数值从第1回合起就
+        // 从繁杂地图里托出来；原来 InkColor(α0.86)太透，小字被草地冲淡，看着像"没值、变了才慢慢出"。
+        statBg.color = new Color(0.07f, 0.06f, 0.05f, 0.96f);
+        statBg.raycastTarget = false;
+        Rect("StatTopLine", backdrop, new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(500f, 2f), new Vector2(0.5f, 1f)).gameObject.AddComponent<Image>().color = DarkGoldColor;
+
+        roundText = Text("RoundText", panel, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(roundText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 230f), new Vector2(380f, 24f), new Vector2(0.5f, 0.5f));
+        phaseText = Text("PhaseText", panel, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        SetRect(phaseText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 210f), new Vector2(220f, 16f), new Vector2(0.5f, 0.5f));
+
+        redTeam = BuildTeam(panel, true);
+        blueTeam = BuildTeam(panel, false);
+
+        // 维度对比行(中央金标签、红值居左、蓝值居右)，自上而下排满背板。
+        // 行距按维数自适应((rowTop-rowBottom)/(N-1))：背板已加高、行 band 拉到 [14,184]，9 维 step≈21，各行不再挤在一起。
+        // 底行恒落在 rowBottom、顶行 rowTop(留出上方回合/阶段标题)，行框 18px 不触发中文竖向截断。
+        statRows = new StatRow[StatLabels.Length];
+        const float rowTop = 184f, rowBottom = 14f;
+        float rowStep = StatLabels.Length > 1 ? (rowTop - rowBottom) / (StatLabels.Length - 1) : 0f;
+        for (int i = 0; i < StatLabels.Length; i++)
+            statRows[i] = BuildStatRow(backdrop, StatLabels[i], rowTop - i * rowStep);
+
+        if (hideCenterDetail) SetDetailPanelVisible(false); // HUD 重建后保持录制隐藏态
+    }
+
+    // 一行维度对比：中央金色标签 + 红值(右对齐居左)/蓝值(左对齐居右)。
+    StatRow BuildStatRow(Transform parent, string label, float y)
+    {
+        StatRow r = new StatRow();
+        r.label = label;
+        // 主显示用单个 Text 承载「红值  字段名  蓝值」，并作为 StatBackdrop 的子节点渲染。
+        // 之前三列 Text 在 WebGL 包中出现只剩 delta、主值/标签整组不显示的情况；合并成一行可避免列节点被排序或字体重建遗漏。
+        r.mainLine = Text(label + "StatMainLine", parent, 16, FontStyle.Bold, SilkColor, TextAnchor.MiddleCenter);
+        r.mainLine.supportRichText = true;
+        r.mainLine.text = FormatStatMainLine(label, "0", "0");
+        SetRect(r.mainLine.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(296f, 18f), new Vector2(0.5f, 0.5f));
+        r.redDelta = Text(label + "StatRedDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleRight);
+        SetRect(r.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-178f, y), new Vector2(62f, 18f), new Vector2(1f, 0.5f));
+        r.blueDelta = Text(label + "StatBlueDelta", parent, 14, FontStyle.Bold, GoldColor, TextAnchor.MiddleLeft);
+        SetRect(r.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(178f, y), new Vector2(62f, 18f), new Vector2(0f, 0.5f));
+        AddTextShadow(r.mainLine);
+        AddTextShadow(r.redDelta);
+        AddTextShadow(r.blueDelta);
+        return r;
+    }
+
+    // 队伍 ID 标签：优先用数值 playerId（红 1002 / 蓝 2002，全局唯一），缺省回退 teamId 字符串。
+    static string TeamIdTag(LycheeReplayPlayerState s)
+    {
+        if (s == null) return "#?";
+        if (s.playerId > 0) return "#" + s.playerId;
+        if (!string.IsNullOrEmpty(s.teamId)) return "#" + s.teamId;
+        return "#?";
+    }
+
+    static string TeamIdLine(LycheeReplayPlayerState s)
+    {
+        return "队伍ID " + TeamIdTag(s);
+    }
+
+    static string TeamNameLine(string campName, LycheeReplayPlayerState s)
+    {
+        string name = s == null ? null : s.name;
+        string line = string.IsNullOrEmpty(name) ? campName : campName + " · " + name;
+        // D8: 已验核/已交付里程碑角标(§3.2 验核=交付前置里程碑、DELIVERED=终态)——
+        // 冲刺阶段观众一眼看出哪队过了宫门验核/已交付；状态行仍显实时 state，不丢信息。用纯中文避免字体缺字。
+        if (s != null)
+        {
+            if (s.delivered) line += " 【已交付】";
+            else if (s.verified) line += " 【已验核】";
+        }
+        return line;
+    }
+
+    void SetStatRow(int index, string redVal, string blueVal, float redDelta = 0f, float blueDelta = 0f, string suffix = "")
+    {
+        if (statRows == null || index < 0 || index >= statRows.Length) return;
+        StatRow r = statRows[index];
+        if (r == null) return;
+        string oldRed = r.redValueText;
+        string oldBlue = r.blueValueText;
+        r.redValueText = redVal;
+        r.blueValueText = blueVal;
+        if (r.mainLine != null) r.mainLine.text = FormatStatMainLine(r.label, redVal, blueVal);
+        UpdateStatDelta(r.redDelta, redDelta, suffix, oldRed, redVal, ref r.redDeltaUntil);
+        UpdateStatDelta(r.blueDelta, blueDelta, suffix, oldBlue, blueVal, ref r.blueDeltaUntil);
+    }
+
+    static string FormatStatMainLine(string label, string redVal, string blueVal)
+    {
+        return "<color=#FF9E80>" + RichTextEscape(redVal) + "</color>   " +
+            "<color=#D4AF5C>" + RichTextEscape(label) + "</color>   " +
+            "<color=#99CCFF>" + RichTextEscape(blueVal) + "</color>";
+    }
+
+    static string RichTextEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    }
+
+    static void UpdateStatDelta(Text text, float delta, string suffix, string oldValue, string newValue, ref float visibleUntil)
+    {
+        if (text == null) return;
+        float now = Time.unscaledTime;
+        // ±X 指示器要反映「屏幕上显示的数字」的跳变，而不是每回合的原始增量。
+        // 旧逻辑用原始 delta 且要求 |delta|>=0.5 才显示：鲜度每回合只掉 ~0.05、送达进度每回合只涨零点几，
+        // 显示的整数百分比要攒很多回合才跳 1，单回合原始增量永远 <0.5 → 被阈值挡掉 →「鲜度明明在掉却没 -x /
+        // 进度明明在涨却没 +x」。改成直接比较新旧【显示串】解析出的数值差：显示一变就给 ±x，量级正好等于
+        // 屏幕上看到的跳变；整数项（好果/坏果/分数…）显示值=真值，行为不变。传入的 delta 不再使用。
+        float shownDelta = ParseStatNumber(newValue) - ParseStatNumber(oldValue);
+        bool displayChanged = !string.IsNullOrEmpty(oldValue) && oldValue != newValue && Mathf.Abs(shownDelta) >= 0.0001f;
+
+        if (displayChanged)
+        {
+            text.text = FormatStatDelta(shownDelta, suffix);
+            text.color = shownDelta > 0f
+                ? new Color(0.45f, 1f, 0.45f, 1f)
+                : new Color(1f, 0.36f, 0.26f, 1f);
+            text.rectTransform.localScale = Vector3.one * 1.12f;
+            visibleUntil = now + 1.25f;
+            return;
+        }
+        if (now >= visibleUntil)
+        {
+            text.text = "";
+            text.rectTransform.localScale = Vector3.one;
+            return;
+        }
+        float alpha = Mathf.Clamp01((visibleUntil - now) / 0.35f);
+        Color color = text.color;
+        color.a = alpha;
+        text.color = color;
+        text.rectTransform.localScale = Vector3.one * (1f + 0.12f * alpha);
+    }
+
+    /// <summary>从显示串解析数值（去掉 % 后缀，支持负号/小数）。解析失败当 0。</summary>
+    static float ParseStatNumber(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return 0f;
+        string t = s.Replace("%", "").Trim();
+        return float.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : 0f;
+    }
+
+    static void ClearStatDelta(Text text, ref float visibleUntil)
+    {
+        if (text == null) return;
+        text.text = string.Empty;
+        text.rectTransform.localScale = Vector3.one;
+        visibleUntil = 0f;
+    }
+
+    static string FormatStatDelta(float delta, string suffix)
+    {
+        string format = Mathf.Abs(delta - Mathf.Round(delta)) < 0.05f ? "0" : "0.#";
+        return (delta > 0f ? "+" : "") + delta.ToString(format) + suffix;
+    }
+
+    // 总分(E3 确认口径)：首选 player.totalScore(权威)；为 0 回退 scoreDetail.total(分项总计)→分项求和→顶层分项(任务+悬赏+惩罚)。
+    // F2 注意：totalScore **不是**整局恒 0——过程帧多为 0、交付结算段(约末 35 帧)会被填成真总分(如 742)，
+    // 首选分支正是靠它在交付后显示真总分，**别删**；过程中只有 taskScore 在涨，靠顶层分项求和兜底。
+    static int TotalScoreOf(LycheeReplayPlayerState s, LycheeReplayScores scores, bool isRed)
+    {
+        if (s != null && s.totalScore != 0) return s.totalScore;
+        if (s != null && s.scoreDetail != null)
+        {
+            LycheeReplayScoreDetail d = s.scoreDetail;
+            if (d.total != 0) return d.total;   // E3/F1: 真实数据 scoreDetail 带 total(分项总计)，比手工求和更权威
+            int sum = d.delivery + d.goodFruit + d.freshness + d.time + d.tasks + d.bounty + d.penalty;
+            if (sum != 0) return sum;
+        }
+        if (s != null)
+        {
+            int derived = s.taskScore + s.bountyScore + s.penaltyScore;
+            if (derived != 0) return derived;
+        }
+        if (scores != null && (scores.RED != 0 || scores.BLUE != 0)) return isRed ? scores.RED : scores.BLUE;
+        return s == null ? 0 : s.score;
+    }
+
+    static int TaskScoreOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0;
+        if (s.taskScore != 0) return s.taskScore;
+        return s.scoreDetail != null ? s.scoreDetail.tasks : 0;
+    }
+
+    static int PenaltyScoreOf(LycheeReplayPlayerState s)
+    {
+        // C14: 惩罚统一显负号，与结算页(LycheeSettlementScreen 用 -Mathf.Abs)一致；后端 penalty 约定为正数量，展示层取负。
+        if (s == null) return 0;
+        if (s.penaltyScore != 0) return -Mathf.Abs(s.penaltyScore);
+        return s.scoreDetail != null ? -Mathf.Abs(s.scoreDetail.penalty) : 0;
+    }
+
+    // D1: 破关悬赏分(独立正向分项, §1.4/§6.2)。优先顶层 bountyScore，回退 scoreDetail.bounty。
+    static int BountyScoreOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return 0;
+        if (s.bountyScore != 0) return s.bountyScore;
+        return s.scoreDetail != null ? s.scoreDetail.bounty : 0;
+    }
+
+    // B5: 状态行映射主车队真实状态枚举(设计§3.2)，不再恒显"在线/离线"。优先级：退赛 > 已交付 > 离线 > 真实state > 兜底。
+    // 终局态必须压过"离线"：比赛正常结束(over)后服务器固定断连并把玩家标记离线(审计日志 WARN"玩家断线，标记为离线")，
+    // 回放末帧会录到 online=false——那是赛后正常断连、不是失联，不能把"已交付"错报成"离线"(用户实测报障)。
+    static string StatusTextOf(LycheeReplayPlayerState s)
+    {
+        if (s == null) return "—";
+        string st = StateChineseName(s.state);
+        if (s.retired || st == "已退赛") return "已退赛";
+        if (s.delivered || st == "已交付") return "已交付";
+        if (!s.online) return "离线";
+        return string.IsNullOrEmpty(st) ? "在线" : st;   // state 缺失时的兜底
+    }
+
+    // 主车队状态枚举 → 中文(设计§3.2)；用简短 3 字词以适配窄状态格。
+    static string StateChineseName(string state)
+    {
+        if (string.IsNullOrEmpty(state)) return null;
+        switch (state.ToUpperInvariant())
+        {
+            case "IDLE": return "空闲";
+            case "MOVING": return "移动中";
+            case "WAITING": return "等待中";
+            case "RESTING": return "休整中";
+            case "PROCESSING": return "处理中";
+            case "CONTESTING": return "争夺中";
+            case "FORCED_PASSING": return "通行中";
+            case "VERIFYING": return "验核中";
+            case "COST_BANKRUPT": return "清算中";
+            case "DELIVERED": return "已交付";
+            case "RETIRED": return "已退赛";
+            default: return null;
+        }
+    }
+
+    TeamWidgets BuildTeam(Transform parent, bool red)
+    {
+        // 队伍卡片固定在中央统计面板两侧；头像放进卡片内部，避免 WebGL 缩放/全屏时被边界或层级吞掉。
+        Color teamColor = red ? VermilionColor : new Color(0.25f, 0.55f, 1f, 1f);
+        float side = red ? -1f : 1f;
+        TeamWidgets widgets = new TeamWidgets();
+
+        float cardX = side * 386f;
+        float avatarX = cardX - side * 62f;
+        float textX = cardX + side * 42f;
+
+        // 队卡加高(112→140)且向上长(中心 105→119、底边 49 不变)：给队名腾出头像上方的空间，队名不再压头像(用户反馈)。
+        RectTransform textBg = Rect(red ? "RedTeamTextBg" : "BlueTeamTextBg", parent, new Vector2(0.5f, 0f), new Vector2(cardX, 119f), new Vector2(272f, 140f), new Vector2(0.5f, 0.5f));
+        Image textBgImage = textBg.gameObject.AddComponent<Image>();
+        textBgImage.color = new Color(teamColor.r, teamColor.g, teamColor.b, red ? 0.42f : 0.46f);
+        textBgImage.raycastTarget = false;
+        Outline textBgOutline = textBg.gameObject.AddComponent<Outline>();
+        textBgOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.58f);
+        textBgOutline.effectDistance = new Vector2(1.4f, -1.4f);
+
+        RectTransform avatarRing = Rect(red ? "RedCaptainAvatarRing" : "BlueCaptainAvatarRing", parent, new Vector2(0.5f, 0f), new Vector2(avatarX, 105f), new Vector2(88f, 88f), new Vector2(0.5f, 0.5f));
+        Image ringImage = avatarRing.gameObject.AddComponent<Image>();
+        ringImage.sprite = GetAvatarCircleSprite();
+        ringImage.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0.84f);
+        ringImage.raycastTarget = false;
+        Outline avatarOutline = avatarRing.gameObject.AddComponent<Outline>();
+        avatarOutline.effectColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.82f);
+        avatarOutline.effectDistance = new Vector2(2f, -2f);
+
+        RectTransform avatarMask = Rect(red ? "RedCaptainAvatarMask" : "BlueCaptainAvatarMask", avatarRing, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(78f, 78f), new Vector2(0.5f, 0.5f));
+        Image maskImage = avatarMask.gameObject.AddComponent<Image>();
+        maskImage.sprite = GetAvatarCircleSprite();
+        maskImage.color = Color.white;
+        maskImage.raycastTarget = false;
+        Mask mask = avatarMask.gameObject.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        RectTransform avatarRt = Rect(red ? "RedCaptainAvatar_Runtime" : "BlueCaptainAvatar_Runtime", avatarMask, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(78f, 78f), new Vector2(0.5f, 0.5f));
+        widgets.avatarRaw = avatarRt.gameObject.AddComponent<RawImage>();
+        widgets.avatarRaw.color = Color.white;
+        widgets.avatarRaw.raycastTarget = false;
+        SetRawImageSprite(widgets.avatarRaw, ResolveTeamAvatar(red, red ? previewRedAvatar : previewBlueAvatar));
+
+        TextAnchor align = red ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight;
+        widgets.name = Text(red ? "RedName" : "BlueName", parent, 19, FontStyle.Bold, Color.white, align);
+        // 队名上移到头像上方(141→170)：头像顶≈149，队名底≈158，清出 ~9px、不再压头像(即便名带【已交付】较长也在头像之上)。
+        SetRect(widgets.name.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 170f), new Vector2(166f, 24f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.name);
+        widgets.roster = Text(red ? "RedRoster" : "BlueRoster", parent, 16, FontStyle.Bold, SilkColor, align);
+        SetRect(widgets.roster.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 117f), new Vector2(166f, 20f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.roster);
+        // 大号得分上方标注「当前得分」：中央面板已去掉重复的"当前得分"行，改由这个大数字承担；
+        // 它随交付滚动累计、不是结算终值(与结算页固定终值口径区分)。
+        Text scoreCaption = Text(red ? "RedScoreCaption" : "BlueScoreCaption", parent, 13, FontStyle.Bold, GoldColor, align);
+        SetRect(scoreCaption.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 97f), new Vector2(166f, 18f), new Vector2(0.5f, 0.5f));
+        scoreCaption.text = "当前得分";
+        AddTextShadow(scoreCaption);
+        widgets.score = Text(red ? "RedScore" : "BlueScore", parent, TeamScoreFontSize, FontStyle.Bold, Color.white, align);
+        SetRect(widgets.score.rectTransform, new Vector2(0.5f, 0f), new Vector2(textX, 72f), new Vector2(166f, 36f), new Vector2(0.5f, 0.5f));
+        AddTextShadow(widgets.score);
+        return widgets;
+    }
+
+    static void SetTeamAvatar(TeamWidgets widgets, Sprite sprite)
+    {
+        if (widgets == null) return;
+        if (widgets.avatarRaw != null)
+        {
+            SetRawImageSprite(widgets.avatarRaw, sprite);
+            widgets.avatarRaw.color = Color.white;
+        }
+        if (widgets.avatar != null)
+        {
+            widgets.avatar.color = Color.white;
+            widgets.avatar.preserveAspect = true;
+            widgets.avatar.sprite = sprite;
+        }
+    }
+
+    static void AddTextShadow(Text text)
+    {
+        if (text == null) return;
+        Shadow shadow = text.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
+        shadow.effectDistance = new Vector2(1.2f, -1.2f);
+    }
+
+    static void SetTextShadowEnabled(Text text, bool enabled)
+    {
+        if (text == null) return;
+        foreach (Shadow shadow in text.GetComponents<Shadow>())
+            shadow.enabled = enabled;
+    }
+
+    DualBar BuildDualBar(Transform parent, string label, float max, float y)
+    {
+        // 单条横向分区（红侧取负、蓝侧取正，自面板中心起）：
+        //   中央标签 -36..36 / track 44..234（宽 190，距标签 8px）/ 数值 242..294（距条外端 8px）/ Delta 300..344（距数值 6px）。
+        // 红侧数值右对齐固定在条左外侧，蓝侧数值左对齐固定在条右外侧，百分比/Delta 均不会压在填充条上。
+        DualBar bar = new DualBar { maxValue = max };
+        // 红条填充用朱红（提一点透明度补足暗色底上的对比），蓝条保留队蓝
+        bar.redFill = BarFill(parent, label + "RedTrack", new Vector2(-139f, y), new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.94f));
+        bar.blueFill = BarFill(parent, label + "BlueTrack", new Vector2(139f, y), new Color(0.20f, 0.48f, 1f, 0.94f));
+        bar.redValue = Text(label + "RedValue", parent, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleRight);
+        SetRect(bar.redValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(-242f, y), new Vector2(52f, 22f), new Vector2(1f, 0.5f));
+        bar.blueValue = Text(label + "BlueValue", parent, 15, FontStyle.Bold, SilkColor, TextAnchor.MiddleLeft);
+        SetRect(bar.blueValue.rectTransform, new Vector2(0.5f, 0f), new Vector2(242f, y), new Vector2(52f, 22f), new Vector2(0f, 0.5f));
+        bar.redDelta = Text(label + "RedDelta", parent, 14, FontStyle.Bold, Color.white, TextAnchor.MiddleRight);
+        SetRect(bar.redDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(-300f, y), new Vector2(44f, 22f), new Vector2(1f, 0.5f));
+        bar.blueDelta = Text(label + "BlueDelta", parent, 14, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
+        SetRect(bar.blueDelta.rectTransform, new Vector2(0.5f, 0f), new Vector2(300f, y), new Vector2(44f, 22f), new Vector2(0f, 0.5f));
+
+        RectTransform labelBg = Rect(label + "LabelBg", parent, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(74f, 22f), new Vector2(0.5f, 0.5f));
+        Image labelImage = labelBg.gameObject.AddComponent<Image>();
+        labelImage.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.78f);
+        labelImage.raycastTarget = false;
+
+        Text labelText = Text(label + "Label", parent, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        labelText.text = label;
+        SetRect(labelText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, y), new Vector2(74f, 22f), new Vector2(0.5f, 0.5f));
+        return bar;
+    }
+
+    Image BarFill(Transform parent, string name, Vector2 position, Color color)
+    {
+        RectTransform track = Rect(name, parent, new Vector2(0.5f, 0f), position, new Vector2(BarTrackWidth, 13f), new Vector2(0.5f, 0.5f));
+        // track 底色从纯白透明改为暗金：与分隔线/描边同一色系
+        track.gameObject.AddComponent<Image>().color = new Color(DarkGoldColor.r, DarkGoldColor.g, DarkGoldColor.b, 0.28f);
+        RectTransform fill = Rect(name + "Fill", track, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(BarTrackWidth, 13f), new Vector2(0f, 0.5f));
+        Image image = fill.gameObject.AddComponent<Image>();
+        image.color = color;
+        return image;
+    }
+
+    void BuildCombat(Transform parent)
+    {
+        // 右侧列统一从屏幕右上角向下排：小地图(260) -> 小分队条(46) -> 事件卡。
+        // 事件卡贴在小分队条下方；皇榜任务公告牌会溢出普通面板高度，所以这里控制的是右列整体顶边，不是只给普通卡用。
+        RectTransform panel = Rect("CombatOverlay", parent, new Vector2(1f, 1f), new Vector2(-WebSafeRightInset, RightColumnCombatY), new Vector2(540f, 346f), new Vector2(1f, 1f));
+        AttachOverlayCanvas(panel, 3);
+        combatRect = panel;
+        combatBasePos = panel.anchoredPosition;
+        combatGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        Image bg = panel.gameObject.AddComponent<Image>();
+        combatPanelBg = bg;
+        bg.color = InkColor;
+        // 弹窗纯展示无任何可交互元素：背景/插画/卡片一律不接 raycast，避免拦截穿透点击
+        bg.raycastTarget = false;
+        // 唐风描边：panel_frame 九宫格（缺失回退四边暗金细线）；紧跟背景创建保证画在内容下层
+        combatGenericFrame = ApplyPanelFrame(panel, 2f);
+        // 事件卡分类边框覆盖层：默认隐藏，DisplayCombat 时按事件类别换上 CardBorders 九宫格边框；
+        // 创建在内容之前 → 文字/插画始终画在边框之上，边框顶部纹章不会遮挡标题。
+        RectTransform categoryFrameRt = StretchRect("CombatCategoryFrame", panel);
+        combatCategoryFrame = categoryFrameRt.gameObject.AddComponent<RawImage>();
+        combatCategoryFrame.color = Color.white;
+        combatCategoryFrame.raycastTarget = false;
+        combatCategoryFrame.enabled = false;
+
+        RectTransform taskNoticeBoard = Rect("CombatTaskNoticeBoard", panel, new Vector2(0.5f, 0.5f), new Vector2(0f, -4f), new Vector2(506f, 322f), new Vector2(0.5f, 0.5f));
+        combatTaskNoticeBoard = taskNoticeBoard.gameObject.AddComponent<Image>();
+        combatTaskNoticeBoard.raycastTarget = false;
+        combatTaskNoticeBoard.enabled = false;
+
+        // 标题条上移贴顶、底色加深：盖住分类边框顶部那个图标纹章，让标题直接占据顶部（用户：图标不要、标题放上面）。
+        combatTitleRibbon = Rect("CombatTitleRibbon", panel, new Vector2(0.5f, 1f), new Vector2(0f, -8f), new Vector2(424f, 46f), new Vector2(0.5f, 1f));
+        Image titleBg = combatTitleRibbon.gameObject.AddComponent<Image>();
+        titleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.94f);
+        titleBg.raycastTarget = false;
+        combatTitle = Text("CombatTitle", combatTitleRibbon, 26, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(combatTitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(370f, 32f), new Vector2(0.5f, 0.5f));
+        combatTitle.resizeTextForBestFit = true;
+        combatTitle.resizeTextMinSize = 18;
+        combatTitle.resizeTextMaxSize = 26;
+        AddTextShadow(combatTitle);
+
+        // 标题上移贴顶后，插画上移、加大占满边框内容区（preserveAspect 不变形，只是可用框更大）。
+        combatImage = Rect("CombatIllustration", panel, new Vector2(0.5f, 1f), new Vector2(0f, -64f), new Vector2(508f, 212f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
+        combatImage.color = Color.white;
+        combatImage.raycastTarget = false;
+
+        combatSubtitleRibbon = Rect("CombatSubtitleRibbon", panel, new Vector2(0.5f, 0f), new Vector2(0f, 104f), new Vector2(480f, 38f), new Vector2(0.5f, 0f));
+        combatSubtitleBg = combatSubtitleRibbon.gameObject.AddComponent<Image>();
+        combatSubtitleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.72f);
+        combatSubtitleBg.raycastTarget = false;
+        combatSubtitle = Text("CombatSubtitle", combatSubtitleRibbon, 20, FontStyle.Bold, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 1f), TextAnchor.MiddleCenter);
+        SetRect(combatSubtitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(452f, 30f), new Vector2(0.5f, 0.5f));
+        combatSubtitle.resizeTextForBestFit = true;
+        combatSubtitle.resizeTextMinSize = 14;
+        combatSubtitle.resizeTextMaxSize = 20;
+        AddTextShadow(combatSubtitle);
+
+        RectTransform banner = Rect("CombatResultBanner", panel, new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(480f, 70f), new Vector2(0.5f, 0f));
+        combatResultBanner = banner.gameObject.AddComponent<Image>();
+        combatResultBanner.color = new Color(DarkGoldColor.r, DarkGoldColor.g, DarkGoldColor.b, 0.90f);
+        combatResultBanner.type = Image.Type.Simple;
+        combatResultBanner.raycastTarget = false;
+
+        redCardFx = BuildCombatCard(panel, true);
+        blueCardFx = BuildCombatCard(panel, false);
+        combatRedCard = redCardFx.label;
+        combatBlueCard = blueCardFx.label;
+        combatScore = Text("CombatScore", panel, 34, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        SetRect(combatScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(452f, 56f), new Vector2(0.5f, 0f));
+        combatScore.resizeTextForBestFit = true;
+        combatScore.resizeTextMinSize = 20;
+        combatScore.resizeTextMaxSize = 34;
+        combatScore.supportRichText = false;
+        AddTextShadow(combatScore);
+        SetGroup(combatGroup, false, 0f);
+    }
+
+    // 对抗卡片块：唐风底色（红=朱红 / 蓝=队蓝）+ 牌面图层 + 背面兜底层，下层垫金色脉冲。
+    // 块的 pivot.x=0.5，localScale.x 直接绕中轴翻面。
+    CardFx BuildCombatCard(Transform parent, bool red)
+    {
+        Color color = red ? new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.92f) : new Color(0.16f, 0.42f, 1f, 0.92f);
+        float x = red ? -154f : 154f;
+        CardFx fx = new CardFx();
+
+        RectTransform glowRt = Rect(red ? "CombatRedCardGlow" : "CombatBlueCardGlow", parent, new Vector2(0.5f, 0f), new Vector2(x, 28f), new Vector2(142f, 44f), new Vector2(0.5f, 0f));
+        fx.glow = glowRt.gameObject.AddComponent<Image>();
+        fx.glow.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0f);
+        fx.glow.raycastTarget = false;
+
+        RectTransform box = Rect(red ? "CombatRedCard" : "CombatBlueCard", parent, new Vector2(0.5f, 0f), new Vector2(x, 30f), new Vector2(132f, 38f), new Vector2(0.5f, 0f));
+        fx.block = box;
+        Image boxImage = box.gameObject.AddComponent<Image>();
+        boxImage.color = color;
+        fx.blockImage = boxImage;
+        // 卡片块同为纯展示，禁止拦截点击
+        boxImage.raycastTarget = false;
+
+        // 背面态墨色底：盖住队色块模拟牌背（card_back 在与不在都先压一层墨）
+        RectTransform plateRt = Rect("CardBackPlate", box, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(132f, 38f), new Vector2(0.5f, 0.5f));
+        fx.backPlate = plateRt.gameObject.AddComponent<Image>();
+        fx.backPlate.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.96f);
+        fx.backPlate.raycastTarget = false;
+        fx.backPlate.enabled = false;
+
+        // 牌面图：背面态显示 card_back（居中），正面态换牌面贴图并靠左给牌名让位
+        RectTransform faceRt = Rect("CardFace", box, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(30f, 30f), new Vector2(0.5f, 0.5f));
+        fx.face = faceRt.gameObject.AddComponent<Image>();
+        fx.face.color = Color.white;
+        fx.face.preserveAspect = true;
+        fx.face.raycastTarget = false;
+        fx.face.enabled = false;
+
+        // card_back 缺失时的背面兜底：墨底上的金“?”
+        fx.backMark = Text("CardBackMark", box, 18, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(fx.backMark.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(132f, 38f), new Vector2(0.5f, 0.5f));
+        fx.backMark.text = "?";
+        fx.backMark.enabled = false;
+
+        fx.label = Text("Text", box, 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        SetRect(fx.label.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(122f, 28f), new Vector2(0.5f, 0.5f));
+        fx.label.resizeTextForBestFit = true;
+        fx.label.resizeTextMinSize = 13;
+        fx.label.resizeTextMaxSize = 18;
+        AddTextShadow(fx.label);
+        return fx;
+    }
+
+    // 画面正中央的「出牌」大窗口：窗口争夺逐拍出牌/验牌专用，与右侧事件卡面板互不干扰。
+    // 红左蓝右两张大牌（翻面/胜方金光复用既有 CardFx 状态机）+ 中央 VS + 顶部标题/克制副标题 + 底部比分。
+    void BuildContest(Transform parent)
+    {
+        // 略偏屏幕中心上方(+72)，让出底部 HUD 控制条；加高并把标题下移，
+        // 避免标题文字和顶部唐风边框纹样粘在一起。
+        RectTransform panel = Rect("ContestOverlay", parent, new Vector2(0.5f, 0.5f), new Vector2(0f, 72f), new Vector2(760f, 430f), new Vector2(0.5f, 0.5f));
+        AttachOverlayCanvas(panel, 4);
+        contestRect = panel;
+        contestBasePos = panel.anchoredPosition;
+        contestGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        Image bg = panel.gameObject.AddComponent<Image>();
+        bg.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.94f); // 中央更聚焦，底色比右侧面板更实
+        bg.raycastTarget = false;
+        ApplyPanelFrame(panel, 3f);
+
+        // 顶部标题 + 克制副标题（自顶边排，与下方卡片留净空）
+        RectTransform titleRibbon = Rect("ContestTitleRibbon", panel, new Vector2(0.5f, 1f), new Vector2(0f, -46f), new Vector2(640f, 42f), new Vector2(0.5f, 1f));
+        Image titleBg = titleRibbon.gameObject.AddComponent<Image>();
+        titleBg.color = new Color(0.05f, 0.04f, 0.03f, 0.88f);
+        titleBg.raycastTarget = false;
+        contestTitle = Text("ContestTitle", titleRibbon, 26, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(contestTitle.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(612f, 34f), new Vector2(0.5f, 0.5f));
+        contestTitle.resizeTextForBestFit = true;
+        contestTitle.resizeTextMinSize = 18;
+        contestTitle.resizeTextMaxSize = 26;
+        AddTextShadow(contestTitle);
+        contestSubtitle = Text("ContestSubtitle", panel, 18, FontStyle.Bold, new Color(SilkColor.r, SilkColor.g, SilkColor.b, 0.96f), TextAnchor.MiddleCenter);
+        SetRect(contestSubtitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -92f), new Vector2(664f, 26f), new Vector2(0.5f, 1f));
+        contestSubtitle.resizeTextForBestFit = true;
+        contestSubtitle.resizeTextMinSize = 13;
+        contestSubtitle.resizeTextMaxSize = 18;
+        AddTextShadow(contestSubtitle);
+
+        // 对抗插画淡淡铺底（缺图自动隐藏）：在卡片之前创建 → 画在卡片下层
+        contestImage = Rect("ContestIllustration", panel, new Vector2(0.5f, 0.5f), new Vector2(0f, -22f), new Vector2(320f, 176f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<Image>();
+        contestImage.color = new Color(1f, 1f, 1f, 0.16f);
+        contestImage.preserveAspect = true;
+        contestImage.raycastTarget = false;
+        contestImage.enabled = false;
+
+        // 双方大牌（红左蓝右，竖卡居中带 y=-8）+ 中央 VS
+        contestRedFx = BuildContestCard(panel, true, -196f);
+        contestBlueFx = BuildContestCard(panel, false, 196f);
+        contestVs = Text("ContestVs", panel, 40, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        contestVs.text = "VS";
+        SetRect(contestVs.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -22f), new Vector2(120f, 54f), new Vector2(0.5f, 0.5f));
+
+        // 底部比分
+        contestScore = Text("ContestScore", panel, 30, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(contestScore.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(240f, 38f), new Vector2(0.5f, 0f));
+
+        SetGroup(contestGroup, false, 0f);
+    }
+
+    // 中央大牌：唐风底色 + 居中牌面 + 背面兜底层 + 卡底牌名，下层垫金色脉冲。pivot.x=0.5 绕中轴翻面。
+    CardFx BuildContestCard(Transform parent, bool red, float x)
+    {
+        Color color = red ? new Color(VermilionColor.r, VermilionColor.g, VermilionColor.b, 0.95f) : new Color(0.16f, 0.42f, 1f, 0.95f);
+        CardFx fx = new CardFx();
+        // 中央大卡：牌面居中略上(给卡底牌名让位)，正/背面同偏移；不同于右侧小卡的 -55 让位。
+        fx.frontFaceOffset = new Vector2(0f, 12f);
+        fx.backFaceOffset = new Vector2(0f, 12f);
+
+        RectTransform glowRt = Rect(red ? "ContestRedGlow" : "ContestBlueGlow", parent, new Vector2(0.5f, 0.5f), new Vector2(x, -22f), new Vector2(184f, 230f), new Vector2(0.5f, 0.5f));
+        fx.glow = glowRt.gameObject.AddComponent<Image>();
+        fx.glow.color = new Color(GoldColor.r, GoldColor.g, GoldColor.b, 0f);
+        fx.glow.raycastTarget = false;
+
+        RectTransform box = Rect(red ? "ContestRedCard" : "ContestBlueCard", parent, new Vector2(0.5f, 0.5f), new Vector2(x, -22f), new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.block = box;
+        Image boxImage = box.gameObject.AddComponent<Image>();
+        boxImage.color = color;
+        boxImage.raycastTarget = false;
+
+        RectTransform plateRt = Rect("CardBackPlate", box, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.backPlate = plateRt.gameObject.AddComponent<Image>();
+        fx.backPlate.color = new Color(InkColor.r, InkColor.g, InkColor.b, 0.96f);
+        fx.backPlate.raycastTarget = false;
+        fx.backPlate.enabled = false;
+
+        RectTransform faceRt = Rect("CardFace", box, new Vector2(0.5f, 0.5f), new Vector2(0f, 12f), new Vector2(146f, 166f), new Vector2(0.5f, 0.5f));
+        fx.face = faceRt.gameObject.AddComponent<Image>();
+        fx.face.color = Color.white;
+        fx.face.preserveAspect = true;
+        fx.face.raycastTarget = false;
+        fx.face.enabled = false;
+
+        fx.backMark = Text("CardBackMark", box, 40, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(fx.backMark.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(164f, 206f), new Vector2(0.5f, 0.5f));
+        fx.backMark.text = "?";
+        fx.backMark.enabled = false;
+
+        // 牌名（卡底，翻到正面后显示）；START 阶段显示「红队/蓝队」标识左右方。
+        fx.label = Text("CardName", box, 22, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+        SetRect(fx.label.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(150f, 28f), new Vector2(0.5f, 0f));
+        return fx;
+    }
+
+    void BuildOpening(Transform parent)
+    {
+        RectTransform panel = Rect("OpeningRosterPanel", parent, new Vector2(0.5f, 0.72f), Vector2.zero, new Vector2(660f, 150f), new Vector2(0.5f, 0.5f));
+        openingGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        panel.gameObject.AddComponent<Image>().color = InkColor;
+        openingTitle = Text("OpeningTitle", panel, 26, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(openingTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(560f, 34f), new Vector2(0.5f, 1f));
+        openingRed = Text("OpeningRed", panel, 18, FontStyle.Bold, VermilionColor, TextAnchor.MiddleCenter);
+        SetRect(openingRed.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(600f, 28f), new Vector2(0.5f, 0.5f));
+        openingBlue = Text("OpeningBlue", panel, 18, FontStyle.Bold, new Color(0.36f, 0.62f, 1f, 1f), TextAnchor.MiddleCenter);
+        SetRect(openingBlue.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, -26f), new Vector2(600f, 28f), new Vector2(0.5f, 0.5f));
+        SetGroup(openingGroup, false, 0f);
+    }
+
+    void BuildToast(Transform parent)
+    {
+        // 小分队状态条固定在右上角小地图正下方；进场滑入用 ToastSlideOffset 限制，不让动画帧压到小地图。
+        RectTransform panel = Rect("DispatchToast", parent, new Vector2(1f, 1f), new Vector2(-WebSafeRightInset, RightColumnToastY), new Vector2(640f, 48f), new Vector2(1f, 1f));
+        AttachOverlayCanvas(panel, 5);
+        toastRect = panel;
+        toastBasePos = panel.anchoredPosition;
+        toastGroup = panel.gameObject.AddComponent<CanvasGroup>();
+        Image toastBg = panel.gameObject.AddComponent<Image>();
+        toastBg.color = InkColor;
+        // 提示条纯展示，背景不接 raycast，避免挡住底部 HUD 上方的点击
+        toastBg.raycastTarget = false;
+        // 矮条用更大的 border 缩放：512px 贴图的 18% 边在 50 高的条上必须压薄才不挤爆四角
+        ApplyPanelFrame(panel, 6f);
+        toastText = Text("ToastText", panel, 16, FontStyle.Bold, GoldColor, TextAnchor.MiddleCenter);
+        SetRect(toastText.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(608f, 32f), new Vector2(0.5f, 0.5f));
+        toastText.resizeTextForBestFit = true;
+        toastText.resizeTextMinSize = 11;   // 长文案多一档收缩空间，配合加宽 + 干净队名防溢出
+        toastText.resizeTextMaxSize = 16;
+        SetGroup(toastGroup, false, 0f);
+    }
+
+    // 面板唐风描边：panel_frame.png 可用时叠一层九宫格边框（保留墨色底保证正文可读，
+    // 不依赖贴图中心区是否透明）；取不到时回退四边 2px 暗金细线，任何素材缺失下轮廓完整。
+    Image ApplyPanelFrame(RectTransform panel, float borderScale)
+    {
+        Sprite frame = GetFrameSprite();
+        if (frame != null)
+        {
+            RectTransform rt = StretchRect("PanelFrame", panel);
+            Image image = rt.gameObject.AddComponent<Image>();
+            image.sprite = frame;
+            image.type = Image.Type.Sliced;
+            image.color = Color.white;
+            // 九宫格边框按面板尺寸压薄：multiplier 越大屏幕上边越细
+            image.pixelsPerUnitMultiplier = borderScale;
+            image.raycastTarget = false;
+            return image;
+        }
+        AddEdgeLine(panel, "EdgeTop", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, 2f));
+        AddEdgeLine(panel, "EdgeBottom", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 2f));
+        AddEdgeLine(panel, "EdgeLeft", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(2f, 0f));
+        AddEdgeLine(panel, "EdgeRight", new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(2f, 0f));
+        return null;
+    }
+
+    void AddEdgeLine(RectTransform panel, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 sizeDelta)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(panel, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.pivot = pivot;
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = sizeDelta;
+        rt.localScale = Vector3.one;
+        Image line = go.AddComponent<Image>();
+        line.color = DarkGoldColor;
+        line.raycastTarget = false;
+    }
+
+    void UpdateBar(DualBar bar, float red, float blue, string redValue, string blueValue, float redDelta, float blueDelta, string suffix)
+    {
+        bar.redFill.rectTransform.sizeDelta = new Vector2(BarTrackWidth * Mathf.Clamp01(red / Mathf.Max(1f, bar.maxValue)), 13f);
+        bar.blueFill.rectTransform.sizeDelta = new Vector2(BarTrackWidth * Mathf.Clamp01(blue / Mathf.Max(1f, bar.maxValue)), 13f);
+        bar.redValue.text = redValue;
+        bar.blueValue.text = blueValue;
+        SetDelta(bar.redDelta, redDelta, suffix);
+        SetDelta(bar.blueDelta, blueDelta, suffix);
+    }
+
+    void SetDelta(Text text, float delta, string suffix)
+    {
+        if (Mathf.Abs(delta) < 0.01f)
+        {
+            text.text = "";
+            return;
+        }
+        text.text = (delta > 0f ? "+" : "") + delta.ToString(Mathf.Abs(delta) < 9.9f ? "0.#" : "0") + suffix;
+        text.color = delta > 0f ? new Color(0.42f, 1f, 0.45f, 1f) : new Color(1f, 0.38f, 0.28f, 1f);
+    }
+
+    static void SetGroup(CanvasGroup group, bool visible, float alpha)
+    {
+        group.alpha = alpha;
+        group.interactable = visible;
+        group.blocksRaycasts = visible;
+    }
+
+    void AttachOverlayCanvas(RectTransform panel, int sortOffset)
+    {
+        if (panel == null || canvas == null) return;
+        Canvas sub = panel.gameObject.AddComponent<Canvas>();
+        sub.overrideSorting = true;
+        sub.sortingOrder = canvas.sortingOrder + sortOffset;
+    }
+
+    RectTransform Rect(string name, Transform parent, Vector2 anchor, Vector2 anchoredPosition, Vector2 size, Vector2 pivot)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        SetRect(rt, anchor, anchoredPosition, size, pivot);
+        return rt;
+    }
+
+    // 四角锚满父级的全屏/全面板矩形（Rect 帮手只支持点锚，描边/暗角需要拉伸锚）
+    RectTransform StretchRect(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.localScale = Vector3.one;
+        return rt;
+    }
+
+    static void SetRect(RectTransform rt, Vector2 anchor, Vector2 anchoredPosition, Vector2 size, Vector2 pivot)
+    {
+        rt.anchorMin = anchor;
+        rt.anchorMax = anchor;
+        rt.pivot = pivot;
+        rt.anchoredPosition = anchoredPosition;
+        rt.sizeDelta = size;
+        rt.localScale = Vector3.one;
+    }
+
+    Text Text(string name, Transform parent, int size, FontStyle style, Color color, TextAnchor anchor)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Text text = go.AddComponent<Text>();
+        text.font = font;
+        text.fontSize = size;
+        text.fontStyle = style;
+        text.color = color;
+        text.alignment = anchor;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        // 纵向必须 Overflow：横向已是 Overflow(永远单行)，纵向 Truncate 唯一效果是"行高塞不进矩形→整行消失"。
+        // LXGW 在 WebGL 包里的行高≈字号×1.25+(比编辑器略大)，字号/矩形高贴边的文本(9维行16/18、阶段15/16、
+        // 比分34/36)在编辑器可见、真机全隐身——即"HUD面板字都看不见"的真因。
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    // ---------- 主题贴图与程序化兜底 ----------
+
+    /// <summary>从 ThemeCache 解码主题贴图；缺失或解码失败返回 null（调用方走程序化兜底）。</summary>
+    static Texture2D LoadThemeTexture(string fileName)
+    {
+        byte[] bytes = LycheeThemeCache.LoadBytes(fileName);
+        if (bytes == null || bytes.Length == 0) return null;
+        Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        if (!texture.LoadImage(bytes, markNonReadable: true)) return null;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        return texture;
+    }
+
+    /// <summary>panel_frame 九宫格 Sprite（border 取贴图尺寸 18%）；缺失返回 null 走细线兜底。</summary>
+    static Sprite GetFrameSprite()
+    {
+        if (frameSprite != null) return frameSprite;
+        Texture2D texture = LoadThemeTexture("panel_frame.png");
+        if (texture == null) return null;
+        float borderX = texture.width * 0.18f;
+        float borderY = texture.height * 0.18f;
+        frameSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(borderX, borderY, borderX, borderY));
+        return frameSprite;
+    }
+
+    /// <summary>事件卡分类边框九宫格 Sprite（CardBorders/border_event_&lt;category&gt;.png，border 取 18%）；缺失返回 null。</summary>
+    // 事件卡（右侧事件窗口）统一用用户做的 card_frame.png 九宫格边框；不再按类别分 CardBorders。
+    // 这样 panel_frame.png 只服务控制条/提示条/徽章等其它面板，互不串味（用户：右边窗口边框要换、其它别动）。
+    // card_frame.png 缺失则返回 null → 自动回退通用 panel_frame，不会裸框。
+    static Sprite GetCategoryBorderSprite(string category)
+    {
+        const string key = "__card_frame";
+        if (categoryBorderCache.TryGetValue(key, out Sprite cached) && cached != null) return cached;
+        Texture2D texture = LoadThemeTexture("card_frame.png");
+        if (texture == null) return null;
+        float borderX = texture.width * 0.18f;
+        float borderY = texture.height * 0.18f;
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(borderX, borderY, borderX, borderY));
+        categoryBorderCache[key] = sprite;
+        return sprite;
+    }
+
+    /// <summary>任务刷新事件专用公告牌主体。它只服务皇榜任务刷新 HUD 卡，不作为地图世界标记使用。</summary>
+    static Sprite GetTaskNoticeBoardSprite()
+    {
+        if (taskNoticeBoardSprite != null) return taskNoticeBoardSprite;
+        Texture2D texture = LoadThemeTexture("world_marker_imperial_notice_board.png");
+        if (texture == null) return null;
+        taskNoticeBoardSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+        return taskNoticeBoardSprite;
+    }
+
+    /// <summary>按事件类别给中央事件卡换分类边框：有专属边框则显示并隐藏通用 panel_frame，缺失则回退通用框。</summary>
+    void ApplyCombatCategoryBorder(string category)
+    {
+        if (combatCategoryFrame == null) return;
+        Sprite border = GetCategoryBorderSprite(category);
+        bool hasBorder = border != null;
+        if (hasBorder)
+        {
+            SetRawImageSprite(combatCategoryFrame, border);
+            combatCategoryFrame.enabled = true;
+        }
+        else
+        {
+            combatCategoryFrame.enabled = false;
+        }
+        if (combatGenericFrame != null) combatGenericFrame.enabled = !hasBorder;
+    }
+
+    /// <summary>普通主题 Sprite（牌面/牌背）。只缓存成功结果：WebGL 预载完成前的失败不会被锁死。</summary>
+    static Sprite GetThemeSprite(string fileName)
+    {
+        if (themeSpriteCache.TryGetValue(fileName, out Sprite cached) && cached != null) return cached;
+        Texture2D texture = LoadThemeTexture(fileName);
+        if (texture == null) return null;
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
+        themeSpriteCache[fileName] = sprite;
+        return sprite;
+    }
+
+    static Sprite ResolveTeamAvatar(bool red, Sprite requested)
+    {
+        if (SpriteUsable(requested)) return requested;
+        Sprite resource = GetResourceAvatarSprite(red);
+        if (SpriteUsable(resource)) return resource;
+        Sprite themed = GetThemeSprite(red ? "team_red_emblem.png" : "team_blue_emblem.png");
+        if (SpriteUsable(themed)) return themed;
+        return MakeTeamAvatarSprite(red);
+    }
+
+    static Sprite GetResourceAvatarSprite(bool red)
+    {
+        string key = red ? "__resource_red_avatar" : "__resource_blue_avatar";
+        if (themeSpriteCache.TryGetValue(key, out Sprite cached) && cached != null) return cached;
+
+        string path = red ? RedCaptainAvatarResource : BlueCaptainAvatarResource;
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (!SpriteUsable(sprite))
+        {
+            Texture2D texture = Resources.Load<Texture2D>(path);
+            if (texture != null)
+            {
+                texture.wrapMode = TextureWrapMode.Clamp;
+                sprite = Sprite.Create(
+                    texture,
+                    new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f,
+                    0,
+                    SpriteMeshType.FullRect);
+            }
+        }
+
+        if (SpriteUsable(sprite)) themeSpriteCache[key] = sprite;
+        return sprite;
+    }
+
+    static bool SpriteUsable(Sprite sprite)
+    {
+        return sprite != null && sprite.texture != null;
+    }
+
+    static Sprite MakeTeamAvatarSprite(bool red)
+    {
+        string key = red ? "__generated_red_avatar" : "__generated_blue_avatar";
+        if (themeSpriteCache.TryGetValue(key, out Sprite cached) && cached != null) return cached;
+        const int size = 96;
+        Color baseColor = red ? VermilionColor : new Color(0.20f, 0.48f, 1f, 1f);
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+        float radius = size * 0.46f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), center);
+                float edge = Mathf.InverseLerp(radius, radius - 5f, distance);
+                float glow = Mathf.InverseLerp(radius * 0.92f, 0f, distance);
+                Color color = Color.Lerp(new Color(baseColor.r * 0.45f, baseColor.g * 0.45f, baseColor.b * 0.45f, 1f), baseColor, glow);
+                color.a = Mathf.Clamp01(edge);
+                texture.SetPixel(x, y, color);
+            }
+        }
+        texture.Apply();
+        texture.wrapMode = TextureWrapMode.Clamp;
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        themeSpriteCache[key] = sprite;
+        return sprite;
+    }
+
+    static Sprite GetAvatarCircleSprite()
+    {
+        if (avatarCircleSprite != null) return avatarCircleSprite;
+        const int size = 96;
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+        float radius = (size - 2f) * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), center);
+                float alpha = Mathf.Clamp01(radius - distance + 1f);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+        texture.Apply();
+        texture.wrapMode = TextureWrapMode.Clamp;
+        avatarCircleSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        return avatarCircleSprite;
+    }
+
+    static void SetRawImageSprite(RawImage image, Sprite sprite)
+    {
+        if (image == null) return;
+        if (sprite == null || sprite.texture == null)
+        {
+            image.texture = null;
+            image.enabled = false;
+            return;
+        }
+
+        image.texture = sprite.texture;
+        image.uvRect = SpriteUv(sprite);
+        image.color = Color.white;
+        image.enabled = true;
+    }
+
+    static Rect SpriteUv(Sprite sprite)
+    {
+        if (sprite == null || sprite.texture == null) return new Rect(0f, 0f, 1f, 1f);
+        Rect r = sprite.rect;
+        Texture2D texture = sprite.texture;
+        if (texture.width <= 0 || texture.height <= 0) return new Rect(0f, 0f, 1f, 1f);
+        return new Rect(r.x / texture.width, r.y / texture.height, r.width / texture.width, r.height / texture.height);
+    }
+
+    /// <summary>牌名 → 正面贴图映射（与 LycheeCardFxSystem.ParseCard 的判定口径一致）；
+    /// 弃权/未出牌用弃权牌面，未知牌名返回 null（保持纯文字呈现）。</summary>
+    static Sprite GetCardFrontSprite(string card)
+    {
+        string value = string.IsNullOrEmpty(card) ? "" : card.Trim().ToUpperInvariant();
+        string fileName;
+        if (value.Length == 0 || value.Contains("ABSTAIN") || value == "NONE" || value == "PASS") fileName = "card_abstain.png";
+        else if (value.Contains("BING_ZHENG") || value.Contains("BINGZHENG")) fileName = "card_bing_zheng.png";
+        else if (value.Contains("QIANG_XING") || value.Contains("QIANGXING")) fileName = "card_qiang_xing.png";
+        else if (value.Contains("XIAN_GONG") || value.Contains("XIANGONG")) fileName = "card_xian_gong.png";
+        else if (value.Contains("YAN_DIE") || value.Contains("YANDIE")) fileName = "card_yan_die.png";
+        else return null;
+        return GetThemeSprite(fileName);
+    }
+
+    /// <summary>对抗暗角：64x64 程序化径向渐变（中心透明、四角黑 a~0.5），双线性放大后即是柔和暗角。</summary>
+    static Sprite GetVignetteSprite()
+    {
+        if (vignetteSprite != null) return vignetteSprite;
+        const int size = 64;
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x / (float)(size - 1) * 2f - 1f;
+                float dy = y / (float)(size - 1) * 2f - 1f;
+                float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                // 中心 0.45 半径内全透明，向四角（distance≈1.414）平滑压黑到 a0.5
+                float alpha = Mathf.SmoothStep(0f, 0.5f, Mathf.InverseLerp(0.45f, 1.414f, distance));
+                texture.SetPixel(x, y, new Color(0f, 0f, 0f, alpha));
+            }
+        }
+        texture.Apply();
+        texture.filterMode = FilterMode.Bilinear;
+        texture.wrapMode = TextureWrapMode.Clamp;
+        vignetteSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+        return vignetteSprite;
+    }
+
+    // 自写缓动（不引 DOTween 等依赖）：EaseOutCubic = 1-(1-t)^3，入场快出、缓停到位
+    static float EaseOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        float inverse = 1f - t;
+        return 1f - inverse * inverse * inverse;
+    }
+
+    static string CardText(string card)
+    {
+        if (string.IsNullOrEmpty(card)) return "未出牌";
+        if (card == "YAN_DIE") return "验牒";
+        if (card == "BING_ZHENG") return "兵争";
+        if (card == "XIAN_GONG") return "献贡";
+        if (card == "QIANG_XING") return "强行";   // C3: 对齐设计§4.8(原"抢行")
+        if (card == "ABSTAIN" || card == "PASS" || card == "NONE") return "弃权";   // C3: 补弃权(原落到"窗口牌")
+        return "窗口牌";   // 未知牌名兜底中文，不显英文
+    }
+
+    // §4.9 窗口克制表索引：验牒=0/强行=1/献贡=2/兵争=3；弃权/未出牌/未知=-1(不参与克制)。
+    static int CardIndex(string card)
+    {
+        if (string.IsNullOrEmpty(card)) return -1;
+        switch (card.ToUpperInvariant())
+        {
+            case "YAN_DIE": return 0;
+            case "QIANG_XING": return 1;
+            case "XIAN_GONG": return 2;
+            case "BING_ZHENG": return 3;
+            default: return -1;   // ABSTAIN / PASS / NONE / 未知
+        }
+    }
+
+    // §4.9 克制表(自\对)：+1=该行牌克该列牌，-1=负，0=平。行列序=验牒/强行/献贡/兵争。
+    static readonly int[,] CardBeatTable =
+    {
+        //          对:验牒 强行 献贡 兵争
+        /*验牒*/ {   0,  +1,  -1,  -1 },
+        /*强行*/ {  -1,   0,  +1,  -1 },
+        /*献贡*/ {  +1,  -1,   0,  +1 },
+        /*兵争*/ {  +1,  +1,  -1,   0 },
+    };
+
+    // 按 §4.9 克制表判红牌 vs 蓝牌：+1=红牌克蓝牌，-1=蓝牌克红牌，0=平/无克制关系(任一为弃权/未知即 0)。
+    static int RedBeatsBlue(string redCard, string blueCard)
+    {
+        int ri = CardIndex(redCard), bi = CardIndex(blueCard);
+        if (ri < 0 || bi < 0) return 0;
+        return CardBeatTable[ri, bi];
+    }
+
+    static string WinnerText(string winner)
+    {
+        if (winner == "RED") return "红队";
+        if (winner == "BLUE") return "蓝队";
+        return "双方";
+    }
+
+    static string Clean(string value)
+    {
+        return string.IsNullOrEmpty(value) ? "未知" : value;
+    }
+}

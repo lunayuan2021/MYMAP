@@ -1,0 +1,3 @@
+16:57:09 WARNING: bundled font not found, skipping scene font fix.
+16:57:09 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+17:02:12 Build result: Succeeded, size: 673.1 MB, time: 303s, errors: 0

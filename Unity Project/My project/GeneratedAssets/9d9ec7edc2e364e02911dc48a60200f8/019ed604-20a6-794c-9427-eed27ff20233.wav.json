@@ -1,0 +1,15 @@
+{
+    "asset": "9d9ec7edc2e364e02911dc48a60200f8",
+    "fileName": "019ed604-20a6-794c-9427-eed27ff20233.wav",
+    "prompt": "A horse whinny and a short marching call as a small squad sets out, hooves starting, short.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

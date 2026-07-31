@@ -1,0 +1,35 @@
+LycheeBrightnessFix_20260613 2026-06-13 09:14:20
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+
+== 道路材质提亮（工程资产直改，乘 1.40）==
+  M_Config_OfficialRoad_Border: _BaseColor (0.480,0.370,0.250) -> (0.672,0.518,0.350) | metallic=0.00
+  M_Config_OfficialRoad: _BaseColor (1.080,0.920,0.720) -> (1.512,1.288,1.008) | metallic=0.00
+  M_Config_BranchRoute: _BaseColor (0.920,0.820,0.620) -> (1.288,1.148,0.868) | metallic=0.00
+  M_Config_MountainRoute: _BaseColor (0.740,0.680,0.540) -> (1.036,0.952,0.756) | metallic=0.00
+  M_Config_MountainRoute_Border: _BaseColor (0.120,0.150,0.120) -> (0.168,0.210,0.168) | metallic=0.00
+  M_Config_BranchRoute_Border: _BaseColor (0.320,0.240,0.080) -> (0.448,0.336,0.112) | metallic=0.00
+  道路材质共 6 个，本次提亮 6 个
+
+== 驿站材质提亮（副本替换，乘 1.40 钳 1.45）==
+  [梅关驿] MeiguanStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/MeiguanStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [岭南果园] LingnanOrchard/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/LingnanOrchard_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [荆襄大驿] JingxiangGrandStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/JingxiangGrandStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [武关] WuguanPass/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/WuguanPass_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [江南码头] JiangnanDock/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/JiangnanDock_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [南岭驿] NanlingStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/NanlingStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [灞桥驿] BaqiaoStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/BaqiaoStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [朱雀门] ZhuqueGate/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/ZhuqueGate_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [潼关驿] TongguanStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/TongguanStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [洛阳驿] LuoyangStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/LuoyangStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [兴庆宫] XingqingPalace/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/XingqingPalace_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [秦岭栈道] QinlingPlankRoad/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/QinlingPlankRoad_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [关中平原] GuanzhongPlain/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/GuanzhongPlain_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [洞庭水驿] DongtingWaterStation/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/DongtingWaterStation_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  [五岭山道] WulingMountainRoad/Material.001 -> Assets/LycheeMap15/Materials/StationBright_20260613/WulingMountainRoad_Material_001_Bright.mat | baseColorFactor (1.000,1.000,1.000) -> (1.400,1.400,1.400); metallicFactor 1.00 -> 0.20; roughnessFactor 1.00 -> 0.80
+  驿站唯一源材质 15 个 → 提亮副本；替换 renderer 15 个
+
+== 环境光抬档 ==
+  ambientEquatorColor (0.627,0.612,0.573) -> (0.690,0.675,0.635) (#B0ACA2)
+  ambientGroundColor  (0.298,0.275,0.239) -> (0.361,0.337,0.298) (#5C564C)
+
+场景保存: True

@@ -1,0 +1,25 @@
+06:42:03 Rebuilding map_1 from config and syncing into Map_medium before WebGL build...
+06:42:20 Configured map sync complete: Map_medium roots moved=1.
+06:42:22 Scene font fix: 0 text components now use bundled NotoSansSC.
+06:42:24 Replay camera controller fix: 1 controllers enabled and retuned.
+06:42:24 Theme manifest generated: 63 entries.
+06:42:25 Starting WebGL build to Builds/LycheeReplay_WebGL_20260622 ...
+06:42:25 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+06:55:04 Build result: Succeeded, size: 498.5 MB, time: 759s, errors: 0
+06:55:04 index.html patched (cache bust=20260621225504, branded loading, adaptive DPR/4K option, full-window canvas).
+06:55:05 Package README and local server scripts written.
+06:55:05 Package junk cleanup removed 0 entries.
+06:55:06 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity
+07:25:13 Rebuilding map_1 from config and syncing into Map_medium before WebGL build...
+07:25:27 Configured map sync complete: Map_medium roots moved=1.
+07:25:29 Scene font fix: 0 text components now use bundled NotoSansSC.
+07:25:30 Replay camera controller fix: 1 controllers enabled and retuned.
+07:25:31 Theme manifest generated: 63 entries.
+07:25:32 Cleaned previous output dir: Builds/LycheeReplay_WebGL_20260622
+07:25:32 Starting WebGL build to Builds/LycheeReplay_WebGL_20260622 ...
+07:25:32 Scenes: Assets/Scenes/GeneratedMaps/Map_medium.unity, Assets/Scenes/GeneratedMaps/LycheeMapSelect.unity
+07:30:17 Build result: Succeeded, size: 498.5 MB, time: 284s, errors: 0
+07:30:17 index.html patched (cache bust=20260621233017, branded loading, adaptive DPR/4K option, full-window canvas).
+07:30:17 Package README and local server scripts written.
+07:30:17 Package junk cleanup removed 0 entries.
+07:30:18 Reopened authoring scene after build: Assets/Scenes/GeneratedMaps/Map_medium.unity

@@ -1,0 +1,15 @@
+{
+    "asset": "a8534473e0ea7466184d33b6e9932a29",
+    "fileName": "019ed604-73f7-76c3-a839-a2c23bdd14f0.wav",
+    "prompt": "Footsteps and gear settling as a small squad arrives at a post, a short confirming wood-block knock.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

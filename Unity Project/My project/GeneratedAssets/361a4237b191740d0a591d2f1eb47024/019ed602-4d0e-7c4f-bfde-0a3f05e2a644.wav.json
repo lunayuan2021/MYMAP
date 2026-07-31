@@ -1,0 +1,15 @@
+{
+    "asset": "361a4237b191740d0a591d2f1eb47024",
+    "fileName": "019ed602-4d0e-7c4f-bfde-0a3f05e2a644.wav",
+    "prompt": "A single deep ceremonial temple bell toll ringing out and resonating, solemn palace-gate verification, about 1.5 seconds.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

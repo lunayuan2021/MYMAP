@@ -1,0 +1,4 @@
+LycheeTmpFontBake_20260613 2026-06-13 01:35:17
+源字体: LXGWWenKai-Regular
+已创建 Assets/LycheeReplayDemo/Resources/Fonts/LXGWWenKai-TMP.asset（子资产 2 个：图集+材质）
+复核: 主资产=True 材质=True 模式=Dynamic

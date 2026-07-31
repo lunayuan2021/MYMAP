@@ -1,0 +1,29 @@
+LycheeTreeUnify_20260613 2026-06-13 02:12:26
+目标：场景散布树统一为 URP Tree Pack（URP_Tree_1/2/3）。
+
+== 判定规则 ==
+A) Prefab 实例根：源 prefab 在 Pure Poly / Hill Rock Mountain Terrain / FreeMountain 且文件名含 tree|birch|pine|palm。
+B) 非 prefab 圆球树：名字含 tree 且层级内网格全为内置基元（Library/unity default resources），取最内层命中（容器名 Tree_Clusters 等因含 FBX 网格天然不命中）。
+C) 非 prefab 直挂网格：MeshFilter 网格资产来自上述杂牌包且文件名像树。
+红线排除：祖先含 _ANCHOR_ / *Station* / Imported_Station_Model / Irregular_Mountain_Groups / Rock_Clusters / WaterRoute_And_River / 山体替换容器 / Trees_Unified_20260613。
+
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+目标树 URP_Tree_1: 自然高 5.88m，pivot→包围盒底偏移 0.000m
+目标树 URP_Tree_2: 自然高 5.79m，pivot→包围盒底偏移 0.000m
+目标树 URP_Tree_3: 自然高 5.76m，pivot→包围盒底偏移 0.000m
+
+== 现状统计 ==
+已是 URP Tree Pack 的散布树：URP_Tree_1=178 URP_Tree_2=155 URP_Tree_3=150（合计 483）
+山体类（红线不动，风格混搭真实来源）：PP_Forest_Mountain_Moss=39 个（低模树长在山体网格上）、mountain_terrain_02=36 个（贴图山）
+红线排除命中 0 处；候选杂牌树（去重后）0 棵
+
+== 替换统计 ==
+命中 0 棵：磁盘场景的全部独立散布树本就已是 URP Tree Pack（见现状统计），无需替换。
+用户看到的风格打架来自 PP_Forest_Mountain_Moss 山体自带低模树与 mountain_terrain_02 贴图山，
+属山体网格一体装饰，按红线（不动山体/石头/站点）未处理；如需统一需另做山体替换专项。
+
+== 风摇 ==
+URP Tree Pack 全部 6 个材质（Leaf/Trunk x3）均为标准 Universal Render Pipeline/Lit，
+无任何 Wind/Sway 顶点风摇属性：无风摇支持，建议后续加 vertex sway（独立新 shader 资产，不改包内 shader 防升级覆盖）。
+
+无改动，场景未保存（YAML 行数 274480 不变）。

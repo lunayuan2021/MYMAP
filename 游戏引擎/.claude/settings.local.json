@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"/Users/lunayuan/Documents/荔枝争霸赛/一骑红尘_Unity全场景覆盖地图与回放Demo_V2/\"; find /Users/lunayuan/Documents -maxdepth 4 -name \"Assets\" -type d 2>/dev/null | grep -v node_modules | head; find /Users/lunayuan -maxdepth 3 -name \"ProjectSettings\" -type d 2>/dev/null | head)",
+      "mcp__unity-mcp__Unity_RunCommand",
+      "mcp__unity-mcp__Unity_GetConsoleLogs",
+      "Bash(python3 parse_unity_scene.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 parse_scene2.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity\")",
+      "Bash(awk 'NR<=160')",
+      "Bash(python3 parse_scene2.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity\" \"S04_ANCHOR|S05_ANCHOR\" 6)",
+      "Bash(python3 parse_scene2.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity\" \"WaterRoute_And_River|RiverBed|RiverBank|WaterHighlight|Water_And_Mountain\" 6)",
+      "Bash(python3 parse_scene2.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity\" \"Imported_Station_Model\" 4)",
+      "Bash(python3 parse_glb.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/LycheeReplayDemo/ModelsGLB/Stations/JiangnanDock.glb\")",
+      "Bash(python3 parse_glb.py \"/Users/lunayuan/Documents/Unity Project/My project/Assets/LycheeReplayDemo/ModelsGLB/Stations/DongtingWaterStation.glb\")"
+    ]
+  }
+}

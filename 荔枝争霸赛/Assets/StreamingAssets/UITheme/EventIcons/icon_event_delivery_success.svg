@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title-delivery-success">
+  <title id="title-delivery-success">交付成功</title>
+  <defs>
+    <radialGradient id="lacquer-delivery-success" cx="42%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#472218"/>
+      <stop offset="58%" stop-color="#140c0a"/>
+      <stop offset="100%" stop-color="#090609"/>
+    </radialGradient>
+    <linearGradient id="gold-delivery-success" x1="14" y1="9" x2="114" y2="119" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff3b0"/>
+      <stop offset="0.45" stop-color="#f2c15b"/>
+      <stop offset="1" stop-color="#70400f"/>
+    </linearGradient>
+    <linearGradient id="rim-delivery-success" x1="24" y1="18" x2="104" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#65151e"/>
+      <stop offset="0.55" stop-color="#2a1017"/>
+      <stop offset="1" stop-color="#12080d"/>
+    </linearGradient>
+    <filter id="shadow-delivery-success" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="2.4" flood-color="#000000" flood-opacity="0.52"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow-delivery-success)">
+    <path d="M64 8c10 0 16 8 24 10 10 3 19 12 22 22 2 8 10 14 10 24s-8 16-10 24c-3 10-12 19-22 22-8 2-14 10-24 10s-16-8-24-10c-10-3-19-12-22-22-2-8-10-14-10-24s8-16 10-24c3-10 12-19 22-22 8-2 14-10 24-10z" fill="url(#gold-delivery-success)"/>
+    <path d="M64 15c9 0 14 7 21 9 9 2 16 10 19 19 2 7 9 12 9 21s-7 14-9 21c-3 9-10 17-19 19-7 2-12 9-21 9s-14-7-21-9c-9-2-16-10-19-19-2-7-9-12-9-21s7-14 9-21c3-9 10-17 19-19 7-2 12-9 21-9z" fill="url(#rim-delivery-success)" stroke="#ffe4a0" stroke-width="1.6" opacity="0.98"/>
+    <circle cx="64" cy="64" r="43" fill="url(#lacquer-delivery-success)" stroke="url(#gold-delivery-success)" stroke-width="3.8"/>
+    <circle cx="64" cy="64" r="35.5" fill="none" stroke="#fff0b8" stroke-width="1.1" opacity="0.26"/>
+    <path d="M31 42c7-7 17-7 24 0M73 42c7-7 17-7 24 0M31 86c7 7 17 7 24 0M73 86c7 7 17 7 24 0" fill="none" stroke="#fff0b8" stroke-width="2.2" stroke-linecap="round" opacity="0.22"/>
+    <path d="M30 63c8-9 20-9 28 0 8 9 20 9 28 0 4-4 8-6 13-6M29 72c8-7 18-7 26 0 7 7 18 7 26 0 5-4 10-6 16-5" fill="none" stroke="#f4c768" stroke-width="1.2" stroke-linecap="round" opacity="0.2"/>
+  </g>
+  <g filter="url(#shadow-delivery-success)">
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <path d="M33 58h62L84 45H44z" fill="#8f2430" stroke="#f2c15b" stroke-width="4"/>
+      <path d="M42 59v35M86 59v35M31 95h66" stroke="#f2c15b" stroke-width="5"/>
+      <path d="M49 73h30l-4 22H53z" fill="#6e3d22" stroke="#f2c15b" stroke-width="4"/>
+      <circle cx="58" cy="69" r="5" fill="#dc3d36" stroke="#fff0b8" stroke-width="2"/>
+      <circle cx="67" cy="66" r="5" fill="#e74a41" stroke="#fff0b8" stroke-width="2"/>
+      <circle cx="75" cy="70" r="5" fill="#c93b34" stroke="#fff0b8" stroke-width="2"/>
+      <path d="M76 34l8 8 17-20" fill="none" stroke="#3b8f74" stroke-width="7"/>
+      <path d="M31 35l9 7M52 25l4 10M99 54l11 2" stroke="#fff0b8" stroke-width="4" opacity="0.72"/>
+    </g>
+  </g>
+</svg>

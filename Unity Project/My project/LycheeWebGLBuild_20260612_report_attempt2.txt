@@ -1,0 +1,8 @@
+15:52:26 EXCEPTION: System.InvalidOperationException: This cannot be used during play mode, please use SceneManager.LoadScene()/SceneManager.LoadSceneAsync() instead.
+  at (wrapper managed-to-native) UnityEditor.SceneManagement.EditorSceneManager.OpenScene_Injected(UnityEngine.Bindings.ManagedSpanWrapper&,UnityEditor.SceneManagement.OpenSceneMode,UnityEngine.SceneManagement.Scene&)
+  at UnityEditor.SceneManagement.EditorSceneManager.OpenScene (System.String scenePath, UnityEditor.SceneManagement.OpenSceneMode mode) [0x0002a] in <2e455c7ca6874edc8ad73e6dcdcb0d9e>:0 
+  at LycheeWebGLBuild_20260612.FixSceneFonts () [0x0001f] in /Users/lunayuan/Documents/Unity Project/My project/Assets/LycheeReplayDemo/Editor/LycheeWebGLBuild_20260612.cs:93 
+  at LycheeWebGLBuild_20260612.TryRun () [0x0008c] in /Users/lunayuan/Documents/Unity Project/My project/Assets/LycheeReplayDemo/Editor/LycheeWebGLBuild_20260612.cs:49 
+15:56:05 Scene font fix: 15 text components now use bundled NotoSansSC.
+15:56:05 Starting WebGL build to Builds/LycheeReplay_WebGL_20260612 ...
+16:09:55 Build result: Failed, size: 6833.0 MB, time: 830s, errors: 1

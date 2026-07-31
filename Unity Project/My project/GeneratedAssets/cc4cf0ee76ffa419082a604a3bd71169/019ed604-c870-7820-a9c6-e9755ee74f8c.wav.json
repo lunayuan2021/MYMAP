@@ -1,0 +1,15 @@
+{
+    "asset": "cc4cf0ee76ffa419082a604a3bd71169",
+    "fileName": "019ed604-c870-7820-a9c6-e9755ee74f8c.wav",
+    "prompt": "A paper scroll unrolling with a soft gong, an imperial decree posted, short.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

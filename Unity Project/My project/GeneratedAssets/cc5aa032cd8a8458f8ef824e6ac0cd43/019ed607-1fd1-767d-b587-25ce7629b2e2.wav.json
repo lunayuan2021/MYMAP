@@ -1,0 +1,15 @@
+{
+    "asset": "cc5aa032cd8a8458f8ef824e6ac0cd43",
+    "fileName": "019ed607-1fd1-767d-b587-25ce7629b2e2.wav",
+    "prompt": "Continuous steady horse hooves trotting on a dirt road, rhythmic gallop loop bed, several seconds, seamless.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

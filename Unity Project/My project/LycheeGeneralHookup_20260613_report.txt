@@ -1,0 +1,10 @@
+LycheeGeneralHookup_20260613 2026-06-13 16:13:40
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+redGeneralModel → Assets/LycheeReplayDemo/ModelsGLB/RedGeneral.glb
+红将军 clip 名单: Armature|walking_man|baselayer
+redGeneralWalkClip → Armature|walking_man|baselayer
+redGeneralAttackClip → Armature|Double_Combo_Attack|baselayer
+blueGeneralModel → Assets/LycheeReplayDemo/ModelsGLB/BlueGeneral.glb
+blueGeneralWalkClip → Armature|walking_man|baselayer
+blueGeneralAttackClip → Armature|Spear_Walk|baselayer
+场景保存: True

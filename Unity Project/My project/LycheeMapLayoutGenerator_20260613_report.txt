@@ -1,0 +1,87 @@
+LycheeMapLayoutGenerator_20260613 2026-07-22 14:46:28
+config=/Users/lunayuan/map_config_variant_b.json
+outScene=Assets/Scenes/GeneratedMaps/Map_map3.unity  mapKey=map3  replay=Tournament/map3.txt
+baseline=Assets/LycheeMap15/Configs/Maps/ui_map_config_unity_full_coverage_v2.json
+config: mapId=litchi_map_unity_full_coverage_v2 name=一骑红尘：荔枝争运战 中等难度竞技地图 nodes=15 edges=24 routePaths=24 grid=80x60 tile=1
+flex-config: gameplay.rolesRefs=8 resources=17 processNodes=4 taskCandidateGroups=9 obstacleCandidates=4
+已克隆母版并打开副本: Assets/Scenes/GeneratedMaps/Map_map3.unity
+--- 旧河道回填 ---
+[地形材质] Continuous_Terrain: 合并遗留地形子网格 2→1，材质槽 2→1，去重三角 0
+[回填] E13: 地形 'Continuous_Terrain' 抬升顶点 665/30351
+[回填] E13: 地形 'Replay_Extended_Ground' 抬升顶点 29/10101
+[回填] E13: 高度场抬升采样 98/4941
+--- 压平基底 Y=0 ---
+[压平] 地形 'Continuous_Terrain' 顶点 30351/30351 → Y=0
+[压平] 地形 'Replay_Extended_Ground' 顶点 10101/10101 → Y=0
+[压平] 高度场 4941 个采样 → 0
+[压平] 站点落到平面 15 个 (Y=0.018)
+[压平] 装饰物随地形落回平面 4746 个实例
+[压平] 重建地形采样器：三角形 79800 个 / 地形网格 2 个（现为平面 Y=0）
+地形采样器：三角形 79800 个 / 地形网格 2 个（已压平为平面 Y=0，道路/彩带按平面贴地）
+路由模板: OfficialRoad<-E07(overlay=有), Mountain<-E15(overlay=有), Water<-E12(overlay=有), Branch<-E17(overlay=有)
+--- 站点 ---
+[移动] S02 南岭驿: (-25.0,0.0,-14.0) -> (-28.0,0.0,-11.0)
+[移动] S03 梅关驿: (-18.0,0.0,-8.0) -> (-10.0,0.0,-6.0)
+[移动] S04 江南码头: (-18.0,0.0,-22.0) -> (-14.0,0.0,-25.0)
+[移动] S05 洞庭水驿: (-2.0,0.0,-18.0) -> (9.0,0.0,-19.0)
+[移动] S06 五岭山道: (-26.0,0.0,-2.0) -> (-31.0,0.0,-4.0)
+[移动] S07 荆襄大驿: (0.0,0.0,-6.0) -> (5.0,0.0,-4.0)
+[移动] S08 秦岭栈道: (2.0,0.0,6.0) -> (13.0,0.0,10.0)
+[移动] S09 洛阳驿: (15.0,0.0,-2.0) -> (17.0,0.0,-6.0)
+[移动] S10 武关: (22.0,0.0,4.0) -> (23.0,0.0,0.0)
+[移动] S11 潼关驿: (26.0,0.0,8.0) -> (27.0,0.0,8.0)
+[移动] S12 关中平原: (30.0,0.0,10.0) -> (33.0,0.0,5.0)
+[移动] S13 灞桥驿: (33.0,0.0,11.0) -> (39.0,0.0,5.0)
+[移动] S14 朱雀门: (36.0,0.0,12.0) -> (34.0,0.0,15.0)
+[移动] S15 兴庆宫: (38.0,0.0,12.0) -> (40.0,0.0,15.0)
+--- 山脊/节点台抬起 ---
+地形 'Continuous_Terrain' 抬脊顶点 5413/30351，脊顶染岩 5413
+地形 'Replay_Extended_Ground' 抬脊顶点 212/10101，脊顶染岩 212
+[山脊/节点台] 山路 2 条 + 抬台 N1忙站×7/N3山口×1（N5官道广场×1 保持平整、靠铺装区分），采样器已重建
+--- 道路 ---
+[原地重画] E01 (OfficialRoad) 28 点
+[原地重画] E02 (OfficialRoad) 42 点
+[原地重画] E03 (OfficialRoad) 38 点
+[原地重画] E04 (OfficialRoad) 28 点
+[原地重画] E05 (OfficialRoad) 19 点
+[原地重画] E06 (OfficialRoad) 19 点
+[原地重画] E07 (OfficialRoad) 16 点
+[原地重画] E08 (OfficialRoad) 13 点
+[原地重画] E09 (OfficialRoad) 29 点
+[原地重画] E10 (OfficialRoad) 13 点
+[原地重画] E11 (OfficialRoad) 43 点
+[原地重画] E12 (Water) 55 点
+[克隆新增] E13 (Branch) <- 模板 E17，34 点
+[原地重画] E15 (Mountain) 37 点
+[原地重画] E16 (Mountain) 106 点
+[原地重画] E17 (Branch) 40 点
+[克隆新增] E18 (Branch) <- 模板 E13，21 点
+[克隆新增] E19 (Water) <- 模板 E12，34 点
+[克隆新增] E20 (Branch) <- 模板 E18，38 点
+[克隆新增] E21 (Branch) <- 模板 E20，59 点
+[克隆新增] E22 (Branch) <- 模板 E21，38 点
+[克隆新增] E23 (Branch) <- 模板 E22，39 点
+[克隆新增] E26 (Branch) <- 模板 E23，65 点
+[克隆新增] E27 (Branch) <- 模板 E26，28 点
+--- 挖河凹陷 ---
+地形 'Continuous_Terrain' 下挖顶点 799/30351，河道染砂 5518
+地形 'Replay_Extended_Ground' 下挖顶点 33/10101，河道染砂 220
+[水面避让] E12: 水驿端主水面裁出建筑足迹，保留河床连续并由交汇水舌接驳
+[挖河] E12 下挖河谷 55 点（谷深 1.50/谷半宽 1.4/水宽 2.6/沙床 4.8）
+[水面避让] E19: 水驿端主水面裁出建筑足迹，保留河床连续并由交汇水舌接驳
+[挖河] E19 下挖河谷 34 点（谷深 1.50/谷半宽 1.4/水宽 2.6/沙床 4.8）
+[消Z冲突] Replay_Extended_Ground 下沉 0.10 到主地形之下
+[水驿部件高度] 按站型烘回 2 个站点的部件 localY（用户手调值）
+[船坐进河道] 2 艘：顺河向 + 船心移到锚点沿河1.33/垂河-0.30
+[水塘] 生成 1 个水驿水塘
+[清理] 删除未被场景引用的旧河道回填中间网格 2 个
+[背景山·固定布局] 摆 13 座(用户手调烧死、外推兜底 6 座) + 山旁树 42（绝不挡路、幂等 04_Background_Scenery）
+[清障] 清除压在新路/新河上的植被岩石 940 个
+[清草] 河道走廊+码头足迹内草丛清除 4 株
+[禁用] E14: config 中不存在，已禁用其道路与彩带（保守不删）
+player.streamingReplayPath = Tournament/map3.txt（1 个 player）
+已归档 map_config: Assets/StreamingAssets/Tournament/map3_config.json
+已归档 map_config: Assets/LycheeMap15/Configs/Maps/map_3.json
+Build Settings 已含: Assets/Scenes/GeneratedMaps/Map_map3.unity
+站点移动 14；道路 未变 0/原地重画 15/克隆新增 8/改类型重建 1/禁用 1；保存=True
+[说明] 未触碰任何贴合脚本 .done（不唤醒母版轮询）。站点移动时如需二次贴地，用 LycheeStationLift/RibbonRefit 的 RunOnScene 入口对本副本单独跑。

@@ -1,0 +1,36 @@
+LycheeReplayUpgrade_20260612 report
+time=2026-06-12 11:08:48
+
+[StreamingAssets 目录]
+  StreamingAssets/ 已存在
+  StreamingAssets/Audio/ 已创建
+  StreamingAssets/Audio/BGM/ 已创建
+  StreamingAssets/Audio/SFX/ 已创建
+  StreamingAssets/UITheme/ 已存在
+  StreamingAssets/Video/ 已存在
+
+[reply.txt]
+  来源=演示回放（复制自 Assets/LycheeReplayDemo/Data/reply_full_coverage_unity_v2.txt）
+  大小=2879991 字节
+  说明=正式比赛把服务端产出的 reply.txt 放入 Assets/StreamingAssets/ 替换同名文件即可，无需改动工程。
+
+[README]
+  已写入 Assets/StreamingAssets/README_素材放置说明.txt
+
+[新组件检测]（反射查找已编译类型）
+  OK      LycheeWeatherFxSystem  (Assembly-CSharp)
+  OK      LycheeWorldMarkerSystem  (Assembly-CSharp)
+  OK      LycheeHudExtensions  (Assembly-CSharp)
+  OK      LycheeSettlementScreen  (Assembly-CSharp)
+  OK      LycheeReplayCameraController  (Assembly-CSharp)
+  OK      LycheeCinematicDirector  (Assembly-CSharp)
+  OK      LycheeConvoyVfx  (Assembly-CSharp)
+  OK      LycheeMinimapSystem  (Assembly-CSharp)
+  OK      LycheeAudioDirector  (Assembly-CSharp)
+  合计=9/9
+
+[就绪状态]
+  StreamingAssets 目录=就绪
+  reply.txt=就绪
+  README=就绪
+  组件=全部就绪

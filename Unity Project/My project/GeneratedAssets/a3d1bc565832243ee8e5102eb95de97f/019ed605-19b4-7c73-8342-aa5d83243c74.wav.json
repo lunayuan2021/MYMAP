@@ -1,0 +1,15 @@
+{
+    "asset": "a3d1bc565832243ee8e5102eb95de97f",
+    "fileName": "019ed605-19b4-7c73-8342-aa5d83243c74.wav",
+    "prompt": "Coins jingling and a wax seal stamp, a satisfying short task-completion chime.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 10.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

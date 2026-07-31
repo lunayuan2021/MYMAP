@@ -1,0 +1,8 @@
+LycheeCarriageSwap_20260613 2026-06-13 10:20:50
+已从磁盘重载场景: Assets/Scenes/GeneratedMaps/LycheeReplayDemo.unity
+carriageModel: Assets/LycheeReplayDemo/ModelsGLB/horse_new.glb → Assets/LycheeReplayDemo/ModelsGLB/horse_new.glb
+horseModel: (null) → (null，组合模型自含)
+组合模型 clip 名单: (无动画——腿部静态，待 Meshy 补 Walking)
+horseWalkClip → (null)
+carriageYawOffset: 90 → 0（改由运行时自动对齐）
+场景保存: True
